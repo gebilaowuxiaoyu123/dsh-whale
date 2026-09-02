@@ -126,6 +126,7 @@ export default class DshWhaleWidget extends Extension {
         });
         icon.set_pivot_point(0.5, 0.5);
         icon.connect('button-press-event', (a, ev) => this._onPress(a, ev));
+        icon.connect('button-release-event', () => this._endHold());
         icon.connect('scroll-event', (a, ev) => this._onScroll(a, ev));
         this._w = 220;
         this._h = 220;
@@ -244,16 +245,9 @@ export default class DshWhaleWidget extends Extension {
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                 });
             }
-            // 朝向：接近左/右缘则提前翻转贴合边缘(面向屏幕内)；屏幕中部才面向鼠标
-            const pad = Math.min(260, nw); // 边缘判定带
-            let want;
-            if (rx <= wa.x + pad)
-                want = 1;                           // 贴近左缘 → 朝右(看屏幕内)
-            else if (rx + nw >= wa.x + wa.width - pad)
-                want = -1;                          // 贴近右缘 → 朝左(看屏幕内)
-            else
-                want = (mx < rx + nw / 2) ? -1 : 1; // 中部 → 面向鼠标
-            this._setMirror(want);
+            // 翻转只由小鲸鱼在屏幕的位置决定：左半屏→朝右、右半屏→朝左(朝向屏幕内/贴合边缘)
+            const cx = rx + nw / 2;
+            this._setMirror(cx < wa.x + wa.width / 2 ? 1 : -1);
         } catch (e) {
             log(`[dsh-whale] follow err: ${e}`);
         }
