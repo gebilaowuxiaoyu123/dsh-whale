@@ -12,7 +12,6 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const CRED_FILE = `${GLib.get_home_dir()}/.dsh/.credentials.yaml`;
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
-const POS_FILE = `${GLib.get_user_config_dir()}/dshw-pos.json`;
 const SNAP_DIST = 70; // 贴边吸附距离(px)
 
 // —— 从 dsh-whale widget.js 移植的文案（精简元气版）——
@@ -137,34 +136,14 @@ export default class DshWhaleWidget extends Extension {
     }
 
     _placeInitial() {
+        // 每次启动固定显示在屏幕左下角（dock 上方的工作区）
         const wa = this._workArea();
-        let x = wa.x + wa.width - this._w - 48;
-        let y = wa.y + wa.height - this._h - 84;
-        try {
-            const [ok, data] = GLib.file_get_contents(POS_FILE);
-            if (ok) {
-                const p = JSON.parse(data.toString());
-                if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
-                    x = p.x;
-                    y = p.y;
-                }
-            }
-        } catch (e) {
-            log(`[dsh-whale] pos read failed: ${e}`);
-        }
+        const x = wa.x + 24;
+        const y = wa.y + wa.height - this._h - 72;
         this._whale.set_position(Math.round(x), Math.round(y));
-        // 初始按屏幕左右半区朝向屏幕内：左半翻转朝右、右半原图朝左
-        this._mirror = (x + this._w / 2) < wa.x + wa.width / 2 ? -1 : 1;
+        // 左半屏 → 翻转朝右(看屏幕内)
+        this._mirror = -1;
         this._img.set_scale(this._mirror, 1);
-    }
-
-    _savePos() {
-        const [x, y] = this._whale.get_position();
-        try {
-            GLib.file_set_contents(POS_FILE, JSON.stringify({x, y}));
-        } catch (e) {
-            log(`[dsh-whale] pos save failed: ${e}`);
-        }
     }
 
     _readKey() {
@@ -274,7 +253,6 @@ export default class DshWhaleWidget extends Extension {
     _snapMaybe() {
         try {
             const wa = this._workArea();
-            const nw = Math.round(this._w * this._whaleScale);
             const wx = this._whale.get_x();
             if (wx - wa.x < SNAP_DIST) {
                 this._setMirror(-1); // 贴左缘 → 翻转朝右(看屏幕内)
