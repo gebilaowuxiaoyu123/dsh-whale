@@ -1,5 +1,6 @@
-// DSH Whale Widget —— GNOME Shell 扩展版（Wayland 桌面悬浮小鲸鱼）v13
-// 交互：按住鲸鱼 → 跟随鼠标走；松开 → 停靠（短按无移动 = 单击 → 显示余额+随机台词）
+// DSH Whale Widget —— GNOME Shell 扩展版（Wayland 桌面悬浮小鲸鱼）v14
+// 交互：按住鲸鱼 → 跟随鼠标走；松开 → 停靠（短按无移动 = 单击 → 余额+随机台词）
+// 吸附：松手时贴近屏幕左/右缘自动吸附并按侧镜像朝向屏幕内；气泡锚定鲸鱼、智能防越界并跟随
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
@@ -12,6 +13,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 const CRED_FILE = `${GLib.get_home_dir()}/.dsh/.credentials.yaml`;
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
 const POS_FILE = `${GLib.get_user_config_dir()}/dshw-pos.json`;
+const SNAP_DIST = 70; // 贴边吸附距离(px)
 
 // —— 从 dsh-whale widget.js 移植的文案（精简元气版）——
 const PEAK_LINES = [
@@ -38,7 +40,9 @@ export default class DshWhaleWidget extends Extension {
         this._apiKey = null;
         this._bub = null;
         this._bubTimer = 0;
+        this._bubTick = 0;
         this._whaleScale = 1;
+        this._mirror = 1;
         this._hold = null;
         this._followTimer = 0;
         this._captureId = 0;
@@ -61,6 +65,10 @@ export default class DshWhaleWidget extends Extension {
         }
         if (this._bubTimer)
             clearTimeout(this._bubTimer);
+        if (this._bubTick) {
+            GLib.source_remove(this._bubTick);
+            this._bubTick = 0;
+        }
         if (this._bub)
             this._bub.destroy();
         this._bub = null;
@@ -83,7 +91,6 @@ export default class DshWhaleWidget extends Extension {
         return arr[Math.floor(Math.random() * arr.length)];
     }
 
-    // 北京时间工作日高峰判定（移植自 widget.js：工作日 9-12、14-18 为高峰）
     _isPeak() {
         const bj = new Date(Date.now() + 8 * 3600 * 1000);
         const day = bj.getUTCDay();
@@ -145,6 +152,9 @@ export default class DshWhaleWidget extends Extension {
             log(`[dsh-whale] pos read failed: ${e}`);
         }
         this._whale.set_position(Math.round(x), Math.round(y));
+        // 初始按屏幕左右半区朝向屏幕内
+        this._mirror = (x + this._w / 2) < wa.x + wa.width / 2 ? 1 : -1;
+        this._img.set_scale(this._mirror, 1);
     }
 
     _savePos() {
@@ -170,25 +180,36 @@ export default class DshWhaleWidget extends Extension {
         }
     }
 
+    // —— 统一缩放/镜像：scale_x = _mirror * whaleScale * mul ——
+    _easeScale(mul, dur, mode) {
+        this._img.ease({
+            scale_x: this._mirror * this._whaleScale * mul,
+            scale_y: this._whaleScale * mul,
+            duration: dur || 160,
+            mode: mode || Clutter.AnimationMode.EASE_OUT_QUAD,
+        });
+    }
+
+    _setMirror(m) {
+        if (this._mirror === m)
+            return;
+        this._mirror = m;
+        this._easeScale(1, 150, Clutter.AnimationMode.EASE_OUT_QUAD);
+    }
+
     // ============ 交互：按住跟随 / 松开停 ============
     _onPress(a, ev) {
         if (ev.get_button() !== 1)
-            return Clutter.EVENT_PROPAGATE; // 仅左键
+            return Clutter.EVENT_PROPAGATE;
         const [px, py] = ev.get_coords();
         this._hold = {sx: px, sy: py, moved: false};
-        a.ease({
-            scale_x: this._whaleScale * 0.93,
-            scale_y: this._whaleScale * 0.93,
-            duration: 90,
-            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-        });
+        this._easeScale(0.93, 90, Clutter.AnimationMode.EASE_OUT_QUAD);
         if (!this._followTimer)
             this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => this._followTick());
         return Clutter.EVENT_STOP;
     }
 
     _onCaptured(ev) {
-        // 按住期间，任意位置松开 → 结束跟随
         if (!this._hold)
             return Clutter.EVENT_PROPAGATE;
         if (ev.type() === Clutter.EventType.BUTTON_RELEASE && ev.get_button() === 1)
@@ -207,10 +228,10 @@ export default class DshWhaleWidget extends Extension {
             const wa = this._workArea();
             const nw = Math.round(this._w * this._whaleScale);
             const nh = Math.round(this._h * this._whaleScale);
-            let tx = mx - nw - 6;   // 鼠标左上方一点，不遮指针
+            let tx = mx - nw - 6;
             let ty = my - nh + 24;
             if (tx < wa.x)
-                tx = mx + 10;      // 左边放不下就放右边
+                tx = mx + 10;
             tx = Math.max(wa.x, Math.min(wa.x + wa.width - nw, tx));
             ty = Math.max(wa.y, Math.min(wa.y + wa.height - nh, ty));
             const rx = Math.round(tx);
@@ -223,6 +244,9 @@ export default class DshWhaleWidget extends Extension {
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                 });
             }
+            // 跟随中：鼠标在鲸鱼左侧则朝左看鼠标，反之朝右
+            const center = rx + nw / 2;
+            this._setMirror(mx < center ? -1 : 1);
         } catch (e) {
             log(`[dsh-whale] follow err: ${e}`);
         }
@@ -238,15 +262,27 @@ export default class DshWhaleWidget extends Extension {
             GLib.source_remove(this._followTimer);
             this._followTimer = 0;
         }
-        this._img.ease({
-            scale_x: this._whaleScale,
-            scale_y: this._whaleScale,
-            duration: 220,
-            mode: Clutter.AnimationMode.EASE_OUT_BACK,
-        });
+        this._snapMaybe();
+        this._easeScale(1, 220, Clutter.AnimationMode.EASE_OUT_BACK);
         this._savePos();
         if (!moved)
-            this._showBalanceFlavor(); // 短按无移动 = 单击 → 显示余额+台词
+            this._showBalanceFlavor();
+    }
+
+    // 松手后贴近左/右缘：吸附边缘并镜像朝向屏幕内
+    _snapMaybe() {
+        try {
+            const wa = this._workArea();
+            const nw = Math.round(this._w * this._whaleScale);
+            const wx = this._whale.get_x();
+            if (wx - wa.x < SNAP_DIST) {
+                this._setMirror(1); // 贴左缘 → 朝右(看屏幕内)
+                this._whale.ease({x: wa.x, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_BACK});
+            } else if (wa.x + wa.width - (wx + nw) < SNAP_DIST) {
+                this._setMirror(-1); // 贴右缘 → 朝左(看屏幕内)
+                this._whale.ease({x: wa.x + wa.width - nw, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_BACK});
+            }
+        } catch (e) { /* 忽略 */ }
     }
 
     _onScroll(a, ev) {
@@ -266,12 +302,7 @@ export default class DshWhaleWidget extends Extension {
             up = false;
         const step = up ? 0.08 : -0.08;
         this._whaleScale = Math.max(0.5, Math.min(2.5, (this._whaleScale || 1) + step));
-        a.ease({
-            scale_x: this._whaleScale,
-            scale_y: this._whaleScale,
-            duration: 140,
-            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-        });
+        this._easeScale(1, 140, Clutter.AnimationMode.EASE_OUT_QUAD);
         return Clutter.EVENT_STOP;
     }
 
@@ -308,6 +339,22 @@ export default class DshWhaleWidget extends Extension {
         });
     }
 
+    // —— 气泡：锚定鲸鱼、智能防越界，并跟随鲸鱼移动 ——
+    _placeBubble(lb) {
+        const wa = this._workArea();
+        const w = this._bubW || 200;
+        const h = this._bubH || 50;
+        const [wx, wy] = this._whale.get_position();
+        const [ww] = this._whale.get_size();
+        let x = Math.round(wx + ww / 2 - w / 2);
+        x = Math.max(wa.x, Math.min(wa.x + wa.width - w, x));
+        let y = Math.round(wy - h - 12);
+        if (y < wa.y + 4) // 上方放不下 → 放到鲸鱼下方
+            y = wy + this._h + 8;
+        y = Math.max(wa.y, Math.min(wa.y + wa.height - h, y));
+        lb.set_position(x, y);
+    }
+
     _bubble(text) {
         if (this._bubTimer)
             clearTimeout(this._bubTimer);
@@ -321,19 +368,25 @@ export default class DshWhaleWidget extends Extension {
                 'text-align: center; line-height: 1.4;',
         });
         Main.uiGroup.add_child(lb);
-        const [minW, natW] = lb.get_preferred_width(-1);
-        const [minH, natH] = lb.get_preferred_height(-1);
-        const width = Math.max(natW, 120);
-        lb.set_size(width, Math.max(natH, 40));
-        const [wx, wy] = this._whale.get_position();
-        const [ww] = this._whale.get_size();
-        const x = Math.round(wx + ww / 2 - width / 2);
-        const y = Math.max(0, Math.round(wy - Math.max(natH, 40) - 12));
-        lb.set_position(x, y);
+        const [, natW] = lb.get_preferred_width(-1);
+        const [, natH] = lb.get_preferred_height(-1);
+        this._bubW = Math.max(natW, 120);
+        this._bubH = Math.max(natH, 40);
+        lb.set_size(this._bubW, this._bubH);
+        this._placeBubble(lb);
         lb.set_pivot_point(0.5, 1);
         lb.set_opacity(0);
         lb.ease({opacity: 255, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
         this._bub = lb;
+        if (!this._bubTick)
+            this._bubTick = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 120, () => {
+                if (this._bub) {
+                    this._placeBubble(this._bub);
+                    return GLib.SOURCE_CONTINUE;
+                }
+                this._bubTick = 0;
+                return GLib.SOURCE_REMOVE;
+            });
         this._bubTimer = setTimeout(() => {
             if (this._bub) {
                 this._bub.ease({
