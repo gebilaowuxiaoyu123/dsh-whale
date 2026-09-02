@@ -244,9 +244,16 @@ export default class DshWhaleWidget extends Extension {
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                 });
             }
-            // 跟随中：鼠标在鲸鱼左侧则朝左看鼠标，反之朝右
-            const center = rx + nw / 2;
-            this._setMirror(mx < center ? -1 : 1);
+            // 朝向：接近左/右缘则提前翻转贴合边缘(面向屏幕内)；屏幕中部才面向鼠标
+            const pad = Math.min(260, nw); // 边缘判定带
+            let want;
+            if (rx <= wa.x + pad)
+                want = 1;                           // 贴近左缘 → 朝右(看屏幕内)
+            else if (rx + nw >= wa.x + wa.width - pad)
+                want = -1;                          // 贴近右缘 → 朝左(看屏幕内)
+            else
+                want = (mx < rx + nw / 2) ? -1 : 1; // 中部 → 面向鼠标
+            this._setMirror(want);
         } catch (e) {
             log(`[dsh-whale] follow err: ${e}`);
         }
@@ -339,8 +346,8 @@ export default class DshWhaleWidget extends Extension {
         });
     }
 
-    // —— 气泡：锚定鲸鱼、智能防越界，并跟随鲸鱼移动 ——
-    _placeBubble(lb) {
+    // —— 气泡：锚定鲸鱼、智能防越界 ——
+    _bubbleTarget() {
         const wa = this._workArea();
         const w = this._bubW || 200;
         const h = this._bubH || 50;
@@ -352,7 +359,7 @@ export default class DshWhaleWidget extends Extension {
         if (y < wa.y + 4) // 上方放不下 → 放到鲸鱼下方
             y = wy + this._h + 8;
         y = Math.max(wa.y, Math.min(wa.y + wa.height - h, y));
-        lb.set_position(x, y);
+        return {x, y};
     }
 
     _bubble(text) {
@@ -373,15 +380,25 @@ export default class DshWhaleWidget extends Extension {
         this._bubW = Math.max(natW, 120);
         this._bubH = Math.max(natH, 40);
         lb.set_size(this._bubW, this._bubH);
-        this._placeBubble(lb);
+        const pos = this._bubbleTarget();
+        lb.set_position(pos.x, pos.y);
         lb.set_pivot_point(0.5, 1);
         lb.set_opacity(0);
         lb.ease({opacity: 255, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
         this._bub = lb;
+        // 平滑跟随鲸鱼：30ms 采样 + ease 补间
         if (!this._bubTick)
-            this._bubTick = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 120, () => {
+            this._bubTick = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
                 if (this._bub) {
-                    this._placeBubble(this._bub);
+                    const t = this._bubbleTarget();
+                    if (this._bub.get_x() !== t.x || this._bub.get_y() !== t.y) {
+                        this._bub.ease({
+                            x: t.x,
+                            y: t.y,
+                            duration: 80,
+                            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                        });
+                    }
                     return GLib.SOURCE_CONTINUE;
                 }
                 this._bubTick = 0;
