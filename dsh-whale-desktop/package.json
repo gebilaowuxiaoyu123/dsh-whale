@@ -1,0 +1,44 @@
+{
+  "name": "dsh-whale-desktop",
+  "version": "1.0.0",
+  "description": "DSH 小鲸鱼桌面悬浮挂件（独立 exe，可部署到任意 Windows 电脑，首次运行自动补齐配置）",
+  "main": "main.js",
+  "author": "dsh-whale",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "license": "MIT",
+  "build": {
+    "appId": "com.dsh.whalewidget",
+    "productName": "DSH Whale Widget",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "widget.js",
+      "assets/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "dsh-whale-widget-${version}.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.1.0",
+    "electron-builder": "^26.15.3"
+  }
+}

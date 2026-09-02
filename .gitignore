@@ -1,0 +1,13 @@
+# 依赖与构建产物（不上传）
+node_modules/
+dist/
+*.log
+
+# 本地运行临时文件
+run.log
+run-err.log
+.test-home/
+
+# 系统
+.DS_Store
+Thumbs.db

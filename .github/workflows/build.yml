@@ -1,0 +1,68 @@
+name: Build
+
+# 触发：推送到 main/master、打 v* tag，或手动（workflow_dispatch）
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    name: Build Linux (AppImage + deb, amd64)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: dsh-whale-desktop-linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dsh-whale-desktop-linux/package-lock.json
+
+      - name: Install system deps (libfuse2 for AppImage)
+        run: sudo apt-get update && sudo apt-get install -y libfuse2
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build AppImage + deb (amd64)
+        run: npx electron-builder --linux --x64
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-whale-linux
+          path: |
+            dsh-whale-desktop-linux/dist/*.AppImage
+            dsh-whale-desktop-linux/dist/*.deb
+
+  build-windows:
+    name: Build Windows (portable exe)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: dsh-whale-desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dsh-whale-desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build portable exe
+        run: npx electron-builder --win portable
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-whale-windows
+          path: dsh-whale-desktop/dist/*.exe
