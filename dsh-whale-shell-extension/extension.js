@@ -12,6 +12,27 @@ const CRED_FILE = `${GLib.get_home_dir()}/.dsh/.credentials.yaml`;
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
 const POS_FILE = `${GLib.get_user_config_dir()}/dshw-pos.json`;
 
+// —— 从 dsh-whale widget.js 移植的文案/效果（精简元气版）——
+const PEAK_LINES = [
+    '⚡ 高峰时段，注意用量哦',
+    '⚡ 现在是高峰计费，先省着点~',
+];
+const OFF_LINES = [
+    '🌙 低谷时段，放心大胆用',
+    '🌙 现在是低谷价，适合跑任务~',
+];
+const CUTE_LINES = [
+    '呜…我的余额呢 (´･_･`)',
+    '要…要抱抱吗 (,,•﹏•,,)',
+    '摸鱼被我逮到啦！',
+    '今天也要一起加油鸭！',
+    '你敲代码的样子真帅~',
+    'DeepSeek 天下第一！',
+    '哼，不许偷看我的小肚子！',
+    '已经盯着你很久了哦~',
+];
+const SNAP_DIST = 60; // 松手后贴边吸附的触发距离(px)
+
 export default class DshWhaleWidget extends Extension {
     enable() {
         this._apiKey = null;
@@ -21,12 +42,16 @@ export default class DshWhaleWidget extends Extension {
         this._stageMotionId = 0;
         this._stageReleaseId = 0;
         this._whaleScale = 1;
+        this._following = false;
+        this._followTimer = 0;
         this._readKey();
         this._buildWhale();
         this._placeInitial();
     }
 
     disable() {
+        if (this._following)
+            this._followStop(false);
         if (this._stageMotionId) {
             global.stage.disconnect(this._stageMotionId);
             this._stageMotionId = 0;
@@ -54,6 +79,42 @@ export default class DshWhaleWidget extends Extension {
         const filePath = decodeURIComponent(import.meta.url.replace(/^file:\/\//, ''));
         const dir = filePath.slice(0, filePath.lastIndexOf('/'));
         return `${dir}/assets/${name}`;
+    }
+
+    _pick(arr) {
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    // 北京时间工作日高峰判定（移植自 widget.js：工作日 9-12、14-18 为高峰）
+    _isPeak() {
+        const bj = new Date(Date.now() + 8 * 3600 * 1000);
+        const day = bj.getUTCDay();
+        const hour = bj.getUTCHours();
+        if (day === 0 || day === 6)
+            return false;
+        return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18);
+    }
+
+    // 松手后若贴近屏幕左/右缘则自动吸附过去（带回弹）
+    _snapMaybe() {
+        try {
+            const wa = this._workArea();
+            const nw = Math.round(this._w * this._whaleScale);
+            const wx = this._whale.get_x();
+            if (wx - wa.x < SNAP_DIST) {
+                this._whale.ease({
+                    x: wa.x,
+                    duration: 200,
+                    mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                });
+            } else if (wa.x + wa.width - (wx + nw) < SNAP_DIST) {
+                this._whale.ease({
+                    x: wa.x + wa.width - nw,
+                    duration: 200,
+                    mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                });
+            }
+        } catch (e) { /* 吸附失败忽略 */ }
     }
 
     _workArea() {
@@ -189,16 +250,38 @@ export default class DshWhaleWidget extends Extension {
             duration: 220,
             mode: Clutter.AnimationMode.EASE_OUT_BACK,
         });
-        if (!d.moved)
-            this._clicked();
+        if (d.moved) {
+            // 手动拖动接管位置 → 若正在跟随则取消跟随
+            if (this._following)
+                this._followStop(false);
+            this._snapMaybe(); // 贴近边缘自动吸附
+        } else {
+            this._clicked(); // 单击 = 切换跟随模式
+        }
         this._savePos();
         return Clutter.EVENT_STOP;
     }
 
     _onScroll(a, ev) {
         // 滚轮调整大小 0.5x–2.5x
-        const [, dy] = ev.get_scroll_delta();
-        const step = dy > 0 ? -0.08 : 0.08;
+        // 方向判定优先用 ScrollDirection（delta 符号在本 Wayland 环境不可靠，会导致只能放大）
+        let up = null;
+        try {
+            const d = ev.get_scroll_direction();
+            if (d === Clutter.ScrollDirection.UP)
+                up = true;
+            else if (d === Clutter.ScrollDirection.DOWN)
+                up = false;
+        } catch (e) {
+            /* 忽略，走 delta 回退 */
+        }
+        if (up === null) {
+            const [, dy] = ev.get_scroll_delta();
+            up = dy < 0;
+        }
+        if (up === null)
+            up = false; // 兜底：无法判定方向时默认缩小，保证至少能缩回
+        const step = up ? 0.08 : -0.08;
         this._whaleScale = Math.max(0.5, Math.min(2.5, (this._whaleScale || 1) + step));
         a.ease({
             scale_x: this._whaleScale,
@@ -210,14 +293,79 @@ export default class DshWhaleWidget extends Extension {
     }
 
     _clicked() {
+        // 单击 = 切换「跟随鼠标」模式（桌面宠物）：点一下跟着走，再点一下停靠
+        if (this._following)
+            this._followStop(true);
+        else
+            this._followStart();
+    }
+
+    _followStart() {
+        this._following = true;
+        // 视觉反馈：轻压一下表示已进入跟随
+        this._img.ease({
+            scale_x: this._whaleScale * 0.94,
+            scale_y: this._whaleScale * 0.94,
+            duration: 100,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            onComplete: () => this._img.ease({
+                scale_x: this._whaleScale,
+                scale_y: this._whaleScale,
+                duration: 240,
+                mode: Clutter.AnimationMode.EASE_OUT_BACK,
+            }),
+        });
+        if (!this._followTimer)
+            this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => this._followTick());
+    }
+
+    _followStop(showBalance) {
+        this._following = false;
+        if (this._followTimer) {
+            GLib.source_remove(this._followTimer);
+            this._followTimer = 0;
+        }
+        this._savePos();
+        if (showBalance)
+            this._fetchBalance();
+    }
+
+    _followTick() {
+        if (!this._following)
+            return GLib.SOURCE_REMOVE;
+        try {
+            const [mx, my] = global.get_pointer();
+            const wa = this._workArea();
+            const nw = Math.round(this._w * this._whaleScale);
+            const nh = Math.round(this._h * this._whaleScale);
+            // 跟随到鼠标左上方一点（不遮指针）；左边放不下就移到右侧
+            let tx = mx - nw - 6;
+            let ty = my - nh + 24;
+            if (tx < wa.x)
+                tx = mx + 10;
+            tx = Math.max(wa.x, Math.min(wa.x + wa.width - nw, tx));
+            ty = Math.max(wa.y, Math.min(wa.y + wa.height - nh, ty));
+            const rx = Math.round(tx);
+            const ry = Math.round(ty);
+            if (this._whale.get_x() !== rx || this._whale.get_y() !== ry) {
+                this._whale.ease({
+                    x: rx,
+                    y: ry,
+                    duration: 120,
+                    mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                });
+            }
+        } catch (e) {
+            log(`[dsh-whale] follow err: ${e}`);
+        }
+        return GLib.SOURCE_CONTINUE;
+    }
+
+    _fetchBalance() {
         if (!this._apiKey) {
             this._bubble('未配置 DEEPSEEK_API_KEY\n请在 ~/.dsh/.credentials.yaml 填写');
             return;
         }
-        this._fetchBalance();
-    }
-
-    _fetchBalance() {
         const session = new Soup.Session();
         const msg = Soup.Message.new('GET', BALANCE_URL);
         msg.request_headers.append('Authorization', `Bearer ${this._apiKey}`);
@@ -228,8 +376,12 @@ export default class DshWhaleWidget extends Extension {
                 const info = j.balance_infos && j.balance_infos[0];
                 const total = info ? Number(info.total_balance) : null;
                 const cur = (info && info.currency) || 'CNY';
-                if (total !== null && isFinite(total))
-                    this._bubble(`💬 账户余额：${cur === 'USD' ? '$' : '¥'} ${total.toFixed(2)}\n单击刷新 · 滚轮可缩放大小`);
+                if (total !== null && isFinite(total)) {
+                    const flavor = Math.random() < 0.6
+                        ? (this._isPeak() ? this._pick(PEAK_LINES) : this._pick(OFF_LINES))
+                        : this._pick(CUTE_LINES);
+                    this._bubble(`💬 余额 ${cur === 'USD' ? '$' : '¥'} ${total.toFixed(2)}\\n${flavor}`);
+                }
                 else
                     this._bubble('余额解析失败，请稍后再试');
             } catch (err) {
