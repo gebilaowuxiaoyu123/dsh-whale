@@ -153,8 +153,8 @@ export default class DshWhaleWidget extends Extension {
             log(`[dsh-whale] pos read failed: ${e}`);
         }
         this._whale.set_position(Math.round(x), Math.round(y));
-        // 初始按屏幕左右半区朝向屏幕内
-        this._mirror = (x + this._w / 2) < wa.x + wa.width / 2 ? 1 : -1;
+        // 初始按屏幕左右半区朝向屏幕内：左半翻转朝右、右半原图朝左
+        this._mirror = (x + this._w / 2) < wa.x + wa.width / 2 ? -1 : 1;
         this._img.set_scale(this._mirror, 1);
     }
 
@@ -245,9 +245,9 @@ export default class DshWhaleWidget extends Extension {
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                 });
             }
-            // 翻转只由小鲸鱼在屏幕的位置决定：左半屏→朝右、右半屏→朝左(朝向屏幕内/贴合边缘)
+            // 翻转由小鲸鱼在屏幕的位置决定：左半屏→翻转朝右、右半屏→原图朝左(朝向屏幕内/贴合边缘)
             const cx = rx + nw / 2;
-            this._setMirror(cx < wa.x + wa.width / 2 ? 1 : -1);
+            this._setMirror(cx < wa.x + wa.width / 2 ? -1 : 1);
         } catch (e) {
             log(`[dsh-whale] follow err: ${e}`);
         }
@@ -277,10 +277,10 @@ export default class DshWhaleWidget extends Extension {
             const nw = Math.round(this._w * this._whaleScale);
             const wx = this._whale.get_x();
             if (wx - wa.x < SNAP_DIST) {
-                this._setMirror(1); // 贴左缘 → 朝右(看屏幕内)
+                this._setMirror(-1); // 贴左缘 → 翻转朝右(看屏幕内)
                 this._whale.ease({x: wa.x, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_BACK});
             } else if (wa.x + wa.width - (wx + nw) < SNAP_DIST) {
-                this._setMirror(-1); // 贴右缘 → 朝左(看屏幕内)
+                this._setMirror(1); // 贴右缘 → 原图朝左(看屏幕内)
                 this._whale.ease({x: wa.x + wa.width - nw, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_BACK});
             }
         } catch (e) { /* 忽略 */ }
