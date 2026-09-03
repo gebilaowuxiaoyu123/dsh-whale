@@ -13,6 +13,50 @@ const CRED_FILE = `${GLib.get_home_dir()}/.dsh/.credentials.yaml`;
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
 const PEAK_MODES = ['default', 'liangwen', 'qiangqiang'];
 
+// —— 令牌模式：DeepSeek 平台用量接口峰谷定价(元/百万token；[空闲,高峰]) ——
+const TOKEN_PEAK_HOURS = [[9, 12], [14, 18]];
+const TOKEN_BASE_PRICE = {hit: [0.05, 0.1], miss: [1.5, 3.0], out: [4.5, 9.0]};
+const TOKEN_PRO_PRICE = {hit: [0.15, 0.3], miss: [4.5, 9.0], out: [13.5, 27.0]};
+const TOKEN_PRICING = {
+    'deepseek-v4-flash-vision-exp': TOKEN_BASE_PRICE,
+    'deepseek-v4-flash': TOKEN_BASE_PRICE,
+    'deepseek-v4-pro': TOKEN_PRO_PRICE,
+    'deepseek-chat': TOKEN_BASE_PRICE,
+    'deepseek-reasoner': TOKEN_BASE_PRICE,
+    _default: TOKEN_BASE_PRICE,
+};
+const WEEKEND_VALLEY_FROM_SEC = Math.floor(Date.UTC(2026, 7, 22, 16, 0, 0) / 1000); // = 北京时间 2026-08-23 00:00
+
+function priceFor(model) {
+    const m = String(model || '').toLowerCase();
+    for (const key of Object.keys(TOKEN_PRICING)) {
+        if (key === '_default')
+            continue;
+        if (m.indexOf(key) !== -1)
+            return TOKEN_PRICING[key];
+    }
+    return TOKEN_PRICING._default;
+}
+
+// bucket time 为 epoch 秒 → 转北京时刻判高峰/低谷；2026-08-23 起周末全天谷价
+function isPeakTimeSec(timeSec) {
+    if (!isFinite(Number(timeSec)))
+        return false;
+    const n = Number(timeSec);
+    const bj = new Date(n * 1000 + 8 * 3600 * 1000);
+    if (n >= WEEKEND_VALLEY_FROM_SEC) {
+        const dow = bj.getUTCDay();
+        if (dow === 0 || dow === 6)
+            return false;
+    }
+    const hour = bj.getUTCHours();
+    for (const [s, e] of TOKEN_PEAK_HOURS) {
+        if (hour >= s && hour < e)
+            return true;
+    }
+    return false;
+}
+
 const PEAK_TXT = {
     default: ['⚡ 高峰时段，注意用量哦', '⚡ 现在是高峰计费，先省着点~'],
     liangwen: ['⚡ 梁文峰 · 现在是高峰', '⚡ 梁文峰，烧钱快哦'],
@@ -108,6 +152,10 @@ export default class DshWhaleWidget extends Extension {
         this._fetching = false;
         this._usage = null;           // 今日已用账本
         this._animT = 0;              // 余额数字滚动动画定时器
+        this._usageMode = 'ledger';   // 今日已用：ledger(记账) / token(令牌精确)
+        this._platformToken = null;
+        this._tokenToday = {amount: null, at: 0};
+        this._tokenFetching = false;
         this._loadPrefs();
         this._readKey();
         this._loadLedger();
@@ -252,12 +300,17 @@ export default class DshWhaleWidget extends Extension {
 
     _readKey() {
         this._apiKey = null;
+        this._platformToken = null;
         try {
             const [ok, data] = GLib.file_get_contents(CRED_FILE);
             if (ok) {
-                const m = data.toString().match(/DEEPSEEK_API_KEY\s*:\s*"?([^\s"#]+)"?/);
+                const s = data.toString();
+                const m = s.match(/DEEPSEEK_API_KEY\s*:\s*"?([^\s"#]+)"?/);
                 if (m)
                     this._apiKey = m[1];
+                const m2 = s.match(/DEEPSEEK_PLATFORM_TOKEN\s*:\s*"?([^\s"#]+)"?/);
+                if (m2)
+                    this._platformToken = String(m2[1]).replace(/^Bearer\s+/i, '');
             }
         } catch (e) {
             log(`[dsh-whale] cred read failed: ${e}`);
@@ -290,6 +343,8 @@ export default class DshWhaleWidget extends Extension {
                     this._peakMode = j.peakMode;
                 if (typeof j.autoOn === 'boolean')
                     this._autoOn = j.autoOn;
+                if (j.usageMode === 'token' || j.usageMode === 'ledger')
+                    this._usageMode = j.usageMode;
             }
         } catch (e) { /* 忽略 */ }
     }
@@ -303,6 +358,7 @@ export default class DshWhaleWidget extends Extension {
                 bubbleOn: this._bubbleOn,
                 peakMode: this._peakMode,
                 autoOn: this._autoOn,
+                usageMode: this._usageMode,
             };
             GLib.file_set_contents(this._prefsFile(), JSON.stringify(j));
         } catch (e) { /* 忽略 */ }
@@ -760,6 +816,19 @@ export default class DshWhaleWidget extends Extension {
         box.add_child(this._menuBtn('🏠 回到左下角', () => this._goHome()));
         box.add_child(this._menuBtn('🔍 放大', () => this._zoom(0.15)));
         box.add_child(this._menuBtn('🔎 缩小', () => this._zoom(-0.15)));
+        box.add_child(this._menuBtn('📒 用量', () => {
+            this._usageMode = this._usageMode === 'token' ? 'ledger' : 'token';
+            this._savePrefs();
+            if (this._usageMode === 'token' && !this._platformToken) {
+                this._bubble('令牌模式需在凭据配置\nDEEPSEEK_PLATFORM_TOKEN\n已自动回落「记账」模式', true);
+            } else if (this._usageMode === 'token') {
+                this._refreshTokenUsage();
+                this._bubble('已切换：令牌模式\n正在拉取精确今日已用…', true);
+            } else {
+                this._bubble('已切换：记账模式(余额差值)', true);
+            }
+            this._openMenu(this._menuPos.cx, this._menuPos.cy);
+        }, this._usageMode === 'token' ? '令牌' : '记账'));
         box.add_child(this._menuBtn('🎵 音色', () => {
             const keys = Object.keys(SFX_THEMES);
             const i = keys.indexOf(this._sfxTheme);
@@ -927,6 +996,8 @@ export default class DshWhaleWidget extends Extension {
         if (!this._autoOn || !this._apiKey)
             return GLib.SOURCE_CONTINUE;
         this._fetchBalance(true, false);
+        if (this._usageMode === 'token' && this._platformToken)
+            this._refreshTokenUsage();
         return GLib.SOURCE_CONTINUE;
     }
 
