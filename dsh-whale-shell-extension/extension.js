@@ -94,6 +94,7 @@ export default class DshWhaleWidget extends Extension {
         this._autoTimer = 0;
         this._fetching = false;
         this._usage = null;           // 今日已用账本
+        this._animT = 0;              // 余额数字滚动动画定时器
         this._loadPrefs();
         this._readKey();
         this._loadLedger();
@@ -134,6 +135,10 @@ export default class DshWhaleWidget extends Extension {
         if (this._bubTick) {
             GLib.source_remove(this._bubTick);
             this._bubTick = 0;
+        }
+        if (this._animT) {
+            GLib.source_remove(this._animT);
+            this._animT = 0;
         }
         if (this._bub)
             this._bub.destroy();
@@ -863,8 +868,16 @@ export default class DshWhaleWidget extends Extension {
                     this._ledgerObserve(total, cur);   // 记账：今日已用差值累计
                     // 自动刷新：仅当余额相对上次有变化才提示(首次只对齐缓存不弹)
                     const changed = prev && (prev.cur !== cur || Math.abs(prev.total - total) > 0.0001);
-                    if (!silent || changed)
-                        this._bubble(this._flavorText(cur, total), force);
+                    if (!silent || changed) {
+                        const prevTotal = prev ? Number(prev.total) : null;
+                        const newTotal = Number(total);
+                        // 同币种且数值有变 → 给数字滚动动画
+                        const anim = (prev && prev.cur === cur && prevTotal !== null
+                            && Math.abs(prevTotal - newTotal) > 0.0001)
+                            ? {sym: cur === 'USD' ? '$' : '¥', from: prevTotal, to: newTotal}
+                            : null;
+                        this._bubble(this._flavorText(cur, total), force, anim);
+                    }
                 } else if (!silent) {
                     this._bubble('余额解析失败，请稍后再试', true);
                 }
@@ -898,9 +911,14 @@ export default class DshWhaleWidget extends Extension {
         return {x, y};
     }
 
-    _bubble(text, force) {
+    // text 展示文本; force 忽略气泡开关; anim={sym,from,to} 时首行金额 700ms 数字滚动
+    _bubble(text, force, anim) {
         if (!this._bubbleOn && !force)
             return;
+        if (this._animT) {            // 停掉上一个数字滚动
+            GLib.source_remove(this._animT);
+            this._animT = 0;
+        }
         if (this._bubTimer)
             clearTimeout(this._bubTimer);
         if (this._bub)
@@ -986,6 +1004,32 @@ export default class DshWhaleWidget extends Extension {
                 }
             }
         }, 6000);
+        // 余额数字滚动动画：首行金额从旧值平滑滚到新值
+        if (anim) {
+            const sym = anim.sym || '¥';
+            const from = Number(anim.from) || 0;
+            const to = Number(anim.to) || 0;
+            const rest = text.split('\n').slice(1).join('\n');
+            const head = `💬 余额 ${sym}`;
+            lb.set_text(`${head} ${from.toFixed(2)}${rest ? '\n' + rest : ''}`);
+            const t0 = Date.now();
+            const DUR = 700;
+            this._animT = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
+                if (!lb || !this._bub || this._bub !== lb) {   // 气泡已被换掉/关闭
+                    this._animT = 0;
+                    return GLib.SOURCE_REMOVE;
+                }
+                const p = Math.min(1, (Date.now() - t0) / DUR);
+                const e = 1 - Math.pow(1 - p, 3);   // ease-out cubic
+                const v = from + (to - from) * e;
+                lb.set_text(`${head} ${v.toFixed(2)}${rest ? '\n' + rest : ''}`);
+                if (p >= 1) {
+                    this._animT = 0;
+                    return GLib.SOURCE_REMOVE;
+                }
+                return GLib.SOURCE_CONTINUE;
+            });
+        }
     }
 
     // 放置/更新气泡尾巴（跟随气泡目标位置）
