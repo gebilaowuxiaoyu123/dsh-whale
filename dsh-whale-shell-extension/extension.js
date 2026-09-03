@@ -90,6 +90,9 @@ export default class DshWhaleWidget extends Extension {
         this._lastFxAt = 0;
         this._menuPos = null;
         this._snap = {h: -1, v: 1};   // 贴边状态：h/v = -1 贴左/上, 1 贴右/下, 0 不吸附
+        this._autoOn = true;          // 60s 自动刷新余额
+        this._autoTimer = 0;
+        this._fetching = false;
         this._loadPrefs();
         this._readKey();
         this._buildWhale();
@@ -97,6 +100,9 @@ export default class DshWhaleWidget extends Extension {
         this._captureId = global.stage.connect('captured-event', (s, ev) => this._onCaptured(ev));
         this._breathTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => this._tryBreath());
         this._fxTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 3200, () => this._tryIdleFx());
+        this._autoTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 60000, () => this._autoTick());
+        if (this._autoOn)
+            this._fetchBalance(true, false);   // 启动即静默对齐一次余额缓存
     }
 
     disable() {
@@ -116,6 +122,10 @@ export default class DshWhaleWidget extends Extension {
         if (this._fxTimer) {
             GLib.source_remove(this._fxTimer);
             this._fxTimer = 0;
+        }
+        if (this._autoTimer) {
+            GLib.source_remove(this._autoTimer);
+            this._autoTimer = 0;
         }
         if (this._bubTimer)
             clearTimeout(this._bubTimer);
@@ -244,6 +254,8 @@ export default class DshWhaleWidget extends Extension {
                     this._bubbleOn = j.bubbleOn;
                 if (PEAK_MODES.includes(j.peakMode))
                     this._peakMode = j.peakMode;
+                if (typeof j.autoOn === 'boolean')
+                    this._autoOn = j.autoOn;
             }
         } catch (e) { /* 忽略 */ }
     }
@@ -256,6 +268,7 @@ export default class DshWhaleWidget extends Extension {
                 soundOn: this._soundOn,
                 bubbleOn: this._bubbleOn,
                 peakMode: this._peakMode,
+                autoOn: this._autoOn,
             };
             GLib.file_set_contents(this._prefsFile(), JSON.stringify(j));
         } catch (e) { /* 忽略 */ }
@@ -632,6 +645,13 @@ export default class DshWhaleWidget extends Extension {
                 'padding: 6px; spacing: 2px; border: 1px solid rgba(255,255,255,0.12);',
         });
         box.add_child(this._menuBtn('💰 查看余额', () => this._showBalanceFlavor()));
+        box.add_child(this._menuBtn('🔄 自动刷新', () => {
+            this._autoOn = !this._autoOn;
+            this._savePrefs();
+            if (this._autoOn && this._apiKey)
+                this._fetchBalance(true, false);   // 开启即立即对齐一次
+            this._openMenu(this._menuPos.cx, this._menuPos.cy);
+        }, this._autoOn ? '60s' : '关'));
         box.add_child(this._menuBtn('🏠 回到左下角', () => this._goHome()));
         box.add_child(this._menuBtn('🔍 放大', () => this._zoom(0.15)));
         box.add_child(this._menuBtn('🔎 缩小', () => this._zoom(-0.15)));
@@ -736,19 +756,24 @@ export default class DshWhaleWidget extends Extension {
             this._bubble(this._flavorText(this._lastBal.cur, this._lastBal.total));
     }
 
-    _showBalanceFlavor() {
+    _showBalanceFlavor() {      // 手动查看：弹气泡
         if (!this._apiKey) {
             this._bubble('未配置 DEEPSEEK_API_KEY\n请在 ~/.dsh/.credentials.yaml 填写', true);
             return;
         }
-        this._fetchBalance();
+        this._fetchBalance(false, true);
     }
 
-    _fetchBalance() {
+    // silent=true 供 60s 自动轮询(静默)；force=true 忽略气泡开关强制显示
+    _fetchBalance(silent, force) {
+        if (this._fetching)
+            return;
+        this._fetching = true;
         const session = new Soup.Session();
         const msg = Soup.Message.new('GET', BALANCE_URL);
         msg.request_headers.append('Authorization', `Bearer ${this._apiKey}`);
         session.send_and_read_async(msg, GLib.PRIORITY_DEFAULT, null, (s, res) => {
+            this._fetching = false;
             try {
                 const bytes = s.send_and_read_finish(res);
                 const j = JSON.parse(bytes.get_data());
@@ -756,15 +781,28 @@ export default class DshWhaleWidget extends Extension {
                 const total = info ? Number(info.total_balance) : null;
                 const cur = (info && info.currency) || 'CNY';
                 if (total !== null && isFinite(total)) {
+                    const prev = this._lastBal;
                     this._lastBal = {cur, total};
-                    this._bubble(this._flavorText(cur, total), true);
-                } else {
+                    // 自动刷新：仅当余额相对上次有变化才提示(首次只对齐缓存不弹)
+                    const changed = prev && (prev.cur !== cur || Math.abs(prev.total - total) > 0.0001);
+                    if (!silent || changed)
+                        this._bubble(this._flavorText(cur, total), force);
+                } else if (!silent) {
                     this._bubble('余额解析失败，请稍后再试', true);
                 }
             } catch (err) {
-                this._bubble(`获取失败：${err}`, true);
+                if (!silent)
+                    this._bubble(`获取失败：${err}`, true);
             }
         });
+    }
+
+    // 60s 自动轮询入口
+    _autoTick() {
+        if (!this._autoOn || !this._apiKey)
+            return GLib.SOURCE_CONTINUE;
+        this._fetchBalance(true, false);
+        return GLib.SOURCE_CONTINUE;
     }
 
     _bubbleTarget() {
