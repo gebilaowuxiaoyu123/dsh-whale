@@ -93,6 +93,9 @@ export default class DshWhaleWidget extends Extension {
         if (this._bub)
             this._bub.destroy();
         this._bub = null;
+        if (this._tail)
+            this._tail.destroy();
+        this._tail = null;
         this._closeMenu();
         if (this._whale) {
             const parent = this._whale.get_parent();
@@ -277,14 +280,9 @@ export default class DshWhaleWidget extends Extension {
             ty = Math.max(wa.y, Math.min(wa.y + wa.height - nh, ty));
             const rx = Math.round(tx);
             const ry = Math.round(ty);
-            if (this._whale.get_x() !== rx || this._whale.get_y() !== ry) {
-                this._whale.ease({
-                    x: rx,
-                    y: ry,
-                    duration: 110,
-                    mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                });
-            }
+            // 跟随用即时 set_position：避免 ease 在边缘被 clamp 后反复触发造成抖动/抗拒
+            if (this._whale.get_x() !== rx || this._whale.get_y() !== ry)
+                this._whale.set_position(rx, ry);
             this._lastMoveAt = Date.now();
             // 翻转由鲸鱼所在半屏决定：左半翻转朝右、右半原图朝左（看屏幕内）
             const cx = rx + nw / 2;
@@ -319,10 +317,10 @@ export default class DshWhaleWidget extends Extension {
             const wx = this._whale.get_x();
             if (wx - wa.x < SNAP_DIST) {
                 this._setMirror(-1);
-                this._whale.ease({x: wa.x, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_BACK});
+                this._whale.ease({x: wa.x, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
             } else if (wa.x + wa.width - (wx + nw) < SNAP_DIST) {
                 this._setMirror(1);
-                this._whale.ease({x: wa.x + wa.width - nw, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_BACK});
+                this._whale.ease({x: wa.x + wa.width - nw, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
             }
         } catch (e) { /* 忽略 */ }
     }
@@ -483,6 +481,8 @@ export default class DshWhaleWidget extends Extension {
             clearTimeout(this._bubTimer);
         if (this._bub)
             this._bub.destroy();
+        if (this._tail)
+            this._tail.destroy();
         const lb = new St.Label({
             text,
             style: 'background-color: #ffffff; color: #203170;' +
@@ -496,11 +496,23 @@ export default class DshWhaleWidget extends Extension {
         this._bubW = Math.max(natW, 120);
         this._bubH = Math.max(natH, 40);
         lb.set_size(this._bubW, this._bubH);
+        const [, wy] = this._whale.get_position();
         const pos = this._bubbleTarget();
         lb.set_position(pos.x, pos.y);
+        // 尾巴方向：气泡在鲸鱼上方→尾朝下(▼)，在鲸鱼下方→尾朝上(▲)
+        this._tailChar = pos.y > wy ? '▲' : '▼';
+        const tail = new St.Label({
+            text: this._tailChar,
+            style: 'color: #ffffff; font-size: 18px; font-weight: 700;',
+        });
+        Main.uiGroup.add_child(tail);
+        this._tail = tail;
+        this._placeTail(lb, tail);
         lb.set_pivot_point(0.5, 1);
         lb.set_opacity(0);
+        tail.set_opacity(0);
         lb.ease({opacity: 255, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+        tail.ease({opacity: 255, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
         this._bub = lb;
         if (!this._bubTick)
             this._bubTick = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
@@ -514,6 +526,8 @@ export default class DshWhaleWidget extends Extension {
                             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                         });
                     }
+                    if (this._tail)
+                        this._placeTail(this._bub, this._tail, t);
                     return GLib.SOURCE_CONTINUE;
                 }
                 this._bubTick = 0;
@@ -531,7 +545,36 @@ export default class DshWhaleWidget extends Extension {
                         this._bub = null;
                     },
                 });
+                if (this._tail) {
+                    this._tail.ease({
+                        opacity: 0,
+                        duration: 400,
+                        mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                        onComplete: () => {
+                            if (this._tail)
+                                this._tail.destroy();
+                            this._tail = null;
+                        },
+                    });
+                }
             }
         }, 6000);
+    }
+
+    // 放置/更新气泡尾巴（跟随气泡目标位置）
+    _placeTail(lb, tail, targetPos) {
+        const t = targetPos || {x: lb.get_x(), y: lb.get_y()};
+        const [, nw] = tail.get_preferred_width(-1);
+        const [, nh] = tail.get_preferred_height(-1);
+        let tx = Math.round(t.x + this._bubW / 2 - nw / 2);
+        let ty;
+        if (this._tailChar === '▼')
+            ty = Math.round(t.y + this._bubH - nh / 2);   // 尾在气泡下缘(朝鲸鱼)
+        else
+            ty = Math.round(t.y - nh / 2);                 // 尾在气泡上缘(朝鲸鱼)
+        const wa = this._workArea();
+        tx = Math.max(wa.x, Math.min(wa.x + wa.width - nw, tx));
+        ty = Math.max(wa.y, Math.min(wa.y + wa.height - nh, ty));
+        tail.set_position(tx, ty);
     }
 }
