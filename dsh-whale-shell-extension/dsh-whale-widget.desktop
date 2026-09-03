@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=DSH 小鲸鱼
+GenericName=DeepSeek balance widget
+Comment=DeepSeek 余额小鲸鱼桌面挂件（GNOME 扩展入口）
+Exec=/home/wukai/.local/bin/dsh-whale-widget
+Icon=/home/wukai/.local/share/icons/dsh-whale.png
+Terminal=false
+Categories=Utility;SystemMonitor;
+StartupNotify=false

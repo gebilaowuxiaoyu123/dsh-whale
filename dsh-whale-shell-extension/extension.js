@@ -32,6 +32,11 @@ const CUTE_LINES = [
     'DeepSeek 天下第一！',
     '哼，不许偷看我的小肚子！',
     '已经盯着你很久了哦~',
+    '让我康康你的余额…',
+    '辛苦啦，歇一会儿吧~',
+    '检测到你在认真工作 (盯~)',
+    '小心烧 token 哦~',
+    '诶嘿，今天想聊点什么？',
 ];
 
 export default class DshWhaleWidget extends Extension {
@@ -45,11 +50,16 @@ export default class DshWhaleWidget extends Extension {
         this._hold = null;
         this._followTimer = 0;
         this._captureId = 0;
+        this._lastMoveAt = 0;
+        this._breathing = false;
+        this._breathTimer = 0;
         this._readKey();
         this._buildWhale();
         this._placeInitial();
         // 全局捕获：按下后无论指针移到哪里，松开都能结束跟随
         this._captureId = global.stage.connect('captured-event', (s, ev) => this._onCaptured(ev));
+        // 待机呼吸（上下轻轻浮动）
+        this._breathTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => this._tryBreath());
     }
 
     disable() {
@@ -61,6 +71,10 @@ export default class DshWhaleWidget extends Extension {
         if (this._captureId) {
             global.stage.disconnect(this._captureId);
             this._captureId = 0;
+        }
+        if (this._breathTimer) {
+            GLib.source_remove(this._breathTimer);
+            this._breathTimer = 0;
         }
         if (this._bubTimer)
             clearTimeout(this._bubTimer);
@@ -177,12 +191,45 @@ export default class DshWhaleWidget extends Extension {
         this._easeScale(1, 150, Clutter.AnimationMode.EASE_OUT_QUAD);
     }
 
+    // —— 音效（按压/松手），用 pw-play 异步播放素材 mp3 ——
+    _playSound(name) {
+        try {
+            const p = this._assetPath(name);
+            GLib.spawn_async(null, ['/usr/bin/pw-play', p], null,
+                GLib.SpawnFlags.SEARCH_PATH |
+                GLib.SpawnFlags.STDOUT_TO_DEV_NULL |
+                GLib.SpawnFlags.STDERR_TO_DEV_NULL, null);
+        } catch (e) { /* 静默 */ }
+    }
+
+    // —— 待机呼吸：无交互时上下轻轻浮动 ——
+    _tryBreath() {
+        if (this._hold || this._breathing || !this._whale)
+            return GLib.SOURCE_CONTINUE;
+        if (Date.now() - (this._lastMoveAt || 0) < 1600)
+            return GLib.SOURCE_CONTINUE;
+        this._breathing = true;
+        const baseY = this._whale.get_y();
+        this._whale.ease({
+            y: baseY - 6,
+            duration: 650,
+            mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
+            onComplete: () => {
+                this._breathing = false;
+                if (this._whale && !this._hold)
+                    this._whale.ease({y: baseY, duration: 650, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD});
+            },
+        });
+        return GLib.SOURCE_CONTINUE;
+    }
+
     // ============ 交互：按住跟随 / 松开停 ============
     _onPress(a, ev) {
         if (ev.get_button() !== 1)
             return Clutter.EVENT_PROPAGATE;
         const [px, py] = ev.get_coords();
         this._hold = {sx: px, sy: py, moved: false};
+        this._playSound('Ya1.mp3');
         this._easeScale(0.93, 90, Clutter.AnimationMode.EASE_OUT_QUAD);
         if (!this._followTimer)
             this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => this._followTick());
@@ -224,6 +271,7 @@ export default class DshWhaleWidget extends Extension {
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                 });
             }
+            this._lastMoveAt = Date.now();
             // 翻转由小鲸鱼在屏幕的位置决定：左半屏→翻转朝右、右半屏→原图朝左(朝向屏幕内/贴合边缘)
             const cx = rx + nw / 2;
             this._setMirror(cx < wa.x + wa.width / 2 ? -1 : 1);
@@ -243,8 +291,9 @@ export default class DshWhaleWidget extends Extension {
             this._followTimer = 0;
         }
         this._snapMaybe();
+        this._lastMoveAt = Date.now();
+        this._playSound('Ya2.mp3');
         this._easeScale(1, 220, Clutter.AnimationMode.EASE_OUT_BACK);
-        this._savePos();
         if (!moved)
             this._showBalanceFlavor();
     }
