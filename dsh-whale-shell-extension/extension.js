@@ -93,8 +93,10 @@ export default class DshWhaleWidget extends Extension {
         this._autoOn = true;          // 60s 自动刷新余额
         this._autoTimer = 0;
         this._fetching = false;
+        this._usage = null;           // 今日已用账本
         this._loadPrefs();
         this._readKey();
+        this._loadLedger();
         this._buildWhale();
         this._placeInitial();
         this._captureId = global.stage.connect('captured-event', (s, ev) => this._onCaptured(ev));
@@ -272,6 +274,77 @@ export default class DshWhaleWidget extends Extension {
             };
             GLib.file_set_contents(this._prefsFile(), JSON.stringify(j));
         } catch (e) { /* 忽略 */ }
+    }
+
+    // —— 今日已用·小鲸鱼记账(兼容上游 dsh-web 账本 ~/.dsh/.dshw-usage.json) ——
+    _ledgerFile() {
+        return `${GLib.get_home_dir()}/.dsh/.dshw-usage.json`;
+    }
+
+    _bjDate() {   // 北京时间日期 YYYY-MM-DD
+        return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    }
+
+    _loadLedger() {
+        try {
+            const [ok, data] = GLib.file_get_contents(this._ledgerFile());
+            if (ok && data && data.length) {
+                const j = JSON.parse(data.toString());
+                if (j && typeof j === 'object' && Array.isArray(j.history))
+                    this._usage = j;
+            }
+        } catch (e) { /* 忽略 */ }
+    }
+
+    _saveLedger() {
+        try {
+            GLib.file_set_contents(this._ledgerFile(), JSON.stringify(this._usage || {}));
+        } catch (e) { /* 忽略 */ }
+    }
+
+    // 余额下降差值=今日已用；跨天归档保留30天；币种变化只重置基准(防多币种虚记)
+    _ledgerObserve(total, cur) {
+        try {
+            const today = this._bjDate();
+            const u = this._usage || {history: []};
+            if (!Array.isArray(u.history))
+                u.history = [];
+            if (u.date && u.date !== today) {        // 跨天：归档清零
+                if (Number(u.todayUsage || 0) > 0.0001)
+                    u.history.push({date: u.date, usage: Number(u.todayUsage || 0)});
+                if (u.history.length > 30)
+                    u.history = u.history.slice(-30);
+                u.date = today;
+                u.todayUsage = 0;
+                u.lastBalance = null;
+                u.lastCurrency = null;
+            }
+            if (!u.date)
+                u.date = today;
+            const t = Number(total);
+            const lb = u.lastBalance;
+            if (lb !== null && lb !== undefined && u.lastCurrency === cur) {
+                const diff = Number(lb) - t;
+                if (diff > 0.0001) {                 // 仅余额下降记作消耗
+                    u.todayUsage = Math.round(((Number(u.todayUsage) || 0) + diff) * 10000) / 10000;
+                }
+            }
+            u.lastBalance = t;                       // 币种切换时这里自然只重置基准
+            u.lastCurrency = cur;
+            this._usage = u;
+            this._saveLedger();
+        } catch (e) { /* 忽略 */ }
+    }
+
+    _todayUsage() {   // 今日已用金额(今日有效)
+        try {
+            const u = this._usage || {};
+            if (!u.date || u.date !== this._bjDate())
+                return 0;
+            return Number(u.todayUsage) || 0;
+        } catch (e) {
+            return 0;
+        }
     }
 
     // —— 统一缩放/镜像 ——
@@ -747,7 +820,11 @@ export default class DshWhaleWidget extends Extension {
         const arr = Math.random() < 0.6
             ? (peak ? PEAK_TXT[this._peakMode] : OFF_TXT[this._peakMode])
             : CUTE_LINES;
-        return `💬 余额 ${cur === 'USD' ? '$' : '¥'} ${Number(total).toFixed(2)}\n${this._pick(arr)}`;
+        const sym = cur === 'USD' ? '$' : '¥';
+        const used = this._todayUsage();
+        return `💬 余额 ${sym} ${Number(total).toFixed(2)}\n`
+            + `📊 今日已用 ${sym} ${used.toFixed(2)}\n`
+            + this._pick(arr);
     }
 
     // 点击气泡 → 换下一句台词（不重新请求余额）
@@ -783,6 +860,7 @@ export default class DshWhaleWidget extends Extension {
                 if (total !== null && isFinite(total)) {
                     const prev = this._lastBal;
                     this._lastBal = {cur, total};
+                    this._ledgerObserve(total, cur);   // 记账：今日已用差值累计
                     // 自动刷新：仅当余额相对上次有变化才提示(首次只对齐缓存不弹)
                     const changed = prev && (prev.cur !== cur || Math.abs(prev.total - total) > 0.0001);
                     if (!silent || changed)
