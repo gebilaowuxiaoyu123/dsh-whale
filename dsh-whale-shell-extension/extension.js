@@ -426,6 +426,21 @@ export default class DshWhaleWidget extends Extension {
     }
 
     // ============ 余额 / 台词 / 气泡 ============
+    // 根据余额+当前风格拼台词文本（用于首次展示与点击换台词）
+    _flavorText(cur, total) {
+        const peak = this._isPeak();
+        const arr = Math.random() < 0.6
+            ? (peak ? PEAK_TXT[this._peakMode] : OFF_TXT[this._peakMode])
+            : CUTE_LINES;
+        return `💬 余额 ${cur === 'USD' ? '$' : '¥'} ${Number(total).toFixed(2)}\n${this._pick(arr)}`;
+    }
+
+    // 点击气泡 → 换下一句台词（不重新请求余额）
+    _rerollBubble() {
+        if (this._lastBal)
+            this._bubble(this._flavorText(this._lastBal.cur, this._lastBal.total));
+    }
+
     _showBalanceFlavor() {
         if (!this._apiKey) {
             this._bubble('未配置 DEEPSEEK_API_KEY\n请在 ~/.dsh/.credentials.yaml 填写');
@@ -446,12 +461,8 @@ export default class DshWhaleWidget extends Extension {
                 const total = info ? Number(info.total_balance) : null;
                 const cur = (info && info.currency) || 'CNY';
                 if (total !== null && isFinite(total)) {
-                    const peak = this._isPeak();
-                    const arr = Math.random() < 0.6
-                        ? (peak ? PEAK_TXT[this._peakMode] : OFF_TXT[this._peakMode])
-                        : CUTE_LINES;
-                    const flavor = this._pick(arr);
-                    this._bubble(`💬 余额 ${cur === 'USD' ? '$' : '¥'} ${total.toFixed(2)}\n${flavor}`);
+                    this._lastBal = {cur, total};
+                    this._bubble(this._flavorText(cur, total));
                 } else {
                     this._bubble('余额解析失败，请稍后再试');
                 }
@@ -508,10 +519,13 @@ export default class DshWhaleWidget extends Extension {
         Main.uiGroup.add_child(tail);
         this._tail = tail;
         this._placeTail(lb, tail);
-        lb.set_pivot_point(0.5, 1);
+        lb.reactive = true;                              // 气泡可点：换一句台词
+        lb.connect('button-press-event', () => this._rerollBubble());
+        lb.set_pivot_point(0.5, 0.5);
+        lb.set_scale(0.88, 0.88);                        // 出现时 Q 弹缩放
         lb.set_opacity(0);
         tail.set_opacity(0);
-        lb.ease({opacity: 255, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+        lb.ease({opacity: 255, scale_x: 1, scale_y: 1, duration: 300, mode: Clutter.AnimationMode.EASE_OUT_BACK});
         tail.ease({opacity: 255, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
         this._bub = lb;
         if (!this._bubTick)
