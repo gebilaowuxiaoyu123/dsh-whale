@@ -90,7 +90,7 @@ dsh-whale/
 - **配置**：`~/.dsh/.credentials.yaml`（API Key）、`~/.dsh/.dshw-size.json`（挂件尺寸/开关）
 - **跨平台**：路径一律用 `os.homedir()`/`path.join`，无 Windows 专属路径硬编码（开机自启除外，已按平台分支）
 
-## � GNOME Shell 扩展版（Wayland 桌面推荐）
+## 🐧 GNOME Shell 扩展版（Wayland 桌面推荐）
 
 > 在 GNOME Wayland 会话实现“像 Windows 那样的悬浮小鲸鱼”的正解——直接作为 Shell 扩展渲染，
 > 天然悬浮于所有普通窗口之上，透明 PNG + 动画 + 满屏拖动 + 点击，与动态壁纸等扩展互不冲突。
@@ -118,7 +118,7 @@ gnome-extensions enable dsh-whale@local
 可切换为令牌精算（读平台用量接口按峰谷计价，需配 `DEEPSEEK_PLATFORM_TOKEN`）；
 凭据 `~/.dsh/.credentials.yaml`，偏好 `~/.cache/dsh-whale/prefs.json`。
 
-## �🖥️ Windows 版
+## 🖥️ Windows 版
 
 **运行**
 ```powershell
@@ -225,7 +225,7 @@ npm start                      # electron .
 | 端口 3090 被占用 | 先关闭其他挂件实例 |
 | 想换 API Key | 菜单里直接改，秒级生效 |
 
-## � 版本更新日志
+## 📋 版本更新日志
 
 所有形态的版本历史（桌面版 v1.0 起步；扩展版 v9→v30 逐版演进：贴边吸附 / 半屏镜像 / 右键菜单 / 摸摸头 / 静置动效 /
 今日已用记账 / 60s 自动轮询 / 数字滚动 / 音色主题 / 令牌精算 / 动画流畅度……）见 **[CHANGELOG.md](CHANGELOG.md)**。
