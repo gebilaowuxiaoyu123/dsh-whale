@@ -1,5 +1,6 @@
-// DSH Whale Widget —— GNOME Shell 扩展版（Wayland 桌面悬浮小鲸鱼）v20
-// 交互：左键按住=跟随鼠标走、松开=停；左键短按(无移动)=看余额台词；右键=菜单
+// DSH Whale Widget —— GNOME Shell 扩展版（Wayland 桌面悬浮小鲸鱼）v30
+// 交互：左键按住=跟随鼠标走、松开=贴边停靠；左键短按(无移动)=摸摸头；右键=菜单
+// v30: 动画流畅度——拖动跟手 60fps(16ms)、数字滚动 60fps+文本去重、气泡尾随去抖动
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
@@ -576,7 +577,8 @@ export default class DshWhaleWidget extends Extension {
         this._playSound('pick');
         this._easeScale(0.93, 90, Clutter.AnimationMode.EASE_OUT_QUAD);
         if (!this._followTimer)
-            this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => this._followTick());
+            // 16ms ≈ 60fps：与屏幕刷新对齐，拖动跟手更顺滑(此前 30ms 仅 33fps，易显顿挫)
+            this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 16, () => this._followTick());
         return Clutter.EVENT_STOP;
     }
 
@@ -1064,22 +1066,25 @@ export default class DshWhaleWidget extends Extension {
         lb.ease({opacity: 255, scale_x: 1, scale_y: 1, duration: 300, mode: Clutter.AnimationMode.EASE_OUT_BACK});
         tail.ease({opacity: 255, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
         this._bub = lb;
+        this._bubAt = null;   // 记录气泡当前目标，位置未变则跳过重定位，减少布局抖动
         if (!this._bubTick)
             this._bubTick = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
                 if (this._bub) {
                     const t = this._bubbleTarget();
-                    if (this._bub.get_x() !== t.x || this._bub.get_y() !== t.y) {
+                    if (!this._bubAt || this._bubAt.x !== t.x || this._bubAt.y !== t.y) {
+                        this._bubAt = {x: t.x, y: t.y};
                         this._bub.ease({
                             x: t.x,
                             y: t.y,
                             duration: 80,
                             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                         });
+                        if (this._tail)
+                            this._placeTail(this._bub, this._tail, t);
                     }
-                    if (this._tail)
-                        this._placeTail(this._bub, this._tail, t);
                     return GLib.SOURCE_CONTINUE;
                 }
+                this._bubAt = null;
                 this._bubTick = 0;
                 return GLib.SOURCE_REMOVE;
             });
@@ -1119,7 +1124,9 @@ export default class DshWhaleWidget extends Extension {
             lb.set_text(`${head} ${from.toFixed(2)}${rest ? '\n' + rest : ''}`);
             const t0 = Date.now();
             const DUR = 700;
-            this._animT = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
+            let lastTxt = '';
+            // 16ms ≈ 60fps 平滑滚动；文本未变化时跳过 set_text，避免无谓整块重排
+            this._animT = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 16, () => {
                 if (!lb || !this._bub || this._bub !== lb) {   // 气泡已被换掉/关闭
                     this._animT = 0;
                     return GLib.SOURCE_REMOVE;
@@ -1127,7 +1134,11 @@ export default class DshWhaleWidget extends Extension {
                 const p = Math.min(1, (Date.now() - t0) / DUR);
                 const e = 1 - Math.pow(1 - p, 3);   // ease-out cubic
                 const v = from + (to - from) * e;
-                lb.set_text(`${head} ${v.toFixed(2)}${rest ? '\n' + rest : ''}`);
+                const txt = `${head} ${v.toFixed(2)}${rest ? '\n' + rest : ''}`;
+                if (txt !== lastTxt) {
+                    lastTxt = txt;
+                    lb.set_text(txt);
+                }
                 if (p >= 1) {
                     this._animT = 0;
                     return GLib.SOURCE_REMOVE;
