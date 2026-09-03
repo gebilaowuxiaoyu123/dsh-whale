@@ -1,35 +1,43 @@
 # 🐋 DSH 小鲸鱼桌面挂件（DSH Whale Widget）
 
-> 一只住在你屏幕角落的小鲸鱼娘，实时显示 DeepSeek 账户余额与今日消耗。可选 **Windows 桌面版**、
-> **Ubuntu/Linux 桌面版**，以及 **DSH 网页版插件**，全部本地直连、自包含，无需打开网页。
+> 一只住在你屏幕角落的小鲸鱼娘，实时显示 DeepSeek 账户余额与今日消耗。可选 **GNOME Shell 扩展版**
+> （Wayland 桌面推荐）、**Windows 桌面版**、**Ubuntu/Linux 桌面版**，以及 **DSH 网页版插件**，
+> 全部本地直连、自包含，无需打开网页。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Changelog](https://img.shields.io/badge/版本更新日志-CHANGELOG-blue)](CHANGELOG.md)
 
 ---
 
 ## 📦 项目简介
 
-DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含三种形态：
+DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种形态：
 
 | 形态 | 目录 | 说明 |
 |---|---|---|
+| **GNOME Shell 扩展** | `dsh-whale-shell-extension/` | GNOME 45–47，**Wayland 桌面悬浮首选**：直接画在 Shell 层，天然置顶悬浮、可满屏拖动 |
 | **Windows 桌面挂件** | `dsh-whale-desktop/` | 无边框透明置顶悬浮窗，鲸鱼浮在桌面、可满桌面拖动 |
-| **Linux 桌面挂件** | `dsh-whale-desktop-linux/` | 适配 Ubuntu 22.04 / 24.04 amd64（x86_64），AppImage/deb |
+| **Linux 桌面挂件** | `dsh-whale-desktop-linux/` | 适配 Ubuntu 22.04 / 24.04 amd64（x86_64），AppImage/deb（X11 会话） |
 | **DSH 网页版插件** | `dsh-whale-widget/` | 基于 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（MIT），随 dsh web 自动启用 |
 
-三者共用同一套余额数据与记账逻辑，**完全本地运行**：直接调 DeepSeek API 拉余额，不依赖 dsh web、
+各形态共用同一套余额数据与记账逻辑，**完全本地运行**：直接调 DeepSeek API 拉余额，不依赖 dsh web、
 不用打开浏览器。
+
+> 💡 **在 GNOME Wayland 上**：Mutter 不支持 wlr-layer-shell、Electron 透明窗也无法合成，
+> 请直接使用 **GNOME Shell 扩展版**（见下方章节），这也是本仓库当前最活跃的形态。
 
 ## ✨ 特性
 
-- 🐋 **桌面悬浮**：无边框、透明、始终置顶、覆盖整个桌面；鲸鱼可**满桌面拖动**（Windows 与 Linux 一致）
+- 🐋 **桌面悬浮**：无边框、透明、始终置顶、覆盖整个桌面；鲸鱼可**满桌面拖动**（Windows / Linux / GNOME 扩展一致）
+- 🧲 **四边四角吸附**：松手自动贴边/角，缩放与回家保持贴边（扩展版）
+- 🖱️ **桌面宠物动效**：拖动跟手 60fps、摸摸头小跳、静置呼吸/飘音符/眨眼、余额数字 60fps 平滑滚动（扩展版）
 - 💰 **实时余额**：默认 60s 自动刷新，点击鲸鱼手动刷新；余额变化数字滚动动画
-- 📊 **今日已用**：默认「小鲸鱼记账」模式（余额差值本地记账，跨天自动归零），无需令牌
+- 📊 **今日已用**：记账模式（余额差值本地记账，跨天自动归零/归档 30 天）或令牌精算模式（读平台用量接口按峰谷计价），可随时切换
 - 💬 **每轮消耗统计**：监听对话回合，弹出本轮消耗金额（网页版插件能力）
-- 🎚️ **汉堡菜单**：大小(0.6–2.5×)、音效、音量、用量模式、峰谷提示、气泡开关等
+- 🎚️ **汉堡菜单**：大小、音色(6套)、音量、音效/气泡开关、用量模式、峰谷提示、峰谷文案风格、隐藏等
 - 🔑 **菜单内改 API Key**：随时粘贴新 `sk-...` 保存即生效，无需改文件
-- 🖱️ **点击穿透**：只有鲸鱼不透明像素/菜单可交互，其余区域不挡桌面操作
-- ⚙️ **首次运行自动配置**：无配置时自动弹出设置窗口，填 API Key + 可选开机自启
+- 🖱️ **点击穿透**：只有鲸鱼不透明像素/菜单可交互，其余区域不挡桌面操作（桌面版）
+- ⚙️ **首次运行自动配置**：无配置时自动弹出设置窗口，填 API Key + 可选开机自启（桌面版）
 - 🚀 **CI/CD**：GitHub Actions 自动构建 Windows exe 与 Linux AppImage/deb
 
 ## 📁 目录结构
@@ -37,7 +45,14 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含三种�
 ```
 dsh-whale/
 ├── README.md                       # 本文件（项目总文档）
+├── CHANGELOG.md                    # 版本更新日志（桌面 v1.0 → 扩展版 v9–v30 …）
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
+├── dsh-whale-shell-extension/      # ★ GNOME Shell 扩展版（Wayland 悬浮首选，当前主力迭代）
+│   ├── extension.js                #   扩展主逻辑（ESM / GNOME 45+，含交互/动画/记账/令牌）
+│   ├── metadata.json               #   uuid dsh-whale@local
+│   ├── assets/                     #   鲸鱼 PNG + 12 个音效（6 套音色主题）
+│   ├── install.sh / desktop-menu.sh / dsh-whale-widget.desktop
+│   └── README.md                   #   扩展版专属说明（交互/菜单/配置）
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方，MIT，vendored）
 ├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
 │   ├── main.js                     #   主进程：本地服务(3090)+直连余额+透明置顶窗口
@@ -75,7 +90,35 @@ dsh-whale/
 - **配置**：`~/.dsh/.credentials.yaml`（API Key）、`~/.dsh/.dshw-size.json`（挂件尺寸/开关）
 - **跨平台**：路径一律用 `os.homedir()`/`path.join`，无 Windows 专属路径硬编码（开机自启除外，已按平台分支）
 
-## 🖥️ Windows 版
+## � GNOME Shell 扩展版（Wayland 桌面推荐）
+
+> 在 GNOME Wayland 会话实现“像 Windows 那样的悬浮小鲸鱼”的正解——直接作为 Shell 扩展渲染，
+> 天然悬浮于所有普通窗口之上，透明 PNG + 动画 + 满屏拖动 + 点击，与动态壁纸等扩展互不冲突。
+
+**安装（Ubuntu 24.04 / GNOME 46 已测，45–47 通用）**
+
+```bash
+cd dsh-whale-shell-extension
+./install.sh                     # 复制到 ~/.local/share/gnome-shell/extensions/
+# 注销 → 重新登录（Wayland 需重载 Shell 才会扫描新扩展）
+gnome-extensions enable dsh-whale@local
+```
+
+**交互与菜单**（详细说明见 `dsh-whale-shell-extension/README.md`）
+
+| 操作 | 效果 |
+|---|---|
+| 左键按住拖动 | 鲸鱼满屏跟手移动（60fps），松手自动贴四边/四角 |
+| 左键轻点（不拖动） | 摸摸头：开心小跳 + 飘爱心音符 + 卖萌气泡 |
+| 滚轮 / 菜单放大缩小 | 0.5×–2.5× 缩放，贴边状态保持 |
+| 右键 | 汉堡菜单：查看余额 / 60s 自动刷新 / 回左下角 / 放大缩小 / 用量模式(记账·令牌) / 音色(6套) / 音量 / 音效开关 / 气泡开关 / 峰谷文案(3种) / 隐藏 |
+| 气泡上单击 | 换一句台词 |
+
+**数据与配置**：余额直连 `api.deepseek.com/user/balance`；今日已用默认为本地记账（差值累计、跨天归档 30 天），
+可切换为令牌精算（读平台用量接口按峰谷计价，需配 `DEEPSEEK_PLATFORM_TOKEN`）；
+凭据 `~/.dsh/.credentials.yaml`，偏好 `~/.cache/dsh-whale/prefs.json`。
+
+## �🖥️ Windows 版
 
 **运行**
 ```powershell
@@ -172,15 +215,23 @@ npm start                      # electron .
 
 | 问题 | 解决 |
 |---|---|
-| 余额显示「未配置 DEEPSEEK_API_KEY」 | 在挂件菜单 API Key 框填入 `sk-...` 并保存 |
+| GNOME Wayland 下 Electron 悬浮窗不显示/不悬浮 | 改用本仓库 **GNOME Shell 扩展版**（`dsh-whale-shell-extension`） |
+| 余额显示「未配置 DEEPSEEK_API_KEY」 | 在 `~/.dsh/.credentials.yaml` 填写或在挂件菜单 API Key 框填入 `sk-...` 并保存 |
+| 扩展更新后不生效 | 注销 → 重新登录（Wayland 需重载 Shell） |
+| 想用令牌精算今日已用 | 扩展右键菜单「📒 用量」切到令牌，需先在凭据里配 `DEEPSEEK_PLATFORM_TOKEN` |
 | AppImage 打不开 | `sudo apt-get install -y libfuse2` |
 | sandbox 报错 | 加 `--no-sandbox` 启动参数 |
 | Linux 托盘不显示 | 装 AppIndicator 扩展（GNOME） |
 | 端口 3090 被占用 | 先关闭其他挂件实例 |
 | 想换 API Key | 菜单里直接改，秒级生效 |
 
+## � 版本更新日志
+
+所有形态的版本历史（桌面版 v1.0 起步；扩展版 v9→v30 逐版演进：贴边吸附 / 半屏镜像 / 右键菜单 / 摸摸头 / 静置动效 /
+今日已用记账 / 60s 自动轮询 / 数字滚动 / 音色主题 / 令牌精算 / 动画流畅度……）见 **[CHANGELOG.md](CHANGELOG.md)**。
+
 ## 📄 许可证
 
-- 本项目（桌面挂件 Windows/Linux 版、文档、CI）：**MIT**
+- 本项目（桌面挂件 Windows/Linux 版、GNOME 扩展版、文档、CI）：**MIT**
 - `dsh-whale-widget/`：第三方插件，**MIT**，版权归原项目作者，见其 `LICENSE`
 
