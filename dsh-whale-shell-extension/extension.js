@@ -11,7 +11,6 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const CRED_FILE = `${GLib.get_home_dir()}/.dsh/.credentials.yaml`;
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
-const SNAP_DIST = 70;      // 贴边吸附距离(px)
 const PEAK_MODES = ['default', 'liangwen', 'qiangqiang'];
 
 const PEAK_TXT = {
@@ -90,6 +89,7 @@ export default class DshWhaleWidget extends Extension {
         this._fxTimer = 0;
         this._lastFxAt = 0;
         this._menuPos = null;
+        this._snap = {h: -1, v: 1};   // 贴边状态：h/v = -1 贴左/上, 1 贴右/下, 0 不吸附
         this._loadPrefs();
         this._readKey();
         this._buildWhale();
@@ -196,9 +196,12 @@ export default class DshWhaleWidget extends Extension {
 
     _placeInitial() {
         const wa = this._workArea();
-        const x = wa.x + 24;
-        const y = wa.y + wa.height - this._h - 72;
-        this._whale.set_position(Math.round(x), Math.round(y));
+        const nw = Math.round(this._w * this._whaleScale);
+        const nh = Math.round(this._h * this._whaleScale);
+        const x = wa.x;
+        const y = wa.y + wa.height - nh;
+        this._whale.set_position(x, y);
+        this._snap = {h: -1, v: 1};   // 默认贴左下角
         this._mirror = -1;
         this._img.set_scale(this._mirror, 1);
     }
@@ -456,7 +459,7 @@ export default class DshWhaleWidget extends Extension {
             this._petHead();
             return;
         }
-        this._snapMaybe();
+        this._settle();
         this._playSound('drop');
         this._easeScale(1, 220, Clutter.AnimationMode.EASE_OUT_BACK);
     }
@@ -501,18 +504,59 @@ export default class DshWhaleWidget extends Extension {
         return this._pick(PET_LINES);
     }
 
-    _snapMaybe() {
+    // —— 松手 settle：中心落在视口水平/垂直外侧 1/4 带 → 贴对应边/角(两轴独立组合) ——
+    _settle() {
         try {
             const wa = this._workArea();
             const nw = Math.round(this._w * this._whaleScale);
+            const nh = Math.round(this._h * this._whaleScale);
             const wx = this._whale.get_x();
-            if (wx - wa.x < SNAP_DIST) {
-                this._setMirror(-1);
-                this._whale.ease({x: wa.x, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
-            } else if (wa.x + wa.width - (wx + nw) < SNAP_DIST) {
-                this._setMirror(1);
-                this._whale.ease({x: wa.x + wa.width - nw, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
-            }
+            const wy = this._whale.get_y();
+            const cx = wx + nw / 2;
+            const cy = wy + nh / 2;
+            const qw = wa.width / 4;
+            const qh = wa.height / 4;
+            let h = 0;
+            let v = 0;
+            if (cx < wa.x + qw)          // 中心在左侧 1/4 带
+                h = -1;
+            else if (cx > wa.x + wa.width - qw)   // 右侧 1/4 带
+                h = 1;
+            if (cy < wa.y + qh)          // 上侧 1/4 带
+                v = -1;
+            else if (cy > wa.y + wa.height - qh)  // 下侧 1/4 带
+                v = 1;
+            this._snap = {h, v};
+            this._snapAlign(220);
+            // 朝向：贴哪边就看屏幕内(贴左朝右/贴右朝左)；中间带按半屏
+            if (h !== 0)
+                this._setMirror(h === -1 ? -1 : 1);
+            else
+                this._setMirror(cx < wa.x + wa.width / 2 ? -1 : 1);
+        } catch (e) { /* 忽略 */ }
+    }
+
+    // 按当前 _snap 状态把鲸鱼 ease 到贴边坐标（未吸附轴保持原位）
+    _snapAlign(dur) {
+        try {
+            const s = this._snap || {h: 0, v: 0};
+            const wa = this._workArea();
+            const nw = Math.round(this._w * this._whaleScale);
+            const nh = Math.round(this._h * this._whaleScale);
+            let tx = this._whale.get_x();
+            let ty = this._whale.get_y();
+            if (s.h === -1)
+                tx = wa.x;
+            else if (s.h === 1)
+                tx = wa.x + wa.width - nw;
+            if (s.v === -1)
+                ty = wa.y;
+            else if (s.v === 1)
+                ty = wa.y + wa.height - nh;
+            this._whale.ease({
+                x: tx, y: ty, duration: dur || 220,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            });
         } catch (e) { /* 忽略 */ }
     }
 
@@ -534,6 +578,8 @@ export default class DshWhaleWidget extends Extension {
         const step = up ? 0.08 : -0.08;
         this._whaleScale = Math.max(0.5, Math.min(2.5, (this._whaleScale || 1) + step));
         this._easeScale(1, 140, Clutter.AnimationMode.EASE_OUT_QUAD);
+        if (this._snap && (this._snap.h || this._snap.v))
+            this._snapAlign(140);   // 已贴边时缩放后维持贴边
         return Clutter.EVENT_STOP;
     }
 
@@ -541,17 +587,16 @@ export default class DshWhaleWidget extends Extension {
     _zoom(d) {
         this._whaleScale = Math.max(0.5, Math.min(2.5, (this._whaleScale || 1) + d));
         this._easeScale(1, 160, Clutter.AnimationMode.EASE_OUT_QUAD);
+        if (this._snap && (this._snap.h || this._snap.v))
+            this._snapAlign(160);
     }
 
     _goHome() {
         if (this._hold)
             this._endHold();
-        const wa = this._workArea();
-        const x = wa.x + 24;
-        const y = wa.y + wa.height - this._h - 72;
-        this._mirror = -1;
-        this._img.set_scale(this._mirror, 1);
-        this._whale.ease({x, y, duration: 280, mode: Clutter.AnimationMode.EASE_OUT_BACK});
+        this._snap = {h: -1, v: 1};
+        this._setMirror(-1);
+        this._snapAlign(280);
         this._lastMoveAt = Date.now();
     }
 
