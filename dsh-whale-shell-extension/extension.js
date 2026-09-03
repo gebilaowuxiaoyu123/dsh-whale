@@ -37,6 +37,17 @@ const CUTE_LINES = [
     '检测到你在认真工作 (盯~)',
     '小心烧 token 哦~',
     '诶嘿，今天想聊点什么？',
+    '戳一下就会动，好耶！',
+    '我是一只会看余额的小鲸鱼~',
+    '呜…手指不要乱戳我啦',
+    '今天也要元气满满哦！',
+];
+const TROLL_LINES = [
+    '又在偷偷调大模型了吧？',
+    '哼，烧钱冠军非你莫属',
+    'token 自由？我看是余额自由…',
+    '再这么跑下去，我要报警了！',
+    '大烧货，今天又烧了多少？',
 ];
 const PEAK_MODE_LABEL = {default: '默认', liangwen: '梁文峰谷', qiangqiang: '!?强强?!'};
 const SFX_THEMES = {
@@ -44,6 +55,8 @@ const SFX_THEMES = {
     bell: {label: '叮咚', pick: 'sfx_bell_pick.mp3', drop: 'sfx_bell_drop.mp3', pet: 'sfx_bell_pick.mp3'},
     low: {label: '低沉', pick: 'sfx_low_pick.mp3', drop: 'sfx_low_drop.mp3', pet: 'sfx_low_pick.mp3'},
     soft: {label: '柔和', pick: 'sfx_soft_pick.mp3', drop: 'sfx_soft_drop.mp3', pet: 'sfx_soft_pick.mp3'},
+    pop: {label: '活泼', pick: 'sfx_pop_pick.mp3', drop: 'sfx_pop_drop.mp3', pet: 'sfx_pop_pick.mp3'},
+    chirp: {label: '清脆', pick: 'sfx_chirp_pick.mp3', drop: 'sfx_chirp_drop.mp3', pet: 'sfx_chirp_pick.mp3'},
 };
 const PET_LINES = [
     '呜哇！被摸头了… 好舒服 (〃ω〃)',
@@ -164,6 +177,20 @@ export default class DshWhaleWidget extends Extension {
 
     _pick(arr) {
         return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    // 按权重从多个句组中抽一组，再随机取一句
+    _pickWeighted(groups) {
+        let tot = 0;
+        for (const [, w] of groups)
+            tot += w;
+        let r = Math.random() * tot;
+        for (const [arr, w] of groups) {
+            if (r < w)
+                return this._pick(arr);
+            r -= w;
+        }
+        return this._pick(groups[0][0]);
     }
 
     _isPeak() {
@@ -822,14 +849,21 @@ export default class DshWhaleWidget extends Extension {
     // 根据余额+当前风格拼台词文本（用于首次展示与点击换台词）
     _flavorText(cur, total) {
         const peak = this._isPeak();
-        const arr = Math.random() < 0.6
-            ? (peak ? PEAK_TXT[this._peakMode] : OFF_TXT[this._peakMode])
-            : CUTE_LINES;
         const sym = cur === 'USD' ? '$' : '¥';
         const used = this._todayUsage();
+        const peakArr = peak ? PEAK_TXT[this._peakMode] : OFF_TXT[this._peakMode];
+        const groups = [
+            [peakArr, 4.5],   // 峰谷提示
+            [CUTE_LINES, 3],  // 卖萌
+            [TROLL_LINES, 1.6], // 吐槽
+        ];
+        if (used > 0)
+            groups.push([[`💸 今天已花 ¥ ${used.toFixed(2)}，悠着点呀`,
+                `今天用了 ¥ ${used.toFixed(2)}，充个值让我开心一下嘛~`], 1.2]);
+        const line = this._pickWeighted(groups);
         return `💬 余额 ${sym} ${Number(total).toFixed(2)}\n`
             + `📊 今日已用 ${sym} ${used.toFixed(2)}\n`
-            + this._pick(arr);
+            + line;
     }
 
     // 点击气泡 → 换下一句台词（不重新请求余额）
