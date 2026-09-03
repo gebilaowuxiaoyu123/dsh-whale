@@ -40,6 +40,26 @@ const CUTE_LINES = [
     '诶嘿，今天想聊点什么？',
 ];
 const PEAK_MODE_LABEL = {default: '默认', liangwen: '梁文峰谷', qiangqiang: '!?强强?!'};
+const SFX_THEMES = {
+    default: {label: '默认', pick: 'Ya1.mp3', drop: 'Ya2.mp3', pet: 'Ya1.mp3'},
+    bell: {label: '叮咚', pick: 'sfx_bell_pick.mp3', drop: 'sfx_bell_drop.mp3', pet: 'sfx_bell_pick.mp3'},
+    low: {label: '低沉', pick: 'sfx_low_pick.mp3', drop: 'sfx_low_drop.mp3', pet: 'sfx_low_pick.mp3'},
+    soft: {label: '柔和', pick: 'sfx_soft_pick.mp3', drop: 'sfx_soft_drop.mp3', pet: 'sfx_soft_pick.mp3'},
+};
+const PET_LINES = [
+    '呜哇！被摸头了… 好舒服 (〃ω〃)',
+    '再…再摸一下也可以哦~',
+    '嘿嘿，摸头会变聪明的！',
+    '蹭蹭~ 今天也想被表扬！',
+    '被摸得晕乎乎的了… (>ω<)',
+    '这就是摸摸头的滋味吗…',
+    '呐，再摸摸肚子那里~',
+    '哼…才不是因为开心才蹭你的！',
+];
+const FX_SYMS = [
+    ['♫', '#8fb7ff'], ['♪', '#8fb7ff'],
+    ['♥', '#ff9ecb'], ['✦', '#ffe08a'], ['☆', '#fff4d6'],
+];
 
 const BTN_STYLE = 'background-color: transparent; color: #eaf1ff;' +
     'border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 500;';
@@ -63,11 +83,20 @@ export default class DshWhaleWidget extends Extension {
         this._breathTimer = 0;
         this._peakMode = 'default';
         this._soundOn = true;
+        this._bubbleOn = true;
+        this._sfxTheme = 'default';
+        this._vol = 1;
+        this._lastBal = null;
+        this._fxTimer = 0;
+        this._lastFxAt = 0;
+        this._menuPos = null;
+        this._loadPrefs();
         this._readKey();
         this._buildWhale();
         this._placeInitial();
         this._captureId = global.stage.connect('captured-event', (s, ev) => this._onCaptured(ev));
         this._breathTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => this._tryBreath());
+        this._fxTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 3200, () => this._tryIdleFx());
     }
 
     disable() {
@@ -83,6 +112,10 @@ export default class DshWhaleWidget extends Extension {
         if (this._breathTimer) {
             GLib.source_remove(this._breathTimer);
             this._breathTimer = 0;
+        }
+        if (this._fxTimer) {
+            GLib.source_remove(this._fxTimer);
+            this._fxTimer = 0;
         }
         if (this._bubTimer)
             clearTimeout(this._bubTimer);
@@ -184,6 +217,47 @@ export default class DshWhaleWidget extends Extension {
         }
     }
 
+    // —— 偏好持久化(~/.cache/dsh-whale/prefs.json) ——
+    _prefsFile() {
+        const d = `${GLib.get_home_dir()}/.cache/dsh-whale`;
+        try {
+            GLib.mkdir_with_parents(d, 0o755);
+        } catch (e) { /* 忽略 */ }
+        return `${d}/prefs.json`;
+    }
+
+    _loadPrefs() {
+        try {
+            const [ok, data] = GLib.file_get_contents(this._prefsFile());
+            if (ok && data && data.length) {
+                const j = JSON.parse(data.toString());
+                if (j.sfxTheme && SFX_THEMES[j.sfxTheme])
+                    this._sfxTheme = j.sfxTheme;
+                if (typeof j.vol === 'number')
+                    this._vol = Math.max(0, Math.min(1, j.vol));
+                if (typeof j.soundOn === 'boolean')
+                    this._soundOn = j.soundOn;
+                if (typeof j.bubbleOn === 'boolean')
+                    this._bubbleOn = j.bubbleOn;
+                if (PEAK_MODES.includes(j.peakMode))
+                    this._peakMode = j.peakMode;
+            }
+        } catch (e) { /* 忽略 */ }
+    }
+
+    _savePrefs() {
+        try {
+            const j = {
+                sfxTheme: this._sfxTheme,
+                vol: this._vol,
+                soundOn: this._soundOn,
+                bubbleOn: this._bubbleOn,
+                peakMode: this._peakMode,
+            };
+            GLib.file_set_contents(this._prefsFile(), JSON.stringify(j));
+        } catch (e) { /* 忽略 */ }
+    }
+
     // —— 统一缩放/镜像 ——
     _easeScale(mul, dur, mode) {
         this._img.ease({
@@ -201,12 +275,16 @@ export default class DshWhaleWidget extends Extension {
         this._easeScale(1, 150, Clutter.AnimationMode.EASE_OUT_QUAD);
     }
 
-    _playSound(name) {
+    // kind: pick(拿起)/drop(放下)/pet(摸摸头) —— 按当前音色主题播放，并套用音量
+    _playSound(kind) {
         if (!this._soundOn)
             return;
         try {
-            const p = this._assetPath(name);
-            GLib.spawn_async(null, ['/usr/bin/pw-play', p], null,
+            const th = SFX_THEMES[this._sfxTheme] || SFX_THEMES.default;
+            const file = th[kind] || SFX_THEMES.default[kind] || 'Ya1.mp3';
+            const p = this._assetPath(file);
+            const v = Math.max(0, Math.min(1, this._vol || 1)).toFixed(2);
+            GLib.spawn_async(null, ['/usr/bin/pw-play', '--volume', v, p], null,
                 GLib.SpawnFlags.SEARCH_PATH |
                 GLib.SpawnFlags.STDOUT_TO_DEV_NULL |
                 GLib.SpawnFlags.STDERR_TO_DEV_NULL, null);
@@ -233,6 +311,76 @@ export default class DshWhaleWidget extends Extension {
         return GLib.SOURCE_CONTINUE;
     }
 
+    // —— 飘动特效：从鲸鱼头顶升起一个小符号再淡出(营造 gif 动图感) ——
+    _fxSymbol(ch, dx) {
+        try {
+            const col = (FX_SYMS.find(s => s[0] === ch) || FX_SYMS[0])[1];
+            const n = new St.Label({text: ch, style: `color:${col}; font-size:22px; font-weight:700;`});
+            Main.uiGroup.add_child(n);
+            const [wx, wy] = this._whale.get_position();
+            const [ww] = this._whale.get_size();
+            const x0 = Math.round(wx + ww / 2 + (dx || 0) - 8);
+            const y0 = Math.round(wy + 6);
+            n.set_position(x0, y0);
+            n.set_opacity(0);
+            n.ease({
+                opacity: 255, y: y0 - 16, duration: 170,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                onComplete: () => {
+                    if (!n)
+                        return;
+                    n.ease({
+                        opacity: 0, y: y0 - 92, duration: 760,
+                        mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                        onComplete: () => n.destroy(),
+                    });
+                },
+            });
+        } catch (e) { /* 忽略 */ }
+    }
+
+    // 眨眼：整体 y 向快速压缩一下(模拟闭眼)再恢复
+    _blink() {
+        try {
+            const s = this._img;
+            if (!s)
+                return;
+            const sy = s.get_scale_y();
+            s.ease({
+                scale_y: sy * 0.94, duration: 90, mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                onComplete: () => {
+                    if (s)
+                        s.ease({scale_y: sy, duration: 110, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+                },
+            });
+        } catch (e) { /* 忽略 */ }
+    }
+
+    // 静置时随机来点小动作：飘音符/爱心、眨眼、偶尔双音符 —— 像 gif 在动
+    _tryIdleFx() {
+        if (!this._whale || this._hold || this._menu)
+            return GLib.SOURCE_CONTINUE;
+        if (this._breathing || Date.now() - (this._lastMoveAt || 0) < 2000)
+            return GLib.SOURCE_CONTINUE;
+        if (Date.now() - this._lastFxAt < 6500)
+            return GLib.SOURCE_CONTINUE;
+        this._lastFxAt = Date.now();
+        const r = Math.random();
+        try {
+            const [ww] = this._whale.get_size();
+            if (r < 0.34) {
+                this._fxSymbol(FX_SYMS[Math.floor(Math.random() * FX_SYMS.length)][0],
+                    (Math.random() - 0.5) * ww * 0.5);
+            } else if (r < 0.52) {
+                this._blink();
+            } else if (r < 0.62) {
+                this._fxSymbol('♫', -ww / 6);
+                this._fxSymbol('♪', ww / 6);
+            }
+        } catch (e) { /* 忽略 */ }
+        return GLib.SOURCE_CONTINUE;
+    }
+
     // ============ 交互 ============
     _onPress(a, ev) {
         if (this._menu)
@@ -245,8 +393,10 @@ export default class DshWhaleWidget extends Extension {
         if (ev.get_button() !== 1)
             return Clutter.EVENT_PROPAGATE;
         const [px, py] = ev.get_coords();
-        this._hold = {sx: px, sy: py, moved: false};
-        this._playSound('Ya1.mp3');
+        // 抓取偏移：保持鼠标在鲸鱼身上的相对落点，避免临界点布局翻转造成的抖动
+        const [wx, wy] = this._whale.get_position();
+        this._hold = {sx: px, sy: py, moved: false, ox: wx - px, oy: wy - py};
+        this._playSound('pick');
         this._easeScale(0.93, 90, Clutter.AnimationMode.EASE_OUT_QUAD);
         if (!this._followTimer)
             this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => this._followTick());
@@ -272,15 +422,13 @@ export default class DshWhaleWidget extends Extension {
             const wa = this._workArea();
             const nw = Math.round(this._w * this._whaleScale);
             const nh = Math.round(this._h * this._whaleScale);
-            let tx = mx - nw - 6;
-            let ty = my - nh + 24;
-            if (tx < wa.x)
-                tx = mx + 10;
+            // 跟随：位置 = 鼠标 + 按下时偏移，仅做边界 clamp（单调、无临界翻转 → 不再抖动）
+            let tx = mx + h.ox;
+            let ty = my + h.oy;
             tx = Math.max(wa.x, Math.min(wa.x + wa.width - nw, tx));
             ty = Math.max(wa.y, Math.min(wa.y + wa.height - nh, ty));
             const rx = Math.round(tx);
             const ry = Math.round(ty);
-            // 跟随用即时 set_position：避免 ease 在边缘被 clamp 后反复触发造成抖动/抗拒
             if (this._whale.get_x() !== rx || this._whale.get_y() !== ry)
                 this._whale.set_position(rx, ry);
             this._lastMoveAt = Date.now();
@@ -302,12 +450,55 @@ export default class DshWhaleWidget extends Extension {
             GLib.source_remove(this._followTimer);
             this._followTimer = 0;
         }
-        this._snapMaybe();
         this._lastMoveAt = Date.now();
-        this._playSound('Ya2.mp3');
+        if (!moved) {                     // 未拖动 = 摸摸头互动
+            this._easeScale(1, 220, Clutter.AnimationMode.EASE_OUT_BACK);
+            this._petHead();
+            return;
+        }
+        this._snapMaybe();
+        this._playSound('drop');
         this._easeScale(1, 220, Clutter.AnimationMode.EASE_OUT_BACK);
-        if (!moved)
-            this._showBalanceFlavor();
+    }
+
+    _petHead() {
+        try {
+            this._playSound('pet');
+            const wa = this._workArea();
+            const wy = this._whale.get_y();
+            const [ww] = this._whale.get_size();
+            // 开心小跳 ×3（向上 14px，被屏幕内边界约束）
+            const y0 = Math.max(wa.y, wy);
+            let n = 0;
+            const hop = () => {
+                if (!this._whale || this._hold)
+                    return;
+                n += 1;
+                this._whale.ease({
+                    y: n % 2 ? y0 - 14 : y0,
+                    duration: 110,
+                    mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                    onComplete: () => {
+                        if (n < 4)
+                            hop();
+                    },
+                });
+            };
+            hop();
+            // 飘出开心符号
+            this._fxSymbol('♥', -ww / 4);
+            this._fxSymbol('♫', ww / 5);
+            this._bubble(this._petText());
+        } catch (e) { /* 忽略 */ }
+    }
+
+    _petText() {
+        if (this._lastBal && Math.random() < 0.5) {
+            const b = this._lastBal;
+            const c = b.cur === 'USD' ? '$' : '¥';
+            return `💬 余额 ${c} ${Number(b.total).toFixed(2)}\n${this._pick(PET_LINES)}`;
+        }
+        return this._pick(PET_LINES);
     }
 
     _snapMaybe() {
@@ -367,6 +558,7 @@ export default class DshWhaleWidget extends Extension {
     _cyclePeak() {
         const i = PEAK_MODES.indexOf(this._peakMode);
         this._peakMode = PEAK_MODES[(i + 1) % PEAK_MODES.length];
+        this._savePrefs();
     }
 
     _menuBtn(label, fn, hint) {
@@ -387,6 +579,7 @@ export default class DshWhaleWidget extends Extension {
 
     _openMenu(cx, cy) {
         this._closeMenu();
+        this._menuPos = {cx, cy};
         const wa = this._workArea();
         const box = new St.BoxLayout({
             vertical: true,
@@ -397,15 +590,36 @@ export default class DshWhaleWidget extends Extension {
         box.add_child(this._menuBtn('🏠 回到左下角', () => this._goHome()));
         box.add_child(this._menuBtn('🔍 放大', () => this._zoom(0.15)));
         box.add_child(this._menuBtn('🔎 缩小', () => this._zoom(-0.15)));
+        box.add_child(this._menuBtn('🎵 音色', () => {
+            const keys = Object.keys(SFX_THEMES);
+            const i = keys.indexOf(this._sfxTheme);
+            this._sfxTheme = keys[(i + 1) % keys.length];
+            this._savePrefs();
+            this._playSound('pick');
+            this._openMenu(this._menuPos.cx, this._menuPos.cy);
+        }, SFX_THEMES[this._sfxTheme].label));
+        box.add_child(this._volRow());
         box.add_child(this._menuBtn('🔊 音效', () => {
             this._soundOn = !this._soundOn;
-            this._openMenu(cx, cy);
+            this._savePrefs();
+            this._openMenu(this._menuPos.cx, this._menuPos.cy);
         }, this._soundOn ? '开' : '关'));
+        box.add_child(this._menuBtn('💬 气泡', () => {
+            this._bubbleOn = !this._bubbleOn;
+            this._savePrefs();
+            this._openMenu(this._menuPos.cx, this._menuPos.cy);
+        }, this._bubbleOn ? '开' : '关'));
         box.add_child(this._menuBtn('🎙️ 峰谷文案', () => {
             this._cyclePeak();
-            this._openMenu(cx, cy);
+            this._openMenu(this._menuPos.cx, this._menuPos.cy);
         }, PEAK_MODE_LABEL[this._peakMode]));
-        box.add_child(this._menuBtn('✖ 收起', () => {}));
+        box.add_child(this._menuBtn('🙈 隐藏', () => {
+            try {
+                // 卸载扩展(即时消失)；之后从开始菜单“DSH小鲸鱼 → 启用并放回左下角”恢复
+                GLib.spawn_async(null, ['/usr/bin/gnome-extensions', 'disable', 'dsh-whale@local'],
+                    null, GLib.SpawnFlags.SEARCH_PATH, null);
+            } catch (e) { /* 忽略 */ }
+        }));
         Main.uiGroup.add_child(box);
         box.get_preferred_width(-1);
         const [nw] = box.get_preferred_width(-1);
@@ -416,6 +630,42 @@ export default class DshWhaleWidget extends Extension {
         y = Math.max(wa.y, Math.min(wa.y + wa.height - nh, y));
         box.set_position(x, y);
         this._menu = box;
+    }
+
+    // 音量调节行：− / 当前值 / ＋(每档 5%)
+    _volRow() {
+        const row = new St.BoxLayout({style: 'spacing: 2px; padding: 2px 4px;' });
+        const mk = (txt, d) => {
+            const b = new St.Button({label: txt, can_focus: false});
+            b.style = BTN_STYLE;
+            b.connect('enter-event', () => {
+                b.style = BTN_HOVER;
+            });
+            b.connect('leave-event', () => {
+                b.style = BTN_STYLE;
+            });
+            b.connect('clicked', () => {
+                this._vol = Math.max(0, Math.min(1, Math.round((this._vol + d) * 20) / 20));
+                this._savePrefs();
+                this._openMenu(this._menuPos.cx, this._menuPos.cy);
+            });
+            return b;
+        };
+        const lbl = new St.Label({
+            text: '🎚 音量',
+            style: 'color: #eaf1ff; font-size: 13px; font-weight: 500; padding: 8px 8px;',
+        });
+        const val = new St.Label({
+            text: `${Math.round(this._vol * 100)}%`,
+            style: 'color: #ffd76a; font-size: 13px; font-weight: 700; padding: 8px 4px;',
+        });
+        val.y_expand = true;
+        lbl.y_expand = true;
+        row.add_child(mk('−', -0.05));
+        row.add_child(lbl);
+        row.add_child(val);
+        row.add_child(mk('＋', 0.05));
+        return row;
     }
 
     _closeMenu() {
@@ -443,7 +693,7 @@ export default class DshWhaleWidget extends Extension {
 
     _showBalanceFlavor() {
         if (!this._apiKey) {
-            this._bubble('未配置 DEEPSEEK_API_KEY\n请在 ~/.dsh/.credentials.yaml 填写');
+            this._bubble('未配置 DEEPSEEK_API_KEY\n请在 ~/.dsh/.credentials.yaml 填写', true);
             return;
         }
         this._fetchBalance();
@@ -462,12 +712,12 @@ export default class DshWhaleWidget extends Extension {
                 const cur = (info && info.currency) || 'CNY';
                 if (total !== null && isFinite(total)) {
                     this._lastBal = {cur, total};
-                    this._bubble(this._flavorText(cur, total));
+                    this._bubble(this._flavorText(cur, total), true);
                 } else {
-                    this._bubble('余额解析失败，请稍后再试');
+                    this._bubble('余额解析失败，请稍后再试', true);
                 }
             } catch (err) {
-                this._bubble(`获取失败：${err}`);
+                this._bubble(`获取失败：${err}`, true);
             }
         });
     }
@@ -487,7 +737,9 @@ export default class DshWhaleWidget extends Extension {
         return {x, y};
     }
 
-    _bubble(text) {
+    _bubble(text, force) {
+        if (!this._bubbleOn && !force)
+            return;
         if (this._bubTimer)
             clearTimeout(this._bubTimer);
         if (this._bub)
