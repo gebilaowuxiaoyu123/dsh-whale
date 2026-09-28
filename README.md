@@ -15,10 +15,10 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含三种�
 |---|---|---|
 | **Windows 桌面挂件** | `dsh-whale-desktop/` | 无边框透明置顶悬浮窗，鲸鱼浮在桌面、可满桌面拖动 |
 | **Linux 桌面挂件** | `dsh-whale-desktop-linux/` | 适配 Ubuntu 22.04 / 24.04 amd64（x86_64），AppImage/deb |
-| **DSH 网页版插件** | `dsh-whale-widget/` | 基于 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（MIT），随 dsh web 自动启用 |
+| **DSH 网页版插件** | `dsh-whale-widget/` | 上游 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（MIT）**v0.3.16** 的原样 vendored 副本，随 dsh web 自动启用 |
 
-三者共用同一套余额数据与记账逻辑，**完全本地运行**：直接调 DeepSeek API 拉余额，不依赖 dsh web、
-不用打开浏览器。
+三者都**完全本地运行**：直接调 DeepSeek API 拉余额，不依赖 dsh web、不用打开浏览器。
+其中两个桌面版共用同一套实现与记账逻辑；网页版插件是上游独立实现，功能更全（见下文）。
 
 ## ✨ 特性
 
@@ -38,7 +38,7 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含三种�
 dsh-whale/
 ├── README.md                       # 本文件（项目总文档）
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
-├── dsh-whale-widget/               # DSH 网页版插件源码（第三方，MIT，vendored）
+├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.16）
 ├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
 │   ├── main.js                     #   主进程：本地服务(3090)+直连余额+透明置顶窗口
 │   ├── preload.js                  #   像素级点击穿透
@@ -134,8 +134,24 @@ sudo dpkg -i dist/*.deb
 dsh plugin --profile web add link:C:\...\dsh-whale\dsh-whale-widget
 ```
 
-> 该目录为第三方插件源码（MIT），已 vendored 进本仓库并保留 LICENSE；上游：
-> https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget
+> **该目录为上游第三方源码的原样 vendored 副本**（MIT，保留 `LICENSE` 与素材来源说明 `PROVENANCE.md`）：
+> - 上游：https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget
+> - 当前版本：**v0.3.16**（更新于 2026-09-28）
+> - 维护方式：整目录覆盖上游对应版本、不做本地改动，便于日后 diff 与追溯
+
+### 本次更新（v0.2.10 → v0.3.16）要点
+
+- 🔒 **安全修复（重要）**：v0.3.15 修掉「任意 DSH Web 会话可让宿主动用真实 API key 去请求攻击者可控 URL」的**凭据外带**；写请求（POST/PUT/PATCH/DELETE）自 0.3.15 起仅允许本机来源
+- 🏢 **多厂商额度**：内置 33 个厂商模板，可自定义接口地址与模型
+- 🎨 **外观与交互**：自定义泡泡点击序列、逐行样式与字体、自定义角色/动图/音效、吸附与翻转自定义
+- 🔔 **音效与提示面板**：任务结束音（Minecraft 经验球 / 预设 A）、四入口面板、每事件音量与试听
+- 💬 **对话名模块**、**DSH 账号登录态读余额**、**记账按密钥分本**（换 key 后历史账目仍可查看）
+- 🧩 **前端拆分**：前端由内嵌改为独立文件 `assets/whale-widget.js`
+- 🔧 新增维护脚本 `tools/`（CI 不变量自检，可本地跑 `node tools/ci-audit.mjs --no-pack`，当前 5/5 通过）
+
+> ⚠️ **两个桌面版（`dsh-whale-desktop*`）未随本次更新**：它们自带 `main.js` + `widget.js`，
+> 与本插件目录**互不依赖**，当前仍按旧版逻辑独立工作。若希望桌面版也用上 0.3.16 的新能力，
+> 需要把桌面 `main.js` 的宿主接口适配到新版前端协议，属于独立改造。
 
 ## 🔑 配置说明（API Key）
 
