@@ -17,6 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { startPlugin } = require('./host-shim');
 
 const WIDGET_PORT = 3090; // 本挂件本地服务端口
 const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
@@ -323,11 +324,64 @@ function sendFile(res, filePath, contentType, cache = 'no-store') {
   res.end(buf);
 }
 
+// ---------- 插件宿主：直接运行 vendored 的 DSH 插件本体 ----------
+// 桌面版与网页版插件共用同一份实现（dsh-whale-widget/lib/index.js），因此：
+//   · 功能完全一致：余额/记账/多厂商额度/自定义角色·音效·泡泡图/余额校正…（23 条路由）；
+//   · 插件目录是唯一实现来源，以后更新插件桌面版自动同步，不必再逐条适配路由。
+// 插件加载失败时**自动回退**到下面本文件内置的路由实现，保证挂件始终可用。
+let pluginHost = null;
+let pluginLoadPromise = null;
+
+function loadPluginHost() {
+  if (pluginLoadPromise) return pluginLoadPromise;
+  pluginLoadPromise = startPlugin({
+    appDir: __dirname,
+    resourcesPath: process.resourcesPath,
+    dshHome: DSH_HOME,
+    credFile: CRED_FILE,
+    logger: console,
+  })
+    .then((r) => {
+      if (r.ok) {
+        pluginHost = r.host;
+        console.log('[dsh-whale] 已加载插件本体：' + r.entry + '（路由 ' + r.host.routes.size + ' 条）');
+      } else {
+        console.warn('[dsh-whale] 插件本体加载失败，已回退内置路由实现：' + r.error);
+      }
+      return r;
+    })
+    .catch((err) => {
+      console.warn('[dsh-whale] 插件本体加载异常，已回退内置路由实现：' + String((err && err.message) || err));
+      return { ok: false, error: String(err) };
+    });
+  return pluginLoadPromise;
+}
+
 /** 本地服务：自包含实现 /dsh-whale/* 全部路由（不依赖 dsh web）。 */
 function startServer() {
   const srv = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://127.0.0.1:' + WIDGET_PORT);
     const p = u.pathname;
+
+    // 插件本体优先接管 /dsh-whale/*：未命中的路径再走本文件内置实现
+    // （内置部分保留桌面版特有路由：/setup、/dsh-whale/apikey、autostart、first-run-done）
+    if (pluginHost) {
+      const pluginRoute = pluginHost.routes.get(p);
+      if (pluginRoute) {
+        Promise.resolve()
+          .then(() => pluginRoute.handler(req, res))
+          .catch((err) => {
+            console.warn('[dsh-whale] 插件路由 ' + p + ' 处理失败: ' + String((err && err.message) || err));
+            try {
+              if (!res.headersSent) {
+                res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+                res.end('internal error');
+              }
+            } catch (_e) {}
+          });
+        return;
+      }
+    }
 
     if (p === '/' || p === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -518,7 +572,9 @@ ipcMain.on('whale-hover', (_e, over) => {
   if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!over, { forward: true });
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 先加载插件本体，保证挂件发出的第一个请求就能命中插件路由
+  await loadPluginHost();
   startServer();
   createTray();
   // 首次运行：未配置 API Key 时先弹出配置窗口自动补齐，否则直接显示挂件

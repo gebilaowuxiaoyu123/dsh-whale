@@ -15,10 +15,24 @@
     "asar": true,
     "files": [
       "main.js",
+      "host-shim.js",
       "preload.js",
       "widget.js",
       "assets/**",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dsh-whale-widget",
+        "to": "dsh-whale-widget",
+        "filter": [
+          "lib/**",
+          "assets/**",
+          "package.json",
+          "LICENSE",
+          "PROVENANCE.md"
+        ]
+      }
     ],
     "directories": {
       "output": "dist"
