@@ -41,7 +41,8 @@ dsh-whale/
 ├── tools/
 │   ├── ledger-compat-test.mjs      # 账本兼容性测试（桌面版 ↔ 插件共用账本）
 │   ├── desktop-plugin-integration-test.mjs  # 桌面版运行插件本体的端到端集成测试（路由/鉴权）
-│   └── desktop-ui-smoke-test.mjs   # UI 冒烟测试（用 CDP 查真实 DOM，需调试模式启动挂件）
+│   ├── desktop-ui-smoke-test.mjs   # UI 冒烟测试（用 CDP 查真实 DOM，需调试模式启动挂件）
+│   └── desktop-button-audit.mjs    # 按钮全覆盖检查（逐面板验证可见按钮可命中/可交互）
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.16）
 │                                   #   ← 同时是桌面版的**唯一功能实现来源**
 ├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
