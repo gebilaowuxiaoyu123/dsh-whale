@@ -35,9 +35,17 @@ const PAGE = `<!doctype html>
 <meta charset="utf-8">
 <style>
   html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; }
+  /* 供插件前端做「是否处于主聊天界面」自检用的占位节点：不参与布局、不可见、不可交互 */
+  #root { position:absolute; top:0; left:0; width:0; height:0; overflow:hidden; }
+  #root > textarea { width:0; height:0; opacity:0; border:0; padding:0; margin:0; }
 </style>
 </head>
 <body>
+<!-- 插件前端（whale-widget.js）开头有一段页面自检：只在实际的 DSH 主聊天界面（能在 #root 里
+     查到 composer 输入区）才挂载挂件，否则不碰 DOM —— 这是为避免干扰 DSH 的 SPA 视图。
+     桌面版加载的不是 DSH 页面，因此这里提供一个不可见、不参与布局的等价占位节点让自检通过；
+     真正决定挂件外观与行为的是前端自身与其 /dsh-whale/* 接口，不依赖此占位节点。 -->
+<div id="root"><textarea readonly aria-hidden="true" tabindex="-1"></textarea></div>
 <script src="/dsh-whale/widget.js"></script>
 </body>
 </html>`;

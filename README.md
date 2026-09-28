@@ -40,7 +40,8 @@ dsh-whale/
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
 ├── tools/
 │   ├── ledger-compat-test.mjs      # 账本兼容性测试（桌面版 ↔ 插件共用账本）
-│   └── desktop-plugin-integration-test.mjs  # 桌面版运行插件本体的端到端集成测试
+│   ├── desktop-plugin-integration-test.mjs  # 桌面版运行插件本体的端到端集成测试（路由/鉴权）
+│   └── desktop-ui-smoke-test.mjs   # UI 冒烟测试（用 CDP 查真实 DOM，需调试模式启动挂件）
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.16）
 │                                   #   ← 同时是桌面版的**唯一功能实现来源**
 ├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
@@ -85,6 +86,11 @@ dsh-whale/
   `ctx.credentials.resolve/set`（读写 `~/.dsh/.credentials.yaml`）。缺失的 DSH 可选服务
   （connection / sessionTitle / deepseekAccount）返回 `null` → 插件自动降级到它**自带的回环+同源校验**
   （伪造 Host / 跨站写请求均被 403），并跳过依赖 DSH 会话的功能（每轮消耗、wait.json）
+- **页面自检适配（易踩坑）**：插件前端开头有一段自检 —— 只在「能查到 composer 输入区
+  （`textarea` / `[data-composer-input]` 等）的 DSH 主聊天界面」才挂载挂件，否则一行 DOM 都不碰
+  （避免干扰 DSH 的 SPA 视图）。桌面版加载的不是 DSH 页面，所以 `PAGE` 里放了一个**不可见、
+  不参与布局的占位节点**（`#root > textarea`）让自检通过 —— 缺了它会出现「23 条路由全部 200、
+  但挂件一个节点都不渲染」的现象
 - **回退网**：插件加载失败（文件缺失、语法错误等）时自动回退到内置路由实现，挂件始终可用
 - **记账**：`~/.dsh/.dshw-usage.json` 与插件共用同一本账（`accounting.books` 按 API key 指纹分本）
 - **配置**：`~/.dsh/.credentials.yaml`（API Key）、`~/.dsh/.dshw-size.json`（挂件尺寸/开关），均与插件共用
