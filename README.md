@@ -38,6 +38,7 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含三种�
 dsh-whale/
 ├── README.md                       # 本文件（项目总文档）
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
+├── tools/ledger-compat-test.mjs    # 账本兼容性测试（桌面版 ↔ 插件共用账本）
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.16）
 ├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
 │   ├── main.js                     #   主进程：本地服务(3090)+直连余额+透明置顶窗口
@@ -159,6 +160,17 @@ dsh plugin --profile web add link:C:\...\dsh-whale\dsh-whale-widget
 - 存放位置：`~/.dsh/.credentials.yaml`（格式 `version: 1` + `refs:`），或环境变量
 - 在挂件菜单里（最下方 API Key 输入框）可随时修改并保存，立即生效
 - `DEEPSEEK_PLATFORM_TOKEN` 可选：仅「实时·令牌」用量模式需要，不配也能用默认记账模式
+
+## 📊 记账与账本（桌面版 ↔ 插件共用）
+
+- 「今日已用」由**余额差值本地记账**得出，账本文件：`~/.dsh/.dshw-usage.json`
+- 两个桌面版与网页版插件**共用同一本账**，按 **API key 指纹分本**（同一把 key = 同一本账；
+  换 key 等于换一本，旧账仍保留在账本里，**不会丢**）
+- 账本格式与插件 `lib/accounting.mjs` 对齐：`accounting.books["<scope>-<币种>"].days[<日期>]`，
+  并同时维护旧版兼容字段（`date` / `lastBalance` / `todayUsage` / `history`）
+- **兼容性保障**：自 2026-09-28 起桌面版已对齐新格式 —— 跨天首次运行、换 key 等场景
+  **不会再覆盖插件的记账历史**（旧实现在跨天时会整体重建账本对象，从而丢掉 `accounting.books`）
+- 自测：`node tools/ledger-compat-test.mjs`（提取桌面版真实记账代码与插件模块对测，25 项断言）
 
 ## ⚙️ CI/CD
 

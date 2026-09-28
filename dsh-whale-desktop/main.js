@@ -15,6 +15,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const WIDGET_PORT = 3090; // 本挂件本地服务端口
@@ -194,6 +195,87 @@ function createTray() {
 }
 
 // ---------- 记账：小鲸鱼记账模式（余额差值本地记账） ----------
+// 账本 ~/.dsh/.dshw-usage.json 与 DSH 网页版插件（dsh-whale-widget）**共用同一本账**，
+// 因此这里的数据格式与语义和插件 lib/accounting.mjs 保持一致：
+//   { accounting: { version:1, active, books:{ "<scope>-<币种>": { currency, days:{...}, lastAt } } } }
+// 同时继续维护旧版兼容字段（date/lastBalance/todayUsage/history），供旧 UI 与插件读取。
+// 注意：切勿整体重建账本对象 —— 那会丢掉插件写入的 accounting.books 历史（跨天/换 key 场景）。
+const ACCOUNTING_VERSION = 1;
+const MONEY_SCALE = 100000000; // 8 位小数定点记账，避免浮点误差
+
+// 账本日期一律按北京时间（与插件 beijingDay 对齐）
+function beijingDay(t) {
+  const d = new Date(Number(t == null ? Date.now() : t) + 8 * 3600000);
+  return d.toISOString().slice(0, 10);
+}
+function moneyUnits(v) {
+  const n = Number(v);
+  const units = Math.round(n * MONEY_SCALE);
+  if (!Number.isFinite(n) || !Number.isSafeInteger(units)) throw new Error('金额无效或超出可记账范围');
+  return units;
+}
+// 账户标识：与插件一致 —— sha256(API key) 前 24 位十六进制。同一把 key 即同一本账。
+function ledgerScope(apiKey) {
+  return crypto.createHash('sha256').update(String(apiKey)).digest('hex').slice(0, 24);
+}
+function observedUnits(row) {
+  const c = row.correction;
+  return c ? c.amountUnits + row.debitUnits - c.debitUnits : row.debitUnits;
+}
+// 记录一次余额观测（原地修改 ledger），返回「今日已用」金额
+function observeBalance(ledger, snapshot) {
+  const at = Number(snapshot.at == null ? Date.now() : snapshot.at);
+  const day = beijingDay(at);
+  const units = moneyUnits(snapshot.balance);
+  const currency = String(snapshot.currency || 'CNY').toUpperCase();
+  const context = String(snapshot.scope) + '-' + currency;
+
+  let a = ledger.accounting;
+  if (!a || a.version !== ACCOUNTING_VERSION) {
+    // 旧格式账本：历史数值缺少可信的充值信息，保留到 legacyHistory 供参考，并开启新的观测窗口
+    a = ledger.accounting = {
+      version: ACCOUNTING_VERSION, active: context, books: {}, migratedAt: at,
+      legacyHistory: Object.assign({}, ledger.history || {}),
+    };
+  }
+  if (!a.books) a.books = {};
+  let book = a.books[context];
+  if (!book) book = a.books[context] = { currency: currency, days: {} };
+  if (!book.days) book.days = {};
+  // 忽略重复 / 乱序样本（含迟到的昨天样本）
+  if (book.lastAt != null && at <= book.lastAt) {
+    return Number(ledger.todayUsage || 0);
+  }
+  a.active = context;
+
+  let row = book.days[day];
+  if (!row) {
+    row = book.days[day] = {
+      day: day, firstAt: at, lastAt: at, openingUnits: units, lastUnits: units,
+      debitUnits: 0, creditUnits: 0, revision: 0, correction: null,
+    };
+  } else {
+    const delta = row.lastUnits - units;
+    if (delta > 0) row.debitUnits += delta;
+    if (delta < 0) row.creditUnits -= delta;
+    row.lastUnits = units;
+    row.lastAt = at;
+  }
+  book.lastAt = at;
+  book.currency = currency;
+
+  // 兼容字段：旧 UI / 插件的老设置写入器仍会读这些键
+  const amount = observedUnits(row) / MONEY_SCALE;
+  ledger.date = day;
+  ledger.dayStart = row.openingUnits / MONEY_SCALE;
+  ledger.lastBalance = row.lastUnits / MONEY_SCALE;
+  ledger.lastCurrency = currency;
+  ledger.todayUsage = amount;
+  if (!ledger.history) ledger.history = {};
+  ledger.history[day] = amount;
+  return amount;
+}
+
 function fetchBalancePayload() {
   return new Promise((resolve) => {
     const key = readApiKey();
@@ -210,18 +292,18 @@ function fetchBalancePayload() {
           const total = Number(info && info.total_balance);
           const currency = (info && info.currency) || 'CNY';
           if (!isFinite(total)) throw new Error('balance parse failed');
-          const today = todayKey();
-          let usage = readJson(USAGE_FILE);
-          if (!usage || usage.date !== today) usage = { date: today, lastBalance: null, lastCurrency: null, todayUsage: 0, history: {} };
-          if (usage.lastBalance != null && usage.lastCurrency === currency && total < usage.lastBalance) {
-            usage.todayUsage = Number(usage.todayUsage || 0) + (usage.lastBalance - total);
+          // 与 DSH 插件共用账本：统一走 observeBalance（格式/语义对齐 accounting.mjs）
+          const ledger = readJson(USAGE_FILE) || {};
+          let todayUsage;
+          try {
+            todayUsage = observeBalance(ledger, { balance: total, currency, scope: ledgerScope(key), at: Date.now() });
+          } catch (_e) {
+            todayUsage = Number(ledger.todayUsage || 0); // 记账异常不影响余额显示
           }
-          usage.lastBalance = total;
-          usage.lastCurrency = currency;
-          writeJson(USAGE_FILE, usage);
+          writeJson(USAGE_FILE, ledger);
           resolve({
             ok: true, totalBalance: total, currency, updatedAt: new Date().toISOString(),
-            todayUsage: Number(usage.todayUsage || 0), isPeak: isPeakTime(), usageMode: 'ledger',
+            todayUsage: todayUsage, isPeak: isPeakTime(), usageMode: 'ledger',
           });
         })
         .catch((err) => {
