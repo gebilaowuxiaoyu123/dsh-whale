@@ -272,11 +272,31 @@ async function main() {
         v.badge ? `badge.visibility=${v.badge.vis}` : 'badge 不存在');
     await shot('06-menu-open.png');
 
-    // 关闭菜单
-    await evaluate(`(() => { const b = document.querySelector('.dshwv-menu-btn');
-      if (b) b.click(); })()`);
-    await sleep(1300);
-    const closed = await menuState();
+    // 关闭菜单：必须走**真实坐标点击**。
+    // 插件里有「刚 pointdown 关过就抑制随之而来的 click」的防抖（dshwCustSuppressAt），
+    // 程序化 el.click() 会被吃掉 → 菜单留在打开状态，后面的断言全跟着假失败（踩过）。
+    const closeMenu = async () => {
+        for (let i = 0; i < 3; i++) {
+            const b = await evaluate(`(() => { const e = document.querySelector('.dshwv-menu-btn');
+              if (!e) return null; const r = e.getBoundingClientRect();
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+            if (b) {
+                await clickAt(b.x, b.y);
+                await sleep(800);
+            }
+            let st = await menuState();
+            if (st && Number(st.op) <= 0.5)
+                return st;
+            await evaluate(`(() => { const el = document.querySelector('.dshwv-menu-btn');
+              if (el) el.click(); })()`);
+            await sleep(800);
+            st = await menuState();
+            if (st && Number(st.op) <= 0.5)
+                return st;
+        }
+        return await menuState();
+    };
+    const closed = await closeMenu();
     check('插件菜单已关闭', !!closed && Number(closed.op) <= 0.5, JSON.stringify(closed));
     v = await vis();
     check('菜单关闭后角标恢复', !!v.fx && v.fx.vis === 'visible',
@@ -285,14 +305,18 @@ async function main() {
 
     console.log('\n[7] 提示浮层');
     await evaluate("window.dshwEnhance.toast('🐳 提示渲染测试：谷价时段是跑量的好时候！', 15000)");
-    await sleep(500);
-    const t = await evaluate(`(() => {
-      const el = document.querySelector('.dshwe-toast.on');
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { text: el.textContent, left: r.left, right: r.right, vw: window.innerWidth };
-    })()`);
-    check('提示已出现', !!t, t ? t.text : 'null');
+    // 提示若因插件 UI 正在显示而被推迟，会在 6s 后自动重试 —— 所以这里轮询等待
+    let t = null;
+    for (let i = 0; i < 16 && !t; i++) {
+        await sleep(700);
+        t = await evaluate(`(() => {
+          const el = document.querySelector('.dshwe-toast.on');
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { text: el.textContent, left: r.left, right: r.right, vw: window.innerWidth };
+        })()`);
+    }
+    check('提示已出现', !!t, t ? t.text : '轮询 ~11s 仍未出现');
     if (t)
         check('提示未被右边缘裁切', t.right <= t.vw + 0.5, `right=${t.right}/${t.vw}`);
     await shot('05-toast.png');
