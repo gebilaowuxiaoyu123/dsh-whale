@@ -167,6 +167,42 @@
 
 ---
 
+## [桌面版 Linux v1.1] - 2026-10-02
+
+> 实机基线：Ubuntu 24.04.4 / GNOME 46 / **Wayland** / Intel Meteor Lake / 3120×2080 缩放 2.0
+
+### 修复（阻断性 —— 此前 Linux 版实际上不可用）
+- **点击穿透在 Linux 上失效且反向有害**：`setIgnoreMouseEvents(true, {forward:true})` 的 `forward`
+  官方只支持 macOS/Windows。实机探针实测：Linux 下窗口仍收到**全部** mousemove，且透明区域的
+  点击**不会穿透**到下层窗口（背景窗 0 次收到）→ 一个全屏透明窗会**挡住整个桌面的点击**。
+  现改用 `win.setShape(rects)`：实测区域外点击可**精确穿透**（背景窗准确收到点击坐标）。
+  实测效果：`ShapeBounding` 从整窗 5,846,880 px² 收窄到 **325,056 px²**（约 5.6%），其余全部穿透
+- **强制 XWayland**：`--ozone-platform=x11` 必须作为**命令行参数**传入（在 main.js 里 `appendSwitch`
+  太晚，Chromium 已选好 Ozone 平台）。不强制时会跑原生 Wayland：没有 X11 窗口（`setShape` 不可用）、
+  `screen.getCursorScreenPoint()` 恒返回 `(0,0)`、`setAlwaysOnTop` 无效。现由主进程启动时
+  **自动用正确参数重启一次自己**（AppImage 下用 `APPIMAGE` 本体）
+- **Ubuntu 24.04 沙箱**：AppImage 无法保留 setuid `chrome-sandbox`，而 24.04 默认禁止非特权
+  user namespace → Chromium 沙箱必然启动失败。现在检测到「userns 受限 + 无 setuid 沙箱」时
+  自动附加 `--no-sandbox`（deb 安装有 setuid 沙箱则不加，保留沙箱）
+- **开机自启路径失效**：AppImage 下 `process.execPath` 是 `/tmp/.mount_xxxx/...` 临时挂载点，
+  重启后必然失效。改为优先 `process.env.APPIMAGE`；`Exec` 加引号并带上 `--ozone-platform=x11`
+- **单实例锁**：新增 `requestSingleInstanceLock()` —— 自启与手动启动撞车时会抢 3090 端口，
+  导致第二次启动崩溃
+
+### 新增
+- `preload-linux.js`：Linux 专用 preload。按 PNG alpha 轮廓把鲸鱼切成 16 条横向分带
+  （比整块方形贴合得多），加上其它可见元素（面板/气泡/飘字）的矩形，去重后上报主进程 `setShape`。
+  实测确认 `setShape` 走的是 X11 **ShapeBounding**，会**同时裁剪绘制**，因此：鲸鱼移动中自动用
+  大 padding（56px，绝不被裁切），静止 250ms 后收紧到 12px（穿透更精确）；最多约 30fps 上报，
+  形状不变则不重复调用
+
+### 说明
+- 本轮改动只针对 `dsh-whale-desktop-linux/`；Windows 版沿用官方支持的 forward 方案，不受影响
+- 已实机验证：自动重启、X11 窗口建立、`setShape` 生效、23 条插件路由加载
+- **尚未做视觉验收**（鲸鱼是否被裁切、穿透手感、拖动是否跟手），需人工确认
+
+---
+
 ## [桌面版 v1.0] - 2026-09-02
 
 ### 新增

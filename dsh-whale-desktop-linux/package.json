@@ -19,6 +19,7 @@
       "main.js",
       "host-shim.js",
       "preload.js",
+      "preload-linux.js",
       "widget.js",
       "assets/**",
       "package.json"

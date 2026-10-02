@@ -19,6 +19,79 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { startPlugin } = require('./host-shim');
 
+// ============================================================================
+// Linux 平台引导（必须在 app ready 之前决定）
+// ----------------------------------------------------------------------------
+// 以下两条都是 2026-10-02 在本机（Ubuntu 24.04 / GNOME 46 / Wayland / 缩放 2.0）
+// 用真实探针实测出来的，不是推测：
+//
+// 1) `--ozone-platform=x11` 必须作为「命令行参数」传入。
+//    在 main.js 里 app.commandLine.appendSwitch() 太晚 —— Chromium 已经选好 Ozone 平台。
+//    不强制 XWayland 时会跑原生 Wayland，后果：
+//      · 没有 X11 窗口（xwininfo 找不到）→ setShape 不可用
+//      · screen.getCursorScreenPoint() 恒返回 (0,0)
+//    所以这里用「重启一次自己」的方式把参数补上。
+//
+// 2) setIgnoreMouseEvents(true, {forward:true}) 在 Linux 上是**空操作**：
+//    实测窗口仍收到全部 mousemove，且透明区域的点击**不会穿透**到下层窗口
+//    （背景窗 0 次收到点击）→ 一个全屏透明窗会挡住整个桌面的点击。
+//    改用 win.setShape(rects)：实测区域外点击可**精确穿透**（背景窗准确收到点击）。
+// ============================================================================
+const IS_LINUX = process.platform === 'linux';
+const OZONE_X11_FLAG = '--ozone-platform=x11';
+const MAX_SHAPE_RECTS = 240;
+
+/** 是否需要显式关闭沙箱：AppImage 无法保留 setuid chrome-sandbox，
+ *  而 Ubuntu 24.04 默认禁止非特权 user namespace → Chromium 沙箱必然启动失败。 */
+function linuxNeedNoSandbox() {
+  try {
+    const restrict = fs.readFileSync(
+      '/proc/sys/kernel/apparmor_restrict_unprivileged_userns', 'utf8').trim();
+    if (restrict !== '1') return false;                 // 未启用限制 → 沙箱可用
+    const sb = path.join(path.dirname(process.execPath), 'chrome-sandbox');
+    return (fs.statSync(sb).mode & 0o4000) === 0;       // 无 setuid → 只能靠 userns → 会被拦
+  } catch (_e) {
+    return false;
+  }
+}
+
+if (IS_LINUX && !process.argv.includes(OZONE_X11_FLAG)) {
+  try {
+    const { spawn } = require('child_process');
+    const exe = process.env.APPIMAGE || process.execPath;   // AppImage 必须用 APPIMAGE 本体
+    const args = process.argv.slice(1)
+      .filter((a) => !a.startsWith('--ozone-platform') && a !== '--no-sandbox');
+    args.push(OZONE_X11_FLAG);
+    const noSandbox = linuxNeedNoSandbox();
+    if (noSandbox) args.push('--no-sandbox');
+    const child = spawn(exe, args, {
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, DSHW_RELAUNCHED: '1' },
+    });
+    child.unref();
+    console.log(`[dsh-whale] 重启以强制 XWayland：${exe} ${args.join(' ')}` +
+      (noSandbox ? '（含 --no-sandbox：本机 userns 受限且无 setuid 沙箱）' : ''));
+    app.exit(0);
+    process.exit(0);
+  } catch (e) {
+    console.error('[dsh-whale] 强制 XWayland 失败，将以当前平台继续（可能无法置顶/穿透）：' + e);
+  }
+}
+
+// 单实例锁：避免第二个实例抢 3090 端口（自启 + 手动启动很容易撞车）
+if (!app.requestSingleInstanceLock()) {
+  console.log('[dsh-whale] 已有实例在运行，本次退出');
+  app.exit(0);
+  process.exit(0);
+}
+app.on('second-instance', () => {
+  if (win && !win.isDestroyed()) {
+    win.show();
+    win.setAlwaysOnTop(true, 'screen-saver');
+  }
+});
+
 const WIDGET_PORT = 3090; // 本挂件本地服务端口
 const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
 const CRED_FILE = path.join(DSH_HOME, '.credentials.yaml');
@@ -490,7 +563,11 @@ function startServer() {
 function registerAutoStart() {
   try {
     if (!app.isPackaged) return { ok: false, error: '仅打包版本支持开机自启' };
-    const exe = process.execPath;
+    // AppImage 下 process.execPath 是 /tmp/.mount_xxxx/... 临时挂载点，重启后必然失效，
+    // 必须优先用 APPIMAGE（AppImage 运行时自己设置的环境变量）
+    const exe = process.env.APPIMAGE || process.execPath;
+    // .desktop 的 Exec 转义规则：只对 ", `, $, \\ 做转义
+    const q = (s) => '"' + String(s).replace(/(["\\$`])/g, '\\$1') + '"';
     if (process.platform === 'linux') {
       // Linux: XDG autostart（~/.config/autostart/*.desktop）
       const autostartDir = path.join(os.homedir(), '.config', 'autostart');
@@ -501,7 +578,9 @@ function registerAutoStart() {
         'Type=Application',
         'Name=DSH Whale Widget',
         'Comment=DeepSeek 余额小鲸鱼桌面挂件',
-        'Exec=' + exe,
+        // 自启也要带上 --ozone-platform=x11，否则开机后跑原生 Wayland：无置顶、无穿透
+        'Exec=' + q(exe) + ' --ozone-platform=x11' +
+          (linuxNeedNoSandbox() ? ' --no-sandbox' : ''),
         'Terminal=false',
         'X-GNOME-Autostart-enabled=true',
       ].join('\n') + '\n';
@@ -563,22 +642,77 @@ function createWidgetWindow() {
     hasShadow: false,
     title: 'DSH Whale Desktop',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      // Linux 用专用 preload：forward 在 Linux 失效，改由它上报「可见矩形」给 setShape
+      preload: path.join(__dirname, IS_LINUX ? 'preload-linux.js' : 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
   win.setAlwaysOnTop(true, 'screen-saver');
-  // 整窗默认点击穿透，仅鲸鱼/菜单区域接收交互（由 preload 的 mousemove 实时切换）
-  win.setIgnoreMouseEvents(true, { forward: true });
+  winW = right - left;
+  winH = bottom - top;
+  lastShapeKey = '';
+  if (IS_LINUX) {
+    // Linux 不调用 setIgnoreMouseEvents：实测在 Linux 上它是空操作，还会让透明窗挡住整个桌面。
+    // 先保持整窗可交互（保证一定看得见、点得到），等 preload 上报矩形后用 setShape 精确收窄。
+    win.setIgnoreMouseEvents(false);
+  } else {
+    // Windows / macOS：官方支持的 forward 逐像素方案（由 preload 的 mousemove 实时切换）
+    win.setIgnoreMouseEvents(true, { forward: true });
+  }
   win.loadURL(`http://127.0.0.1:${WIDGET_PORT}/`);
   win.on('closed', () => { win = null; });
-  console.log('[dsh-whale] window bounds = ' + JSON.stringify(win.getBounds()));
+  console.log('[dsh-whale] window bounds = ' + JSON.stringify(win.getBounds()) +
+    (IS_LINUX ? `  [linux/setShape 模式, winH=${winH}]` : '  [forward 模式]'));
 }
 
+// ---------- 点击穿透：Linux 用 setShape，Windows/macOS 用官方 forward ----------
+let winW = 0;
+let winH = 0;
+let lastShapeKey = '';
+let shapeWarned = false;
+
+/** Linux：把「当前所有可见内容的矩形」交给 X11 形状 —— 区域内可点、区域外点击精确穿透 */
+function applyInputShape(rects) {
+  if (!IS_LINUX || !win || win.isDestroyed() || !winW || !winH) return;
+  if (!Array.isArray(rects) || !rects.length) return;
+
+  const out = [];
+  for (const r of rects) {
+    if (!r) continue;
+    let x = Math.round(r.x), y = Math.round(r.y);
+    let w = Math.round(r.width), h = Math.round(r.height);
+    if (w < 1 || h < 1) continue;
+    if (x + w < 0 || y + h < 0 || x > winW || y > winH) continue;
+    x = Math.max(0, x); y = Math.max(0, y);
+    out.push({ x, y, width: Math.min(w, winW - x), height: Math.min(h, winH - y) });
+    if (out.length >= MAX_SHAPE_RECTS) break;
+  }
+  if (!out.length) return;
+
+  // 形状没变就不重复调用（X11 每次 setShape 都要重算一遍形状）
+  const key = out.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join(';');
+  if (key === lastShapeKey) return;
+  lastShapeKey = key;
+
+  try {
+    win.setShape(out);
+  } catch (e) {
+    if (!shapeWarned) {
+      shapeWarned = true;
+      console.error('[dsh-whale] setShape 失败，退回「整窗可交互」（点击不会穿透，但功能可用）：' + e);
+    }
+  }
+}
+
+// Windows / macOS：forward 逐像素方案（preload 用 mousemove 通知是否悬停在可交互区）
 ipcMain.on('whale-hover', (_e, over) => {
-  if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!over, { forward: true });
+  if (IS_LINUX || !win || win.isDestroyed()) return;
+  win.setIgnoreMouseEvents(!over, { forward: true });
 });
+
+// Linux：preload 上报「当前所有可见内容」的矩形，主进程交给 setShape
+ipcMain.on('whale-input-rects', (_e, rects) => applyInputShape(rects));
 
 app.whenReady().then(async () => {
   // 先加载插件本体，保证挂件发出的第一个请求就能命中插件路由
