@@ -153,5 +153,8 @@
 
 ## 变更与杂项
 
+- `2026-10-02` docs：新增 `docs/linux-adaptation-plan.md` —— Linux 适配实机基线（Ubuntu 24.04.4 / GNOME 46 / Wayland /
+  Intel Meteor Lake / 3120×2080@120Hz 缩放 2.0 / 内建触屏）、形态取舍（扩展版为主力、Electron 版降级 experimental）、
+  A1–A10 改造项、外接显示器与触屏专项风险、完成判定标准 DoD（D1–D13）、交付前测试方案（T0–T10）
 - `2026-09-04` chore：`third-party/` 加入 .gitignore（仅存放上游研究克隆，不入库）
 - `2026-09-02` chore：忽略 Windows 便携 exe 构建产物（由 CI 自动构建分发）

@@ -46,6 +46,8 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
 dsh-whale/
 ├── README.md                       # 本文件（项目总文档）
 ├── CHANGELOG.md                    # 版本更新日志（桌面 v1.0 → 扩展版 v9–v30 …）
+├── docs/
+│   └── linux-adaptation-plan.md    # ★ Linux 适配规划：实机基线 / 风险登记 / DoD / 测试方案
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
 ├── dsh-whale-shell-extension/      # ★ GNOME Shell 扩展版（Wayland 悬浮首选，当前主力迭代）
 │   ├── extension.js                #   扩展主逻辑（ESM / GNOME 45+，含交互/动画/记账/令牌）
@@ -142,6 +144,11 @@ npx electron-builder --win portable
 
 ## 🐧 Linux 版（Ubuntu 22.04 / 24.04 amd64）
 
+> ⚠️ **experimental —— 仅 X11 会话可用。** Linux 上 Electron 不支持 `setIgnoreMouseEvents(…, {forward:true})`
+> 的鼠标事件转发，点击穿透一旦开启就**无法被唤醒**（鲸鱼点不动）；且 `setAlwaysOnTop` / `setPosition`
+> 在 Wayland 下不生效。**Ubuntu 24.04 默认 Wayland，请改用上方 GNOME Shell 扩展版。**
+> 完整实机调研、风险登记、验收标准与测试方案见 **[docs/linux-adaptation-plan.md](docs/linux-adaptation-plan.md)**。
+
 **环境**
 ```bash
 # Node.js 20/22 LTS
@@ -216,6 +223,8 @@ npm start                      # electron .
 | 问题 | 解决 |
 |---|---|
 | GNOME Wayland 下 Electron 悬浮窗不显示/不悬浮 | 改用本仓库 **GNOME Shell 扩展版**（`dsh-whale-shell-extension`） |
+| 接/拔外接显示器后鲸鱼「不见了」 | 已知问题：扩展暂未处理显示器热插拔的几何变化；注销重登，或把鲸鱼拖回屏内。修复计划见 **[docs/linux-adaptation-plan.md](docs/linux-adaptation-plan.md)** |
+| 触屏上打不开菜单 | 已知限制：菜单目前只有右键入口，触屏长按入口在适配计划中（见 **[docs/linux-adaptation-plan.md](docs/linux-adaptation-plan.md)**） |
 | 余额显示「未配置 DEEPSEEK_API_KEY」 | 在 `~/.dsh/.credentials.yaml` 填写或在挂件菜单 API Key 框填入 `sk-...` 并保存 |
 | 扩展更新后不生效 | 注销 → 重新登录（Wayland 需重载 Shell） |
 | 想用令牌精算今日已用 | 扩展右键菜单「📒 用量」切到令牌，需先在凭据里配 `DEEPSEEK_PLATFORM_TOKEN` |
