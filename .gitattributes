@@ -1,0 +1,19 @@
+# 行尾规则。
+#
+# 这个仓库同时有 Windows 与 Linux 形态，工作区在 Windows 上会因为 core.autocrlf=true
+# 变成 CRLF。绝大多数文件无所谓，但下面两类不行：
+#   * 补丁文件：git apply 逐行匹配空格与行尾，被换掉行尾就可能打不上；
+#   * Linux 脚本：CRLF 会让 shebang 变成 "bash\r"，直接跑不起来（"bad interpreter"）。
+# 所以这里把它们钉死，克隆到哪个平台都一样。
+
+# 补丁必须逐字节原样，不做任何行尾转换
+patches/**/*.patch -text
+
+# Linux 侧脚本一律 LF
+*.sh text eol=lf
+*.desktop text eol=lf
+
+# Windows 侧脚本保持 CRLF（PowerShell 5.1 对 UTF-8 BOM + CRLF 最稳）
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -1,0 +1,354 @@
+diff --git a/app/main.cjs b/app/main.cjs
+index b6bbec3..eb924f9 100644
+--- a/app/main.cjs
++++ b/app/main.cjs
+@@ -55,6 +55,50 @@ if (process.argv.includes('--pet-host')) {
+   return;
+ }
+ 
++/* ---------- start at login ---------- */
++/**
++ * Started by the system at login: the pet and the tray show, but no window opens on its own.
++ * `--set-autostart=on|off` (what `tools/coopanion-autostart.*` calls) only writes the entry and
++ * leaves; it runs before the single-instance lock, so it also works while the app is already up.
++ */
++const BACKGROUND = process.argv.includes('--background');
++/** What starts this app the way it is running now: Electron is only the runtime when unpackaged. */
++const START_ARGS = app.isPackaged ? ['--background'] : [APP_ROOT, '--background'];
++/**
++ * The login entry. Electron's login items cover Windows and macOS; on Linux it is an XDG autostart
++ * file (~/.config/autostart/coopanion.desktop) that runs the AppImage, or the installed executable.
++ * The tray's switch and the launcher scripts both come through here, so there is one entry only.
++ */
++const AUTOSTART = join(app.getPath('home'), '.config', 'autostart', 'coopanion.desktop');
++const autostart = {
++  get: () => (LINUX ? existsSync(AUTOSTART) : app.getLoginItemSettings({ path: process.execPath, args: START_ARGS }).openAtLogin),
++  set(on) {
++    if (!LINUX) { app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args: START_ARGS }); return; }
++    if (!on) { rmSync(AUTOSTART, { force: true }); return; }
++    const exe = process.env.APPIMAGE || process.execPath;
++    const args = app.isPackaged ? ' --background' : ` "${APP_ROOT}" --background`;
++    mkdirSync(dirname(AUTOSTART), { recursive: true });
++    writeFileSync(AUTOSTART, `[Desktop Entry]\nType=Application\nName=Coopanion\nExec="${exe}"${args}\nX-GNOME-Autostart-enabled=true\n`);
++  },
++};
++
++const autostartFlag = process.argv.find((a) => a.startsWith('--set-autostart='));
++if (autostartFlag) {
++  const on = autostartFlag.slice('--set-autostart='.length) !== 'off';
++  app.whenReady().then(() => {
++    try {
++      autostart.set(on);
++      console.log(`Coopanion 开机自启: ${autostart.get() ? '已开启' : '已关闭'}`);
++    } catch (err) {
++      console.error(`Coopanion 开机自启没设成:${err.message}`);
++      app.exit(1);
++      return;
++    }
++    app.exit(0);
++  });
++  return;
++}
++
+ /* ---------- app mode ---------- */
+ if (!app.requestSingleInstanceLock()) {
+   app.quit();
+@@ -76,6 +120,8 @@ const core = new CoreHost({
+     CORTICO_EXTENSIONS_DIR: join(userData, 'extensions'),
+     CORTICO_SUPERVISED: '1',
+     CORTICO_START_PAUSED: '0',
++    // a start at login shows the pet and the tray only: the Core must not open a window on its own
++    CORTICO_START_BACKGROUND: BACKGROUND ? '1' : '0',
+     CORTICO_DESKTOP_PET_HOST: JSON.stringify(petHost),
+     // pnpm keeps its store and caches in LOCALAPPDATA unless told otherwise; pnpm 11 reads the pnpm_config_ prefix
+     pnpm_config_store_dir: join(DATA, 'pnpm', 'store'),
+@@ -158,25 +204,9 @@ async function ensurePet() {
+   if (!state?.connected) await showPet();
+ }
+ 
+-/**
+- * Start at login. Electron's login items cover Windows and macOS; on Linux it is an XDG autostart entry
+- * (~/.config/autostart/coopanion.desktop) that runs the AppImage, or the installed executable.
+- */
+-const AUTOSTART = join(app.getPath('home'), '.config', 'autostart', 'coopanion.desktop');
+-const loginItem = {
+-  get: () => (LINUX ? existsSync(AUTOSTART) : app.getLoginItemSettings().openAtLogin),
+-  set(on) {
+-    if (!LINUX) { app.setLoginItemSettings({ openAtLogin: on, args: ['--background'] }); return; }
+-    if (!on) { rmSync(AUTOSTART, { force: true }); return; }
+-    const exe = process.env.APPIMAGE || process.execPath;
+-    mkdirSync(dirname(AUTOSTART), { recursive: true });
+-    writeFileSync(AUTOSTART, `[Desktop Entry]\nType=Application\nName=Coopanion\nExec="${exe}" --background\nX-GNOME-Autostart-enabled=true\n`);
+-  },
+-};
+-
+ /** The usage statistics report whether the app starts at login; the Core reads it when it (re)starts. */
+ function noteAutostart() {
+-  core.opts.env.COOPANION_AUTOSTART = app.isPackaged && loginItem.get() ? '1' : '0';
++  core.opts.env.COOPANION_AUTOSTART = autostart.get() ? '1' : '0';
+ }
+ 
+ function buildTray() {
+@@ -188,12 +218,12 @@ function buildTray() {
+   tray = new Tray(icon);
+   tray.setToolTip('Coopanion');
+   const refresh = () => {
+-    const login = loginItem.get();
++    const login = autostart.get();
+     tray.setContextMenu(Menu.buildFromTemplate([
+       { label: '打开设置', click: () => openSettings() },
+       { label: '显示桌宠', enabled: core.state === 'running', click: () => void showPet() },
+       { type: 'separator' },
+-      { label: '开机自动启动', type: 'checkbox', checked: login, enabled: app.isPackaged, click: (item) => { loginItem.set(item.checked); noteAutostart(); refresh(); } },
++      { label: '开机自动启动', type: 'checkbox', checked: login, click: (item) => { autostart.set(item.checked); noteAutostart(); refresh(); } },
+       { label: '重新启动', click: () => void core.restart() },
+       { label: '退出', click: () => app.quit() },
+     ]));
+diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
+index fca746d..3ab6943 100644
+--- a/console/features/pet/index.ts
++++ b/console/features/pet/index.ts
+@@ -42,6 +42,7 @@ const S = pick({
+     roamFree: '常走动',
+     roamCalm: '多待着',
+     roamOff: '不乱动',
++    roamSync: '随刷新率',
+     theme: '颜色',
+     themeDark: '夜间(浅色身体)',
+     themeLight: '白天(深色身体)',
+@@ -65,6 +66,7 @@ const S = pick({
+     roamFree: 'Often',
+     roamCalm: 'Now and then',
+     roamOff: 'Stay put',
++    roamSync: 'Screen rate',
+     theme: 'Colors',
+     themeDark: 'Night (light body)',
+     themeLight: 'Day (dark body)',
+@@ -99,7 +101,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+ 
+   const user = ui.input({ placeholder: '伙伴' });
+   const roam = ui.segmented([
+-    { value: 'free', label: S.roamFree }, { value: 'calm', label: S.roamCalm }, { value: 'off', label: S.roamOff },
++    { value: 'free', label: S.roamFree }, { value: 'calm', label: S.roamCalm }, { value: 'off', label: S.roamOff }, { value: 'sync', label: S.roamSync },
+   ], { size: 'sm', onSelect: (v) => void save(KEYS.roam, v) });
+   const theme = ui.segmented([
+     { value: 'dark', label: S.themeDark }, { value: 'light', label: S.themeLight },
+diff --git a/core/companion.ts b/core/companion.ts
+index 86f313f..80d9cbf 100644
+--- a/core/companion.ts
++++ b/core/companion.ts
+@@ -68,6 +68,8 @@ const PET_WAIT_MS = 60_000;
+ const TALK_EVENTS = new Set(['desktop-pet.message', 'desktop-pet.speech']);
+ /** After an introduction where the key was put off, the first ask waits this long (talking to Coo asks sooner). */
+ const ASK_AFTER_GUIDE_MS = 20 * 60_000;
++/** Started by the system at login (`app/main.cjs --background`): no window opens on its own. */
++const BACKGROUND = process.env.CORTICO_START_BACKGROUND === '1';
+ /** Written in the deployment directory once the introduction has run. */
+ const GUIDE_FILE = 'guide.json';
+ 
+@@ -302,7 +304,11 @@ async function introduce(deps: GuideDeps, keySet: () => boolean, talked: (() =>
+   if (first) {
+     const deadline = Date.now() + PET_WAIT_MS;
+     while (!deps.pet()?.petState().connected && Date.now() < deadline) await sleep(1000);
+-    if (!deps.pet()?.petState().connected) process.send?.({ type: 'companion:open', path: '#/home' });
++    if (!deps.pet()?.petState().connected) {
++      // nothing else would tell the person why Coo stays silent — but not at login, where a window
++      // opening by itself is exactly what nobody asked for
++      if (!BACKGROUND) process.send?.({ type: 'companion:open', path: '#/home' });
++    }
+     await runGuide(deps);
+   }
+   if (!talked) return;
+diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
+index e5fca42..16286ad 100644
+--- a/packages/cortico-world-desktop-pet/src/config.ts
++++ b/packages/cortico-world-desktop-pet/src/config.ts
+@@ -125,7 +125,7 @@ export const DESKTOP_PET_CONFIG_GROUP: ConfigGroup = {
+     title: '桌宠',
+     properties: {
+       [`${K}.user`]: { type: 'string', title: '怎么称呼你', description: '语音、打字和互动事件里用这个名字指代你。', 'x-hot': true },
+-      [`${K}.roam`]: { type: 'string', title: '行为模式', enum: ['free', 'calm', 'off'], description: 'free 常走动;calm 多待着;off 只做被要求的动作。', 'x-hot': true },
++      [`${K}.roam`]: { type: 'string', title: '行为模式', enum: ['free', 'calm', 'off', 'sync'], description: 'free 常走动;calm 多待着;off 只做被要求的动作;sync 跟着屏幕刷新率走(屏幕快就走得快、步频也跟着快)。', 'x-hot': true },
+       [`${K}.sound`]: { type: 'boolean', title: '音效', 'x-hot': true },
+       [`${K}.theme`]: { type: 'string', title: '黑白模式', enum: ['dark', 'light'], description: 'dark 夜间:浅色身体、深色气泡;light 白天:深色身体、浅色气泡。', 'x-hot': true },
+       [`${K}.hoverButtons`]: { type: 'string', title: '悬停按钮', description: `鼠标停在桌宠身上时旁边出现的按钮,最多 ${MAX_HOVER_BUTTONS} 个,逗号分隔:${PET_ACTIONS.join(', ')}。`, 'x-hot': true },
+diff --git a/packages/cortico-world-desktop-pet/web/pet-app.js b/packages/cortico-world-desktop-pet/web/pet-app.js
+index 8535d2f..cb79b69 100644
+--- a/packages/cortico-world-desktop-pet/web/pet-app.js
++++ b/packages/cortico-world-desktop-pet/web/pet-app.js
+@@ -521,14 +521,28 @@ function stepTalkMotion() {
+ }
+ 
+ /* ---------- typed input: the hover button, or double-click ---------- */
++/**
++ * The bubble's way into the console. The embedding app lends its settings window (the local
++ * console) as the `settings` control; without one the key is left out rather than dead.
++ */
++const consoleKey = () => (prefs.bot?.buttons?.settings
++  ? `<button class="b-cfg" type="button" title="打开设置(本地调试界面)" aria-label="打开设置">${ICONS.settings}</button>` : '');
++
++/** Asks the World to show the app's settings window; the pet's own page never opens it directly. */
++function openConsole() {
++  sfx.tick();
++  send({ t: 'control', action: 'settings' });
++}
++
+ function openInput() {
+   closeMenu();
+   if (item && item.kind === 'ask' && !item.answered) return;
+   if (item) closeBubble();
+   item = { kind: 'input' };
+-  openBubble('ask', '<button class="b-close" type="button" aria-label="关闭">×</button><form class="b-own"><input type="text" maxlength="500" autocomplete="off" placeholder="想说什么…" aria-label="打字说话"><button type="submit">发送</button></form>');
++  openBubble('ask', `<button class="b-close" type="button" aria-label="关闭">×</button><form class="b-own">${consoleKey()}<input type="text" maxlength="500" autocomplete="off" placeholder="想说什么…" aria-label="打字说话"><button type="submit">发送</button></form>`);
+   const form = bubble.querySelector('form'), input = form.querySelector('input');
+   bubble.querySelector('.b-close').addEventListener('click', () => closeBubble());
++  bubble.querySelector('.b-cfg')?.addEventListener('click', () => { closeBubble(); openConsole(); });
+   form.addEventListener('submit', (e) => {
+     e.preventDefault();
+     const v = input.value.trim();
+@@ -636,9 +650,9 @@ function stopMic() {
+ }
+ 
+ /* ---------- actions: the menu's lower zone and the hover buttons draw from one list ---------- */
+-const ROAM_ORDER = ['off', 'calm', 'free'];
+-const ROAM = { off: '不乱动', calm: '多待着', free: '常走动' };
+-const ROAM_LEVEL = { off: '低', calm: '中', free: '高' };
++const ROAM_ORDER = ['off', 'calm', 'free', 'sync'];
++const ROAM = { off: '不乱动', calm: '多待着', free: '常走动', sync: '随刷新率' };
++const ROAM_LEVEL = { off: '低', calm: '中', free: '高', sync: '跟随屏幕' };
+ /** The voice button's badge: listening all the time, or only on the talk key. */
+ const MIC_BADGE = { always: 'auto', hold: 'key', toggle: 'key' };
+ /** Most hover buttons shown beside the pet. */
+@@ -671,7 +685,9 @@ const ACTIONS = {
+     icon: () => ICONS[`roam_${prefs.roam}`] ?? ICONS.roam_calm,
+     state: () => {
+       const next = ROAM_ORDER[(ROAM_ORDER.indexOf(prefs.roam) + 1) % ROAM_ORDER.length];
+-      return `行为模式:${ROAM_LEVEL[prefs.roam] ?? ''} · ${ROAM[prefs.roam] ?? ''} · 点一下换成「${ROAM[next]}」`;
++      // 「随刷新率」 says which screen it settled on, so the pace it walks to can be checked
++      const hz = prefs.roam === 'sync' ? `(屏幕约 ${Math.round(ctl.hz)}Hz)` : '';
++      return `行为模式:${ROAM_LEVEL[prefs.roam] ?? ''} · ${ROAM[prefs.roam] ?? ''}${hz} · 点一下换成「${ROAM[next]}」`;
+     },
+     run: () => cycleRoam(),
+   },
+diff --git a/packages/cortico-world-desktop-pet/web/pet-core.js b/packages/cortico-world-desktop-pet/web/pet-core.js
+index 487bebe..792dba6 100644
+--- a/packages/cortico-world-desktop-pet/web/pet-core.js
++++ b/packages/cortico-world-desktop-pet/web/pet-core.js
+@@ -370,6 +370,8 @@ export const ICONS = {
+   roam_off: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16 7 13.2"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
+   roam_calm: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16V10"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
+   roam_free: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l5-2.8"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M19.5 6.5l1.5-1.5M21 10h1.5"/>'),
++  // the gauge again, with readings flying out of it: the pace is the screen's
++  roam_sync: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4.4-3.4"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M3.6 11.6 5.4 10.2M20.4 11.6 18.6 10.2M12 5.4V3.6"/>'),
+ };
+ /** Sets `theme` ('dark' | 'light') on the page; `button`, when given, shows the mode a click switches to. */
+ export function applyTheme(theme, button) {
+@@ -496,6 +498,21 @@ export const EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surprise
+ /** Motions: things the body does. `sit` and `sleep` last until something else happens. */
+ export const MOTIONS = ['stand', 'jump', 'hop', 'look', 'turn', 'nod', 'shake', 'spin', 'sit', 'sleep', 'dizzy', 'walk', 'run'];
+ 
++/* ---------- how fast the screen is ---------- */
++/**
++ * The refresh rates a reading snaps to, and how near one it must land to count (a share of it),
++ * so an ordinary screen is never read as 59.4 Hz and told apart from a 120 Hz one.
++ */
++const HZ_STEPS = [24, 30, 48, 50, 60, 75, 90, 100, 120, 144, 165, 180, 200, 240, 360];
++const HZ_TOLERANCE = .06;
++/** Frame gaps the reading is taken over, how many are needed before it is trusted, and its smoothing. */
++const HZ_WINDOW = 60, HZ_MIN_SAMPLES = 12, HZ_SMOOTH = .1;
++/**
++ * What 「随刷新率」 walks at, as a share of the ordinary pace, against a 60 Hz screen: half speed on a
++ * 30 Hz screen up to three times on a 180 Hz one.
++ */
++export const SYNC_MIN = .5, SYNC_MAX = 3;
++
+ /* ---------- the live pet: simulation, rendering, pointer ---------- */
+ /**
+  * `els`: { svg, petG, shadowEl, fxG } inside a stage element that receives pointer events.
+@@ -518,6 +535,9 @@ export function createPet(els, opts) {
+   let roam = opts.roam ?? 'free';
+   let skin = opts.skin || defaultSkin();
+   let hold = 0; // until T: an order from outside is in progress, free roaming waits
++  /** The display's refresh rate, the recent frame gaps it is read from, and where the last frame was. */
++  let hz = 60, hzReady = false, hzAt = 0;
++  const hzGaps = [];
+   const pet = {
+     x: 260, fy: 0, vx: 0, vy: 0, facing: 1, faceVis: 1, mode: 'idle', modeT: 0, dur: 0, target: 0,
+     speed: 0, stride: 0, lift: 0, bob: 0, phase: 0, lastHalf: 0, lean: 0, tilt: 0, tiltV: 0,
+@@ -674,8 +694,35 @@ export function createPet(els, opts) {
+     }
+   }
+ 
++  /**
++   * How fast the screen is, read from how often the frame loop runs: the recent frame gaps are
++   * kept, the middle one names the rate, and it is snapped to a real refresh rate and smoothed so
++   * one dropped frame cannot swing it. A gap that is not a frame at all (the window hidden, the
++   * machine busy elsewhere) is dropped rather than taken for a slow screen, and a reading is kept
++   * forever once taken, so the pace holds while the window is away.
++   */
++  function readHz() {
++    const now = performance.now();
++    if (hzAt) {
++      const gap = now - hzAt;
++      if (gap >= 2 && gap <= 200) { hzGaps.push(gap); if (hzGaps.length > HZ_WINDOW) hzGaps.shift(); }
++    }
++    hzAt = now;
++    if (hzGaps.length < HZ_MIN_SAMPLES) return;
++    const mid = [...hzGaps].sort((a, b) => a - b)[hzGaps.length >> 1];
++    if (!(mid > 0)) return;
++    let rate = 1000 / mid;
++    const near = HZ_STEPS.find((s) => Math.abs(s - rate) <= s * HZ_TOLERANCE);
++    if (near) rate = near;
++    hz = hzReady ? hz + (rate - hz) * HZ_SMOOTH : rate;
++    hzReady = true;
++  }
++  /** What 「随刷新率」 multiplies the walk and its steps by: the screen measured against 60 Hz. */
++  const syncK = () => (roam === 'sync' ? clamp(hz / 60, SYNC_MIN, SYNC_MAX) : 1);
++
+   function step(dt) {
+     T += dt; pet.modeT += dt;
++    readHz();
+     const m = pet.mode, mt = pet.modeT;
+     let sqT = 0, strideT = 0, liftT = 0, leanT = 0, sitT = 0, bobT = 0, rate = 0, lookT = [0, 0], tiltT = 0;
+     let tk = 160, tc = 12, drowseT = 0;
+@@ -709,9 +756,13 @@ export function createPet(els, opts) {
+       case 'walk': case 'run': {
+         const run = m === 'run', d = pet.target - pet.x, dist = Math.abs(d), dir = Math.sign(d) || pet.facing;
+         pet.facing = dir;
+-        const vMax = run ? 250 : 78;
+-        const vT = Math.min(vMax, run ? dist * 4 + 20 : dist * 3 + 14);
+-        strideT = run ? 17 : 10; liftT = run ? 15 : 8; bobT = run ? 7 : 3; rate = run ? 4.4 : 2.1;
++        // 「随刷新率」 walks the screen's speed: the steps keep pace with it (same `rate` factor), so
++        // the body covers the same ground per stride and the feet never slide; every other mode
++        // keeps the one pace.
++        const sync = syncK();
++        const vMax = (run ? 250 : 78) * sync;
++        const vT = Math.min(vMax, (run ? dist * 4 + 20 : dist * 3 + 14) * sync);
++        strideT = run ? 17 : 10; liftT = run ? 15 : 8; bobT = run ? 7 : 3; rate = (run ? 4.4 : 2.1) * sync;
+         leanT = run ? (dist < 50 && pet.speed > 120 ? -6 : 11) : 4;
+         if (leanT < 0 && !pet.skid) { pet.skid = true; sfx.skid(); }
+         const ramp = Math.min(1, mt / (run ? .35 : .25));
+@@ -1090,6 +1141,8 @@ export function createPet(els, opts) {
+     get skin() { return skin; },
+     setRoam(r) { roam = r; if (r !== 'off') pet.nextAt = T + 1; },
+     get roam() { return roam; },
++    /** The display's refresh rate as the frame loop reads it: what 「随刷新率」 walks to. */
++    get hz() { return hz; },
+     /** Outside orders keep free roaming quiet for `seconds`. */
+     holdRoam(seconds) { hold = Math.max(hold, T + seconds); },
+     talk() { pet.talkK = 1; },
+diff --git a/packages/cortico-world-desktop-pet/web/pet.css b/packages/cortico-world-desktop-pet/web/pet.css
+index 2bbe367..80f2701 100644
+--- a/packages/cortico-world-desktop-pet/web/pet.css
++++ b/packages/cortico-world-desktop-pet/web/pet.css
+@@ -95,6 +95,10 @@ body.desk .floor{display:none}
+ .b-own:focus-within, .b-own.chosen{border-style:solid; border-color:var(--skin-eye)}
+ .b-own input{flex:1; min-width:0; border:0; background:transparent; font:inherit; font-size:14px; color:var(--text); outline:none; padding:4px 0}
+ .b-own button{flex:none; font:inherit; font-size:12.5px; padding:4px 10px; border-radius:8px; border:0; background:var(--text); color:var(--surface); cursor:pointer}
++/* the small key at the head of the text box: into the console, not a send */
++.b-own button.b-cfg{display:grid; place-items:center; width:24px; height:24px; padding:0; margin:0 -1px 0 -4px; border-radius:8px; background:none; color:var(--muted); transition:color .15s, background .15s}
++.b-own button.b-cfg svg{width:15px; height:15px}
++.b-own button.b-cfg:hover{color:var(--skin-eye); background:var(--line)}
+ .b-opt.dim, .b-own.dim{opacity:.35}
+ /* an app's conversation: one step per bubble, with the answer's controls under Coo's line */
+ .d-mark{color:var(--skin-eye); font-weight:700}

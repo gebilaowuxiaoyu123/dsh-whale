@@ -61,7 +61,15 @@ dsh-whale/
 │   ├── desktop-plugin-integration-test.mjs  # 桌面版运行插件本体的端到端集成测试（路由/鉴权）
 │   ├── desktop-ui-smoke-test.mjs   # UI 冒烟测试（用 CDP 查真实 DOM，需调试模式启动挂件）
 │   ├── desktop-button-audit.mjs    # 按钮全覆盖检查（逐面板验证可见按钮可命中/可交互）
-│   └── setup-coopanion.ps1         # Coopanion 桌宠一键安装/更新（源码放 third-party/，不入库）
+│   ├── setup-coopanion.ps1         # Coopanion 桌宠一键安装/更新（Windows；源码放 third-party/，不入库）
+│   ├── setup-coopanion.sh          # Coopanion 桌宠一键安装/更新（Linux）
+│   ├── coopanion-autostart.ps1     # Coopanion 开机自启 登记/撤销/查看（Windows，自启不弹调试界面）
+│   ├── coopanion-autostart.sh      # Coopanion 开机自启 登记/撤销/查看（Linux，XDG）
+│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（15 项）
+│   └── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
+├── patches/
+│   └── coopanion/                  # 对 Coopanion 源码的改造补丁（AGPL 源码不入库，只存 diff）
+│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.17）
 │                                   #   ← 同时是桌面版的**唯一功能实现来源**
 ├── third-party/                    # 第三方项目源码，**不入库**（已被根 .gitignore 忽略）

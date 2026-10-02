@@ -7,6 +7,53 @@
 > - **桌面版 / DSH 网页插件**（Windows、Ubuntu Linux、dsh-web）：v1.0 + 上游插件跟进至 **v0.3.17**
 
 ---
+
+## [Coopanion 桌宠改造 v1] - 2026-10-03
+
+> 主题：**把别人的桌宠改成自己顺手的样子** —— 加调试入口、多一种走动模式、能开机自启且不烦人，
+> 并补上 Linux 版与自检脚本。
+>
+> 因为 Coopanion 是 AGPL-3.0-or-later，改造**以补丁形式**存进本仓库
+> （`patches/coopanion/0001-dsh-pet-features.patch`），由安装脚本打上，源码仍不入库。
+>
+> 测试：`tools/coopanion-sync-roam-test.mjs` **19/19**、`tools/coopanion-feature-test.mjs` **15/15**；
+> 补丁做了「回退源码 → 干净应用 → 逐字节比对」的往返验证；
+> 另做真机验证：真实鼠标双击 + DXGI 截屏、开机自启 A/B 对照。
+
+### 新增（桌宠，走补丁）
+- **聊天气泡左侧的调试入口**：双击桌宠弹出的输入框，左边多一个小齿轮（`⚙ 想说什么… 发送`）。
+  按下经 World 的 `control/settings` 打开本地控制台 `http://127.0.0.1:17788/`。
+  没有嵌入方时按钮不显示 —— 不给一个按了没用的键。
+- **「随刷新率」走动模式**（第四种，接在 不乱动/多待着/常走动 后面）：
+  按帧间隔量屏幕刷新率（中位数 + 量化到常见刷新率 + EMA 平滑，长卡顿丢弃），
+  速度按 `hz/60` 缩放并夹在 **0.5×~3×**；**步频乘同一个系数**，
+  所以每个步幅周期走过的距离恒定（实测各刷新率均为 **37.14 px**）—— 速度变了但脚不滑。
+  菜单提示里会写「屏幕约 N Hz」（本机实测 120 Hz）。
+- **`--set-autostart=on|off` 命令行开关**，且托盘里的「开机自动启动」在未打包运行时也能用
+  （原来被 `app.isPackaged` 挡着）。
+- **`--background` 启动不弹调试界面**：引导流程里「桌宠 60 秒没连上就打开设置窗」那句被跳过。
+  这就是「开机自启却弹了调试界面」的根因。
+
+### 新增（Linux 版）
+- `tools/setup-coopanion.sh`：拉源码/子模块 → 装依赖 → 补 Electron 二进制 → 打补丁 → 构建。
+- `tools/coopanion-autostart.sh`：XDG 自启条目（`~/.config/autostart/coopanion.desktop`）登记/撤销/查看。
+- 文档写明三个前提：需要 X11（Wayland 走 XWayland）、小鲸鱼要 WebGL（无 GPU 靠 SwiftShader）、
+  托盘要 StatusNotifier 宿主（没有也能用右键菜单）。
+
+### 新增（自检）
+- `tools/coopanion-sync-roam-test.mjs`：用受控时钟按固定帧间隔推进 `pet-core` 模拟，
+  直接量刷新率读数、巡航速度比例、每步幅周期位移；带「抖动的 60 Hz」与「长卡顿」两个反例。
+- `tools/coopanion-feature-test.mjs`：查补丁是否打上、构建产物是否跟上
+  （控制台页面是打包产物，只打补丁不重构就看不到新选项）、补丁文件与工作区是否一致、
+  有没有把调试插桩漏在源码里。
+
+### 踩坑（已写进 `docs/coopanion-integration.md`）
+- 桌宠页本体 `web/*` 每请求现读，改完刷新页面即生效；**控制台页面 `console/**` 必须重新构建**。
+- `Start-Process -WindowStyle Hidden` 会让 Electron 建的窗口全部隐藏，且 `show()` 之后
+  `isVisible()` 仍是 false —— 排查「窗口不出现」时要按正常方式启动。
+
+---
+
 ## [桌面版 Linux v1.7 + 扩展版 v32] - 2026-10-02
 
 > 主题：**把路线图剩下的全做完**（含原来标「暂不建议」的两项），

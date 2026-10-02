@@ -6,7 +6,16 @@
   Coopanion（https://github.com/Pal-AI-Lab/Coopanion）采用 AGPL-3.0-or-later 许可，
   属强 copyleft。因此按本仓库既有惯例放在 third-party/ 下 —— 该目录已被根 .gitignore
   忽略，不进入版本库（既不污染本仓库许可，也不把别人的代码当自己的提交）。
-  本脚本负责把源码、子模块、依赖与构建产物准备好，可重复运行。
+  本脚本负责把源码、子模块、依赖与构建产物准备好，并把本仓库的桌宠改造补丁打上去，
+  可重复运行。
+
+  改造补丁（patches\coopanion\0001-dsh-pet-features.patch）做了四件事：
+    1. 聊天气泡的输入框左边加一个小齿轮，一按就打开本地调试界面（控制台）；
+    2. 走动模式多一个「随刷新率」：屏幕刷新率高就走得快，低就走得慢，步频跟着速度走；
+    3. 命令行开关 `--set-autostart=on|off`，以及未打包运行时也能用托盘里的开机自启；
+    4. `--background` 启动（开机自启用的）只显示桌宠和托盘，不弹调试界面。
+  另有两个自检脚本：tools\coopanion-sync-roam-test.mjs（走动数学）、
+  tools\coopanion-feature-test.mjs（补丁与构建产物是否到位）。
 
 .PARAMETER Update
   已存在时拉取最新代码（含子模块）并重新安装依赖、重新构建。
@@ -95,7 +104,31 @@ if (-not (Test-Path $elExe)) {
 }
 Ok 'Electron 二进制就绪'
 
+Step '应用本仓库的桌宠改造补丁'
+$patch = Join-Path $repoRoot 'patches\coopanion\0001-dsh-pet-features.patch'
+if (-not (Test-Path $patch)) {
+  Warn "没找到补丁：$patch（跳过）"
+}
+else {
+  # 幂等：已经打过的直接跳过；能干净打上的才打；两者都不是就说明上游源码变了，只报警不硬来
+  $eap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  git -C $Dir apply --reverse --check $patch 2>$null | Out-Null
+  $already = ($LASTEXITCODE -eq 0)
+  if (-not $already) { git -C $Dir apply --check $patch 2>$null | Out-Null; $clean = ($LASTEXITCODE -eq 0) }
+  else { $clean = $false }
+  if ($already) { Ok '补丁已经应用过了' }
+  elseif ($clean) { git -C $Dir apply $patch; Ok '补丁已应用（调试入口按钮 / 随刷新率走动 / 开机自启不弹窗）' }
+  else {
+    Warn '补丁打不上 —— 上游源码可能已经变了'
+    Warn '请看 docs\coopanion-integration.md，必要时先 -Update 再重试，或手动改 patches\coopanion 里的对应文件'
+  }
+  $ErrorActionPreference = $eap
+}
+
 Step '构建（tsx scripts/stage.ts）'
+# 这一步把 console/ 覆盖到 build/cortico，并重打包控制台页面与桌宠面板；
+# 「随刷新率」这个新走动模式在控制台「习惯」页里，必须重新构建才会出现。
 pnpm --dir $Dir run build:cortico
 Ok '构建完成'
 
@@ -104,6 +137,8 @@ Write-Host "  安装位置 : $Dir"
 Write-Host "  启动命令 : pnpm --dir `"$Dir`" start"
 Write-Host "  数据目录 : $Dir\data（记忆/设置/日志都在这里，重装不丢）"
 Write-Host "  退出方式 : 右键托盘图标 -> 退出（关设置窗口不会退出程序）"
+Write-Host "  调试界面 : http://127.0.0.1:17788/  或右键桌宠 -> 菜单里的设置"
+Write-Host "  开机自启 : powershell -ExecutionPolicy Bypass -File tools\coopanion-autostart.ps1"
 
 if ($Run) {
   Step '启动 Coopanion'
