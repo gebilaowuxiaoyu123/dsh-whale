@@ -47,7 +47,8 @@ dsh-whale/
 ├── README.md                       # 本文件（项目总文档）
 ├── CHANGELOG.md                    # 版本更新日志（桌面 v1.0 → 扩展版 v9–v30 …）
 ├── docs/
-│   └── linux-adaptation-plan.md    # ★ Linux 适配规划：实机基线 / 风险登记 / DoD / 测试方案
+│   ├── linux-adaptation-plan.md    # ★ Linux 适配规划：实机基线 / 风险登记 / DoD / 测试方案
+│   └── coopanion-integration.md    # ★ Coopanion 桌宠集成说明（安装 / 踩坑记录 / 使用要点）
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
 ├── dsh-whale-shell-extension/      # ★ GNOME Shell 扩展版（Wayland 悬浮首选，当前主力迭代）
 │   ├── extension.js                #   扩展主逻辑（ESM / GNOME 45+，含交互/动画/记账/令牌）
@@ -59,9 +60,12 @@ dsh-whale/
 │   ├── ledger-compat-test.mjs      # 账本兼容性测试（桌面版 ↔ 插件共用账本）
 │   ├── desktop-plugin-integration-test.mjs  # 桌面版运行插件本体的端到端集成测试（路由/鉴权）
 │   ├── desktop-ui-smoke-test.mjs   # UI 冒烟测试（用 CDP 查真实 DOM，需调试模式启动挂件）
-│   └── desktop-button-audit.mjs    # 按钮全覆盖检查（逐面板验证可见按钮可命中/可交互）
+│   ├── desktop-button-audit.mjs    # 按钮全覆盖检查（逐面板验证可见按钮可命中/可交互）
+│   └── setup-coopanion.ps1         # Coopanion 桌宠一键安装/更新（源码放 third-party/，不入库）
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.17）
 │                                   #   ← 同时是桌面版的**唯一功能实现来源**
+├── third-party/                    # 第三方项目源码，**不入库**（已被根 .gitignore 忽略）
+│   └── Coopanion/                  #   Coopanion 桌宠（AGPL-3.0-or-later，用 tools/setup-coopanion.ps1 复原）
 ├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
 │   ├── main.js                     #   主进程：本地服务(3090)+窗口/托盘/自启+插件宿主
 │   ├── host-shim.js                #   DSH 宿主契约适配层：让插件本体在本机 HTTP 服务里运行
