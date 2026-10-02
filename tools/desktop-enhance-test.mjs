@@ -123,6 +123,15 @@ async function main() {
 
     // 保证处于默认态并让浮层出现
     await evaluate("window.dshwEnhance.set({theme:'dark', bubbleSkin:'classic', chartOn:true})");
+    // 插件自己的气泡/面板在显示时，增强层浮层会主动让位（避免两层叠在一起互盖）。
+    // 这里先等它退场，否则几何检查拿到的是 display:none / visibility:hidden 的空盒子。
+    let waited = 0;
+    while (await evaluate('window.dshwEnhance.busy()') && waited < 20000) {
+        await sleep(1000);
+        waited += 1000;
+    }
+    if (waited)
+        console.log(`  （等待插件 UI 退场 ${waited / 1000}s）`);
     await evaluate('window.dshwEnhance.chart(30)');
     await sleep(900);
 

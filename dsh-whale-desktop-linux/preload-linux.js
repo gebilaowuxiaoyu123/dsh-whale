@@ -31,7 +31,8 @@ const MASK = 610;                 // 插件鲸鱼 PNG 是 610x610
 const BANDS = 16;                 // 垂直分带数
 const PAD_IDLE = 12;              // 静止时的外扩（逻辑像素）
 const PAD_MOVE = 80;              // 运动中的外扩（覆盖跟手滞后，防止裁切）
-const MAX_RECTS = 160;
+const MAX_RECTS = 160;            // 其它元素重扫时的软上限（仅用于提前收工，不影响正确性）
+const HARD_MAX_RECTS = 400;       // 硬保险丝：与主进程 MAX_SHAPE_RECTS 对齐
 const SEND_INTERVAL = 16;         // 最多约 60fps 上报（拖动跟手要求高）
 const SCAN_INTERVAL = 150;        // 其它元素的重扫间隔
 const DEBUG = !!process.env.DSHW_DEBUG;
@@ -160,7 +161,7 @@ function scanOthers() {
         return out;
     }
     for (const el of nodes) {
-        if (out.length >= MAX_RECTS * 2) break;
+        if (out.length >= HARD_MAX_RECTS) break;
         const tag = el.tagName;
         if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') continue;
         if (el.classList && el.classList.contains('dshwv-img')) continue;  // 鲸鱼单独处理
@@ -216,12 +217,15 @@ function enhanceRects() {
 }
 
 // ---------------- 去重：被大矩形完全包住的直接丢掉 ----------------
+// 注意：这里**绝不能因为数量上限而丢弃矩形** ——
+// 形状漏掉哪块像素，那块就会被 X11 ShapeBounding 直接裁掉（不再只是「少穿透」）。
+// 排序后只在「已被更大矩形完整包住」时才丢，数量上限只当保险丝。
 function dedupe(rects) {
     const sorted = rects.slice().sort(
         (a, b) => b.width * b.height - a.width * a.height);
     const keep = [];
     for (const r of sorted) {
-        if (keep.length >= MAX_RECTS) break;
+        if (keep.length >= HARD_MAX_RECTS) break;      // 保险丝（正常远达不到）
         const covered = keep.some((k) =>
             r.x >= k.x && r.y >= k.y &&
             r.x + r.width <= k.x + k.width &&

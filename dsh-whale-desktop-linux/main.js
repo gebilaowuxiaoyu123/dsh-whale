@@ -39,7 +39,8 @@ const { startPlugin } = require('./host-shim');
 // ============================================================================
 const IS_LINUX = process.platform === 'linux';
 const OZONE_X11_FLAG = '--ozone-platform=x11';
-const MAX_SHAPE_RECTS = 240;
+const MAX_SHAPE_RECTS = 400;   // 上限只作保险丝用；形状宁大勿小（小了会裁掉内容）
+const DEBUG_SHAPE = !!process.env.DSHW_DEBUG;
 
 /** 是否需要显式关闭沙箱：AppImage 无法保留 setuid chrome-sandbox，
  *  而 Ubuntu 24.04 默认禁止非特权 user namespace → Chromium 沙箱必然启动失败。 */
@@ -688,14 +689,160 @@ let winW = 0;
 let winH = 0;
 let lastShapeKey = '';
 let shapeWarned = false;
+let domRects = [];        // preload 上报的「可见矩形」（DOM 启发式结果）
+
+// ---------- 像素兜底形状 ----------
+// 为什么必须有这一层：
+//   `setShape` 在 Linux 上走 X11 **ShapeBounding**，它**同时裁剪绘制与输入** ——
+//   形状漏掉哪块像素，那块就**直接被裁掉看不见**。
+//   而 preload 上报的矩形是「DOM 启发式」推断的：
+//     · paints() 判断某元素"有没有画东西"会漏（比如插件的气泡是用 SVG 画的，
+//       元素自身 background 是 transparent、又没有直接文本子节点 → 被判为没画东西）
+//     · 元素的阴影 / 伪元素 / 溢出内容会超出自己的盒模型
+//     · 数量上限（MAX_RECTS / MAX_SHAPE_RECTS）会直接截断
+//   任何一条命中，用户看到的就是「泡泡被切掉一块」。
+//
+//   所以这里再加一层**从页面真实渲染结果反推**的形状：抓一帧 → 找不透明像素 →
+//   合并成矩形。它只做**并集**（只增不减），因此永远不会把形状缩到比 DOM 结果更小，
+//   原理上不可能造成新的裁切；最坏情况只是"少一点点点击穿透"。
+const PIXEL_SCALE = 4;          // 降采样倍数（4 逻辑像素一格，够用且快）
+const PIXEL_INTERVAL = 400;     // 反推间隔 ms
+const PIXEL_ALPHA = 8;          // 不透明阈值（0-255）
+const PIXEL_PAD = 10;           // 每块外扩，宁大勿小
+let pixelRects = [];
+let pixelTimer = null;
+let pixelBusy = false;
+let pixelStat = '';
+let pixelEmpty = 0;          // 连续空帧计数
+let pixelDisabled = false;   // 该平台抓不到内容 → 自动退避（不再白耗 CPU）
+
+/** 取第 y 行所有不透明连续段（相邻段间隔 ≤ gap 的合并，减少矩形数） */
+function runsOfRow(bmp, w, y, alphaMin, gap) {
+  const runs = [];
+  let x = 0;
+  while (x < w) {
+    if (bmp[(y * w + x) * 4 + 3] <= alphaMin) { x++; continue; }
+    const x0 = x;
+    while (x < w && bmp[(y * w + x) * 4 + 3] > alphaMin) x++;
+    const x1 = x - 1;
+    const last = runs[runs.length - 1];
+    if (last && x0 - last[1] <= gap) last[1] = x1;
+    else runs.push([x0, x1]);
+  }
+  return runs;
+}
+
+/** 位图 → 矩形（逐行扫描 + 相邻行同段纵向合并成带） */
+function rectsFromImage(image) {
+  const size = image.getSize();
+  const w = size.width;
+  const h = size.height;
+  if (!w || !h) return [];
+  const bmp = image.toBitmap();
+  let bands = [];
+  for (let y = 0; y < h; y++) {
+    const runs = runsOfRow(bmp, w, y, PIXEL_ALPHA, 3);
+    const next = [];
+    for (const [x0, x1] of runs) {
+      let hit = null;
+      for (const b of bands) {
+        if (b.y1 === y && x0 <= b.x1 + 3 && x1 >= b.x0 - 3) { hit = b; break; }
+      }
+      if (hit) {
+        hit.y1 = y + 1;
+        hit.x0 = Math.min(hit.x0, x0);
+        hit.x1 = Math.max(hit.x1, x1);
+        next.push(hit);
+      } else {
+        next.push({ y0: y, y1: y + 1, x0, x1 });
+      }
+    }
+    bands = next;
+  }
+  return bands.map((b) => ({
+    x: b.x0 * PIXEL_SCALE,
+    y: b.y0 * PIXEL_SCALE,
+    width: (b.x1 - b.x0 + 1) * PIXEL_SCALE,
+    height: (b.y1 - b.y0) * PIXEL_SCALE,
+  }));
+}
+
+async function refreshPixelShape() {
+  if (pixelBusy || pixelDisabled || !IS_LINUX || !win || win.isDestroyed()) return;
+  pixelBusy = true;
+  try {
+    const img = await win.webContents.capturePage();
+    if (!img || img.isEmpty()) return;
+    const full = img.getSize();
+    const small = img.resize({ width: Math.max(1, Math.round(full.width / PIXEL_SCALE)) });
+    const rects = rectsFromImage(small);
+    if (!rects.length) {
+      // 透明窗口在本机（Wayland + XWayland 透明窗）capturePage 会拿到**全透明帧**，
+      // 这条路就走不通。连续几帧都空就直接关掉，避免每 400ms 白扫一遍位图。
+      if (++pixelEmpty >= 3 && !pixelDisabled) {
+        pixelDisabled = true;
+        if (DEBUG_SHAPE) console.log('[dsh-whale] capturePage 拿不到内容 → 像素兜底已停用（只靠 DOM 上报）');
+      }
+      return;
+    }
+    pixelEmpty = 0;
+    pixelRects = rects.map((r) => ({
+      x: Math.max(0, r.x - PIXEL_PAD),
+      y: Math.max(0, r.y - PIXEL_PAD),
+      width: r.width + PIXEL_PAD * 2,
+      height: r.height + PIXEL_PAD * 2,
+    }));
+    if (DEBUG_SHAPE) {
+      const area = (a) => a.reduce((s, r) => s + r.width * r.height, 0);
+      const msg = `[dsh-whale] 像素兜底形状：${pixelRects.length} 块，面积 ${area(pixelRects)}` +
+        `（DOM 上报 ${domRects.length} 块 / 面积 ${area(domRects)}）`;
+      if (msg !== pixelStat) {
+        pixelStat = msg;
+        console.log(msg);
+      }
+    }
+    lastShapeKey = '';        // 强制重算
+    reapplyShape();
+  } catch (_e) {
+    /* 忽略：抓帧失败就用 DOM 结果 */
+  } finally {
+    pixelBusy = false;
+  }
+}
+
+function startPixelShape() {
+  if (pixelTimer || !IS_LINUX) return;
+  pixelTimer = setInterval(refreshPixelShape, PIXEL_INTERVAL);
+  if (pixelTimer.unref) pixelTimer.unref();
+}
+
+/** 两个矩形集合取并集：丢掉被更大矩形完全包住的（保持形状紧凑） */
+function unionRects(a, b) {
+  const sorted = a.concat(b).sort((p, q) => q.width * q.height - p.width * p.height);
+  const keep = [];
+  for (const r of sorted) {
+    const covered = keep.some((k) =>
+      r.x >= k.x && r.y >= k.y &&
+      r.x + r.width <= k.x + k.width && r.y + r.height <= k.y + k.height);
+    if (!covered) keep.push(r);
+  }
+  return keep;
+}
 
 /** Linux：把「当前所有可见内容的矩形」交给 X11 形状 —— 区域内可点、区域外点击精确穿透 */
 function applyInputShape(rects) {
+  domRects = Array.isArray(rects) ? rects : [];
+  startPixelShape();
+  reapplyShape();
+}
+
+function reapplyShape() {
   if (!IS_LINUX || !win || win.isDestroyed() || !winW || !winH) return;
-  if (!Array.isArray(rects) || !rects.length) return;
+  const merged = unionRects(domRects, pixelRects);
+  if (!merged.length) return;
 
   const out = [];
-  for (const r of rects) {
+  for (const r of merged) {
     if (!r) continue;
     let x = Math.round(r.x), y = Math.round(r.y);
     let w = Math.round(r.width), h = Math.round(r.height);

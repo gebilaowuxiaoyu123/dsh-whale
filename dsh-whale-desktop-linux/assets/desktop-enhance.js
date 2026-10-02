@@ -228,16 +228,29 @@
           .dshwe-chart .dshwe-xrow span { width: 10px; text-align: center; }
 
           /* ---- 多套气泡组：同时作用于插件气泡与增强层浮层 ---- */
-          .dshwv-pop { transition: background .2s, border-color .2s, border-radius .2s; }
-          :root[data-dshw-bubble="night"] .dshwv-pop,
+          /* 注意：插件自己重置了 .dshwv-pop 的 background/border（带 !important），
+             所以改背景色对它没用；它气泡本体是 SVG，得改 path 的 fill 才看得见。 */
+          .dshwv-pop .dshwv-bshape, .dshwv-pop .dshwv-b1, .dshwv-pop .dshwv-b2 {
+            transition: fill .2s;
+          }
+          :root[data-dshw-bubble="night"] .dshwv-pop .dshwv-bshape,
+          :root[data-dshw-bubble="night"] .dshwv-pop .dshwv-b1,
+          :root[data-dshw-bubble="night"] .dshwv-pop .dshwv-b2 { fill: #141a2a !important; }
+          :root[data-dshw-bubble="night"] .dshwv-pop .dshwv-text { color: #dce6ff !important; }
+          :root[data-dshw-bubble="sakura"] .dshwv-pop .dshwv-bshape,
+          :root[data-dshw-bubble="sakura"] .dshwv-pop .dshwv-b1,
+          :root[data-dshw-bubble="sakura"] .dshwv-pop .dshwv-b2 { fill: #3c1e2c !important; }
+          :root[data-dshw-bubble="sakura"] .dshwv-pop .dshwv-text { color: #ffe1ec !important; }
+          :root[data-dshw-bubble="mint"] .dshwv-pop .dshwv-bshape,
+          :root[data-dshw-bubble="mint"] .dshwv-pop .dshwv-b1,
+          :root[data-dshw-bubble="mint"] .dshwv-pop .dshwv-b2 { fill: #12302a !important; }
+          :root[data-dshw-bubble="mint"] .dshwv-pop .dshwv-text { color: #d6fff0 !important; }
           :root[data-dshw-bubble="night"] .dshwe-toast {
             background: rgba(12,16,28,.95); border-color: rgba(120,160,255,.28); border-radius: 10px;
           }
-          :root[data-dshw-bubble="sakura"] .dshwv-pop,
           :root[data-dshw-bubble="sakura"] .dshwe-toast {
             background: rgba(60,30,44,.94); border-color: rgba(255,170,200,.38); border-radius: 16px;
           }
-          :root[data-dshw-bubble="mint"] .dshwv-pop,
           :root[data-dshw-bubble="mint"] .dshwe-toast {
             background: rgba(18,44,38,.94); border-color: rgba(140,240,200,.34); border-radius: 16px;
           }
@@ -294,7 +307,7 @@
 
     /** 常驻角标：紧贴鲸鱼头顶上方（汇率角标之上） */
     function badge(text, color) {
-        if (!cfg.badge)
+        if (!cfg.badge || !overlayAllowed())
             return;
         ensureStyles();
         if (!bagdeEl) {
@@ -352,6 +365,7 @@
 
     // ---------------- 与插件自身 UI 的避让 ----------------
     const PLUGIN_UI_SELS = [
+        '.dshwv-pop-open',                    // 插件自己的气泡（SVG 白底气泡，就画在鲸鱼上方）
         '.dshwv-menu', '.dshwv-rolelist', '.dshwv-audiolist', '.dshwv-usagepanel',
         '.dshwv-custmenu', '.dshwv-qedit', '.dshwv-usage-mask', '.dshwv-audiomask',
         '.dshwv-cropmask', '.dshwv-confirmmask', '.dshwv-snapmask', '.dshwv-bubmask',
@@ -439,6 +453,11 @@
     }
 
     /** 插件自己的 UI 是否正占着鲸鱼上方那块地方 */
+    /** 增强层浮层是否允许显示：插件自己的气泡/面板在显示时先让位 */
+    function overlayAllowed() {
+        return !pluginUiBusy();
+    }
+
     function pluginUiBusy() {
         for (const s of PLUGIN_UI_SELS) {
             let els;
@@ -586,8 +605,10 @@
         el.textContent = '💱 ' + (SYM[bal.currency] || '') + bal.total.toFixed(2) +
             ' ≈ ' + (SYM[cur] || '') + (bal.total * rate).toFixed(digits) + ' ' + cur;
         notice('汇率显示已更新：' + el.textContent);
-        const a = anchor();
-        place(el, a.x, Math.round(a.y - 2), { above: true });
+        if (overlayAllowed()) {
+            const a = anchor();
+            place(el, a.x, Math.round(a.y - 2), { above: true });
+        }
     }
 
     // ---------------- 账单图表（近 7 日用量柱状图） ----------------
