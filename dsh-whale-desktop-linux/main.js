@@ -64,6 +64,10 @@ if (IS_LINUX && !process.argv.includes(OZONE_X11_FLAG)) {
     const args = process.argv.slice(1)
       .filter((a) => !a.startsWith('--ozone-platform') && a !== '--no-sandbox');
     args.push(OZONE_X11_FLAG);
+    // NVIDIA 机器上的预制渲染参数（tools/setup-nvidia.sh 写入 ~/.config/dsh-whale/nvidia.env）。
+    // 内核显机器上 DSH_GPU_FLAGS 不存在 → 不追加任何东西，行为与之前一致。
+    const gpuFlags = (process.env.DSH_GPU_FLAGS || '').split(/\s+/).filter(Boolean);
+    for (const f of gpuFlags) if (!args.includes(f)) args.push(f);
     const noSandbox = linuxNeedNoSandbox();
     if (noSandbox) args.push('--no-sandbox');
     const child = spawn(exe, args, {

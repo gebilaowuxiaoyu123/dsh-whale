@@ -1,8 +1,31 @@
 diff --git a/app/main.cjs b/app/main.cjs
-index b6bbec3..eb924f9 100644
+index b6bbec3..599091b 100644
 --- a/app/main.cjs
 +++ b/app/main.cjs
-@@ -55,6 +55,50 @@ if (process.argv.includes('--pet-host')) {
+@@ -30,9 +30,22 @@ const LINUX = process.platform === 'linux';
+ // and the cursor position outside the app's own windows is unknown, which the pet needs.
+ // Without a usable GPU (virtual machines, some drivers) Chromium no longer falls back to software WebGL on
+ // its own, and the whale figure draws with WebGL: allow SwiftShader. It only renders the app's own pages.
++// NVIDIA 机器上由 tools/setup-nvidia.sh 预制 COOPANION_GPU_FLAGS（EGL 直通等）；
++// 纯核显机器上该变量不存在 → 行为与之前完全一致（不会改变默认路径）。
++const GPU_FLAGS = (process.env.COOPANION_GPU_FLAGS || '').split(/\s+/).filter(Boolean);
+ if (LINUX) {
+   app.commandLine.appendSwitch('ozone-platform', 'x11');
+   app.commandLine.appendSwitch('enable-unsafe-swiftshader');
++  for (const flag of GPU_FLAGS) {
++    const [key, value = ''] = flag.replace(/^--/, '').split('=');
++    if (value) app.commandLine.appendSwitch(key, value);
++    else app.commandLine.appendSwitch(key);
++  }
++  // 桌宠窗口是**子进程**（--pet-host）建的，而 appendSwitch 只作用于当前进程：
++  // 子进程会退回原生 Wayland —— 而 Wayland 下窗口不能自己摆位置、不能常驻置顶，
++  // 桌宠就彻底不可用（这正是「Linux 版开发不完全」的根因）。
++  // 环境变量会被所有子 Electron 进程继承，再给 --pet-host 单独补上命令行参数做双保险。
++  process.env.ELECTRON_OZONE_PLATFORM_HINT = 'x11';
+ }
+ const APP_ROOT = app.getAppPath();
+ const ICONS = join(__dirname, 'icons');
+@@ -55,6 +68,50 @@ if (process.argv.includes('--pet-host')) {
    return;
  }
  
@@ -53,7 +76,28 @@ index b6bbec3..eb924f9 100644
  /* ---------- app mode ---------- */
  if (!app.requestSingleInstanceLock()) {
    app.quit();
-@@ -76,6 +120,8 @@ const core = new CoreHost({
+@@ -63,9 +120,19 @@ if (!app.requestSingleInstanceLock()) {
+ 
+ const { CoreHost } = require('./core-host.cjs');
+ 
++// Linux：桌宠窗口跑在子进程里，必须**显式**把 X11 开关写进它的命令行，
++// 否则子进程退回原生 Wayland，桌宠窗口不能自定位/置顶 → 看不见也用不了。
++const PET_PLATFORM_ARGS = LINUX
++  ? ['--ozone-platform=x11', '--enable-unsafe-swiftshader', ...GPU_FLAGS] : [];
++// 排查/自动化用：设了 COOPANION_DEBUG_PORT 就给桌宠窗口开远程调试端口（CDP）
++if (process.env.COOPANION_DEBUG_PORT)
++  PET_PLATFORM_ARGS.push(`--remote-debugging-port=${process.env.COOPANION_DEBUG_PORT}`);
++
+ const userData = app.getPath('userData');
+ const shimDir = join(__dirname, 'shims');
+-const petHost = app.isPackaged ? [process.execPath, '--pet-host'] : [process.execPath, APP_ROOT, '--pet-host'];
++const petHost = app.isPackaged
++  ? [process.execPath, '--pet-host', ...PET_PLATFORM_ARGS]
++  : [process.execPath, ...PET_PLATFORM_ARGS, APP_ROOT, '--pet-host'];
+ 
+ const core = new CoreHost({
+   appRoot: APP_ROOT,
+@@ -76,6 +143,8 @@ const core = new CoreHost({
      CORTICO_EXTENSIONS_DIR: join(userData, 'extensions'),
      CORTICO_SUPERVISED: '1',
      CORTICO_START_PAUSED: '0',
@@ -62,7 +106,7 @@ index b6bbec3..eb924f9 100644
      CORTICO_DESKTOP_PET_HOST: JSON.stringify(petHost),
      // pnpm keeps its store and caches in LOCALAPPDATA unless told otherwise; pnpm 11 reads the pnpm_config_ prefix
      pnpm_config_store_dir: join(DATA, 'pnpm', 'store'),
-@@ -158,25 +204,9 @@ async function ensurePet() {
+@@ -158,25 +227,9 @@ async function ensurePet() {
    if (!state?.connected) await showPet();
  }
  
@@ -89,7 +133,7 @@ index b6bbec3..eb924f9 100644
  }
  
  function buildTray() {
-@@ -188,12 +218,12 @@ function buildTray() {
+@@ -188,12 +241,12 @@ function buildTray() {
    tray = new Tray(icon);
    tray.setToolTip('Coopanion');
    const refresh = () => {
@@ -159,6 +203,259 @@ index 86f313f..80d9cbf 100644
      await runGuide(deps);
    }
    if (!talked) return;
+diff --git a/packages/cortico-world-desktop-pet/host/electron-main.cjs b/packages/cortico-world-desktop-pet/host/electron-main.cjs
+index cb3ebb9..5951ed7 100644
+--- a/packages/cortico-world-desktop-pet/host/electron-main.cjs
++++ b/packages/cortico-world-desktop-pet/host/electron-main.cjs
+@@ -16,6 +16,62 @@
+  * macOS gives no way to hand it back to the app that had it.
+  */
+ const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, session, shell, systemPreferences } = require('electron');
++
++const LINUX = process.platform === 'linux';
++
++/**
++ * Linux：把窗口伪装成 dock 类型的覆盖层。
++ *
++ * 为什么必须这么做（实机取证）：本机 dock 在底部，并且 autohide + intellihide +
++ * intellihide-mode=ALL_WINDOWS —— 语义是「只要有窗口压到 dock 区域就自动隐藏」。
++ * 桌宠窗口铺满整个工作区且置顶，于是 dock 被它一直顶掉：开机不显示、关掉所有窗口也不回来。
++ * 改成 _NET_WM_WINDOW_TYPE_DOCK 后，dash-to-dock 的 intellihide 会忽略它；
++ * 另外 dock 类型天然在普通窗口之上，也不会进任务栏/概览。
++ */
++function applyOverlayHints(win) {
++  if (!LINUX || !win || win.isDestroyed()) return;
++  let xid = 0;
++  try {
++    const h = win.getNativeWindowHandle();
++    xid = h.length >= 8 ? Number(h.readBigUInt64LE(0)) : h.readUInt32LE(0);
++  } catch (_e) {
++    return;
++  }
++  if (!xid) return;
++  const id = '0x' + xid.toString(16);
++  let execFile;
++  try {
++    execFile = require('child_process').execFile;
++  } catch (_e) {
++    return;
++  }
++  const q = (args, cb) => execFile('xprop', args, (err, out) => cb && cb(err, out));
++  const setType = () => {
++    q(['-id', id, '-f', '_NET_WM_WINDOW_TYPE', '32a',
++       '-set', '_NET_WM_WINDOW_TYPE', '_NET_WM_WINDOW_TYPE_DOCK']);
++    q(['-id', id, '-f', '_NET_WM_STATE', '32a',
++       '-set', '_NET_WM_STATE',
++       '_NET_WM_STATE_ABOVE, _NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_STICKY']);
++  };
++  setType();
++  // 映射后再改不一定被 WM 重新读取，确认一次；没生效就来一次 hide→show 强制重读
++  setTimeout(() => {
++    q(['-id', id, '_NET_WM_WINDOW_TYPE'], (err, out) => {
++      if (!err && /DOCK/.test(String(out || ''))) {
++        console.log('[pet] 窗口类型已设为 DOCK（dock 的 intellihide 会忽略桌宠窗口）');
++        return;
++      }
++      try {
++        if (!win || win.isDestroyed()) return;
++        win.hide();
++        setType();
++        setTimeout(() => {
++          try { if (win && !win.isDestroyed()) win.showInactive(); } catch (_e) { /* 忽略 */ }
++        }, 120);
++      } catch (_e) { /* 忽略 */ }
++    });
++  }, 900);
++}
+ const { join } = require('node:path');
+ 
+ /** Milliseconds between the cursor reports the page gets. */
+@@ -203,7 +259,16 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+     win.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'screen-saver');
+     // on every Space, and over an app in full screen
+     if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+-    win.setIgnoreMouseEvents(true, { forward: true });
++    // Linux: setIgnoreMouseEvents(…, { forward: true }) 是**空操作**（实测窗口根本没有输入形状），
++    // 铺满工作区的透明窗会把整个桌面的点击全吞掉。真正的做法是把窗口形状收窄到
++    // 「页面上确实画了东西的地方」（由 preload 上报，见 pet:shape）。
++    if (!LINUX) win.setIgnoreMouseEvents(true, { forward: true });
++    // Linux 二次修复：这个窗口铺满整个工作区且置顶，会被 dash-to-dock 的
++    // intellihide（本机 intellihide-mode=ALL_WINDOWS）当成「挡住了 dock 的应用窗口」，
++    // 于是**桌面 dock 一直不显示**（开机不显示、关完窗口也不回来）。
++    // 把窗口类型改成 DOCK：dash-to-dock 必须忽略 dock 类型窗口（否则它自己也会把自己藏起来），
++    // 同时补 SKIP_TASKBAR / SKIP_PAGER / STICKY。
++    if (LINUX) applyOverlayHints(win);
+     win.webContents.setWindowOpenHandler(({ url: target }) => {
+       if (target.startsWith(origin)) { openDress(target); return { action: 'deny' }; }
+       shell.openExternal(target);
+@@ -236,7 +301,39 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+     dress.loadURL(target);
+   };
+ 
+-  ipcMain.on('pet:interactive', (_e, on) => { if (win) win.setIgnoreMouseEvents(!on, { forward: true }); });
++  ipcMain.on('pet:interactive', (_e, on) => { if (win && !LINUX) win.setIgnoreMouseEvents(!on, { forward: true }); });
++
++  // Linux：页面上报「可见矩形」→ setShape 收窄窗口。没上报到之前保持整窗（宁可暂时挡一下，
++  // 也不能先把桌宠裁没了 —— setShape 同时裁剪绘制）。
++  let lastShapeKey = '';
++  ipcMain.on('pet:shape', (_e, rects) => {
++    if (!LINUX || !win || win.isDestroyed()) return;
++    const b = win.getBounds();
++    const out = [];
++    for (const r of (Array.isArray(rects) ? rects : [])) {
++      if (!r) continue;
++      let x = Math.round(r.x), y = Math.round(r.y);
++      let w = Math.round(r.width), h = Math.round(r.height);
++      if (w < 1 || h < 1) continue;
++      if (x + w < 0 || y + h < 0 || x > b.width || y > b.height) continue;
++      x = Math.max(0, x); y = Math.max(0, y);
++      out.push({ x, y, width: Math.min(w, b.width - x), height: Math.min(h, b.height - y) });
++      if (out.length >= 300) break;
++    }
++    // 空集合 = 此刻没有任何可见内容：给 1x1 的退化形状，等于「全穿透」
++    const shape = out.length ? out : [{ x: 0, y: 0, width: 1, height: 1 }];
++    const key = shape.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join(';');
++    if (key === lastShapeKey) return;
++    lastShapeKey = key;
++    try {
++      win.setShape(shape);
++      // setShape 把新区域纳入形状后，那部分 Chromium 从没绘制过，透明窗会露出**空白底色**
++      // （出现白块）。强制整窗重绘一遍把透明处重新画成 alpha=0。
++      win.webContents.invalidate();
++    } catch (e) {
++      console.log('[pet] setShape 失败：' + e);
++    }
++  });
+   ipcMain.on('pet:focus', () => {
+     if (!win) return;
+     // Explicit text input activates this menu-bar process as well as its window.
+diff --git a/packages/cortico-world-desktop-pet/host/preload.cjs b/packages/cortico-world-desktop-pet/host/preload.cjs
+index aa3068e..1d6b4ba 100644
+--- a/packages/cortico-world-desktop-pet/host/preload.cjs
++++ b/packages/cortico-world-desktop-pet/host/preload.cjs
+@@ -1,7 +1,122 @@
+ // The only surface the pet page gets from the window process.
+ const { contextBridge, ipcRenderer } = require('electron');
+ 
++// ---------------------------------------------------------------------------
++// Linux（X11 / Wayland 下的 XWayland）：把「当前所有可见内容」的矩形上报给窗口进程，
++// 由它调 win.setShape(rects) 实现点击穿透。
++//
++// 为什么非这样不可：
++//   下面 setInteractive() 用的 setIgnoreMouseEvents(!on, { forward: true }) 在 Linux 上是**空操作**
++//   （实测：窗口没有输入形状，“No window shape defined”）。而这个窗口铺满整个工作区，
++//   于是它会把**整个桌面的鼠标事件全部吞掉** —— 桌宠看得见，但桌面点不动，等于把系统废掉。
++//   实测可行的替代是 win.setShape(rects)：区域外点击可精确穿透。
++//
++// 注意：setShape 在 Linux 走 X11 ShapeBounding，**同时裁剪绘制** —— 形状必须覆盖所有可见像素，
++// 漏一块那块就看不见。所以这里宁大勿小（每个矩形统一外扩 PAD）。
++// ---------------------------------------------------------------------------
++const IS_LINUX = process.platform === 'linux';
++let SHAPE_ERROR = '';
++const SHAPE_PAD = 14;
++const SHAPE_EVERY_MS = 60;
++const SHAPE_MAX = 240;
++
++function paints(el, cs) {
++  // 标签名统一转大写：HTML 里内联 <svg> 的 tagName 是小写，直接比对 'SVG' 永远不成立
++  const tag = String(el.tagName || '').toUpperCase();
++  // 只认**叶子几何**：<svg> / <g> 是容器，它们通常是整屏尺寸的，
++  // 把容器算进来会把形状直接算成整个窗口 —— 等于没做穿透（实测踩过这个坑）。
++  if (['IMG', 'CANVAS', 'VIDEO', 'PATH', 'ELLIPSE', 'CIRCLE', 'RECT',
++       'POLYGON', 'POLYLINE', 'LINE', 'USE', 'TEXT'].includes(tag)) return true;
++  if (cs.backgroundImage && cs.backgroundImage !== 'none') return true;
++  const bg = cs.backgroundColor || '';
++  if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') return true;
++  if (cs.boxShadow && cs.boxShadow !== 'none') return true;
++  if (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0) return true;
++  for (const n of el.childNodes) {
++    if (n.nodeType === 3 && n.textContent && n.textContent.trim()) return true;
++  }
++  return false;
++}
++
++/** 两两去重：被更大矩形完全包住的直接丢掉（形状越小，能穿透的地方越多） */
++function dedupe(rects) {
++  const sorted = rects.slice().sort((a, b) => b.width * b.height - a.width * a.height);
++  const keep = [];
++  for (const r of sorted) {
++    if (keep.length >= SHAPE_MAX) break;
++    const covered = keep.some((k) =>
++      r.x >= k.x && r.y >= k.y &&
++      r.x + r.width <= k.x + k.width &&
++      r.y + r.height <= k.y + k.height);
++    if (!covered) keep.push(r);
++  }
++  return keep;
++}
++
++function collectShapeRects() {
++  const out = [];
++  const vw = window.innerWidth;
++  const vh = window.innerHeight;
++  let nodes;
++  try {
++    nodes = document.body ? document.body.querySelectorAll('*') : [];
++  } catch (_e) {
++    return out;
++  }
++  for (const el of nodes) {
++    const tag = String(el.tagName || '').toUpperCase();
++    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD' || tag === 'DEFS') continue;
++    let r;
++    let cs;
++    try {
++      r = el.getBoundingClientRect();
++      cs = getComputedStyle(el);
++    } catch (_e) {
++      continue;
++    }
++    if (r.width < 2 || r.height < 2) continue;
++    if (r.left > vw || r.top > vh || r.right < 0 || r.bottom < 0) continue;
++    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') continue;
++    try {
++      if (el.closest && el.closest('[hidden]')) continue;
++    } catch (_e) { /* 忽略 */ }
++    if (!paints(el, cs)) continue;
++    out.push({
++      x: Math.round(r.left - SHAPE_PAD), y: Math.round(r.top - SHAPE_PAD),
++      width: Math.round(r.width + SHAPE_PAD * 2), height: Math.round(r.height + SHAPE_PAD * 2),
++    });
++  }
++  return dedupe(out);
++}
++
++if (IS_LINUX) {
++  try {
++    // 初值用一个不可能相等的时间戳：保证**第一帧一定上报**（
++    // 否则若初始算出来是空集，key 与初值 '' 相等会被当成「没变」而永远不发）。
++    let lastKey = '\u0000init';
++    const tick = () => {
++      try {
++        const rects = collectShapeRects();
++        const key = rects.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join(';');
++        if (key === lastKey) return;
++        lastKey = key;
++        ipcRenderer.send('pet:shape', rects);
++      } catch (_e) { /* 忽略 */ }
++    };
++    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick);
++    else tick();
++    setInterval(tick, SHAPE_EVERY_MS);
++  } catch (e) {
++    // 形状上报挂掉不能让整个 preload 挂掉 —— 否则 petHost 都不会被暴露，桌宠整个 UI 报废。
++    SHAPE_ERROR = String((e && e.message) || e);
++    console.log('[pet-shape] 初始化失败：' + SHAPE_ERROR);
++  }
++}
++
+ contextBridge.exposeInMainWorld('petHost', {
++  /** 诊断用：形状上报是否初始化成功（空串 = 正常） */
++  shapeError: SHAPE_ERROR,
++  platform: process.platform,
+   /** true: the window takes the mouse; false: clicks pass through to what is underneath. */
+   setInteractive: (on) => ipcRenderer.send('pet:interactive', !!on),
+   focus: () => ipcRenderer.send('pet:focus'),
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
 index e5fca42..16286ad 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts

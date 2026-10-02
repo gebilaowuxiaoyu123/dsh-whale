@@ -328,3 +328,14 @@ npm start                      # electron .
 - 本项目（桌面挂件 Windows/Linux 版、GNOME 扩展版、文档、CI）：**MIT**
 - `dsh-whale-widget/`：第三方插件，**MIT**，版权归原项目作者，见其 `LICENSE`
 
+---
+
+### Coopanion（鲸鱼娘桌宠）Linux 版与 NVIDIA 预制配置
+
+上游 Coopanion 的 Linux 版原本「开发不完全」（桌宠窗口压根不会出现）。本次修掉了
+4 个根因（子进程不继承 ozone 平台参数、Linux 上 `setIgnoreMouseEvents` 是空操作、
+形状上报把全屏 SVG 容器算进去、`setShape` 后未 invalidate），并做到 **26 项端到端自检全绿**
+（含逐按钮真实点击 + 截屏审查）。Linux NVIDIA 显卡对接为**预制件**（本机无 N 卡，
+检测到无卡时零副作用）。
+
+详见 [`docs/coopanion-linux-and-nvidia.md`](docs/coopanion-linux-and-nvidia.md)。

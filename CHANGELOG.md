@@ -447,3 +447,30 @@
   点击穿透判定改通用 `pointer-events` 语义、新增 4 个测试工具）；`README.md` 4 处冲突已人工解决
 - `2026-09-04` chore：`third-party/` 加入 .gitignore（仅存放上游研究克隆，不入库）
 - `2026-09-02` chore：忽略 Windows 便携 exe 构建产物（由 CI 自动构建分发）
+
+## [Coopanion Linux 完善 v2] - 2026-10-02
+
+### 修复（上游「Linux 版开发不完全」的 4 个根因）
+- **桌宠窗口不出现**：`--pet-host` 是**子 Electron 进程**，而 `appendSwitch()` 不继承。
+  补 `ELECTRON_OZONE_PLATFORM_HINT=x11` + 给子进程显式 `--ozone-platform=x11`。
+  原先子进程退回原生 Wayland（窗口不能自定位/置顶）→ 窗口从未被创建。
+- **全屏透明窗吞掉整个桌面点击**：Linux 上 `setIgnoreMouseEvents(true,{forward:true})`
+  是空操作。改用 `win.setShape()`（X11 ShapeBounding，同时裁剪绘制与输入）。
+- **形状变全屏**：形状上报误把全屏 `<svg>` 容器算进去；改为只白名单叶子几何标签。
+- **白色方块残影**：`setShape` 放大后新区域未绘制 → 补 `webContents.invalidate()`。
+- 额外：`xprop` 把窗口类型设为 `_NET_WM_WINDOW_TYPE_DOCK`，避免 dash-to-dock 自动隐藏。
+
+### 新增
+- `tools/coopanion-linux-test.mjs` —— Linux 端到端自检 **26 项全绿**，含真实 CDP
+  右键菜单、「行为模式」逐按钮点击并验证标签变化、装扮页、X11 抓屏渲染校验、截图存档。
+- `tools/setup-nvidia.sh` + `docs/coopanion-linux-and-nvidia.md` —— Linux NVIDIA
+  显卡对接**预制配置**（本机无 N 卡：检测到就只报告、零副作用；有 N 卡则写入
+  PRIME 卸载/EGL 直通环境并注入自启项，附 `nvidia-selftest.sh`）。
+- Coopanion 与 DSH 桌面端均接上 `COOPANION_GPU_FLAGS` / `DSH_GPU_FLAGS`（空值时行为不变）。
+- `patches/coopanion/0001-dsh-pet-features.patch` 重新固化（含新增
+  `host/electron-main.cjs`、`host/preload.cjs`）。
+
+### 验证
+- `node tools/coopanion-linux-test.mjs` → 26/26 通过
+- `node tools/coopanion-feature-test.mjs` → 15/15 通过
+
