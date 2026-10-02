@@ -214,6 +214,15 @@ async function main() {
         return e ? { vis: getComputedStyle(e).visibility, txt: (e.textContent||'').trim().slice(0,24) } : null; };
       return { badge: g('.dshwe-badge'), fx: g('.dshwe-fx') };
     })()`);
+    // 插件自己的气泡会在每轮对话后自动弹一下，弹出期间我们的浮层是**故意**隐藏的。
+    // 先等它退场，否则这一段的断言会假失败（曾经踩过一次）。
+    let w6 = 0;
+    while (await evaluate('window.dshwEnhance.busy()') && w6 < 30000) {
+        await sleep(1000);
+        w6 += 1000;
+    }
+    if (w6)
+        console.log(`  （等待插件气泡退场 ${w6 / 1000}s）`);
     await evaluate('window.dshwEnhance.toast(\'\', 10)');
     await sleep(400);
     let v = await vis();
@@ -287,6 +296,96 @@ async function main() {
     if (t)
         check('提示未被右边缘裁切', t.right <= t.vw + 0.5, `right=${t.right}/${t.vw}`);
     await shot('05-toast.png');
+
+    console.log('\n[7] 气泡组（新建 / 切换 / 删除）');
+    const groups0 = await evaluate('window.dshwEnhance.bubble.list()');
+    check('内置气泡组 ≥4', Array.isArray(groups0) && groups0.length >= 4,
+        `实际 ${groups0 && groups0.length}`);
+    const added = await evaluate(
+        "window.dshwEnhance.bubble.add('测试组',{fill:'#101820',text:'#ffe9b0',accent:'#ffd166'})");
+    check('新建自定义气泡组', !!(added && added.ok), JSON.stringify(added).slice(0, 140));
+    const gid = added && added.group && added.group.id;
+    if (gid) {
+        check('切换到新建组', (await evaluate(`window.dshwEnhance.bubble.use('${gid}').ok`)) === true);
+        check('data-dshw-bubble 同步', (await evaluate('document.documentElement.dataset.dshwBubble')) === gid);
+        check('动态样式已注入', (await evaluate(
+            `(() => { const st = document.getElementById('dshwe-group-style');` +
+            ` return !!(st && st.textContent.indexOf('${gid}') >= 0); })()`)) === true);
+        // 关键：颜色要真的作用到**插件自己的 SVG 气泡**上（不然只是改了个变量）
+        // 注意要查全部气泡节点：插件在开关气泡时会重建节点，只查第一个可能踩到旧的
+        await sleep(350);
+        const fillDiag = await evaluate(
+            "(function () {" +
+            " var sels = '.dshwv-pop .dshwv-bshape, .dshwv-pop .dshwv-b1, .dshwv-pop .dshwv-b2';" +
+            " var els = Array.from(document.querySelectorAll(sels));" +
+            " var st = document.getElementById('dshwe-group-style');" +
+            " return {" +
+            "  fills: els.map(function (el) { return getComputedStyle(el).fill; })," +
+            "  dataset: document.documentElement.getAttribute('data-dshw-bubble')," +
+            "  hasFillRule: !!(st && /fill:/.test(st.textContent))," +
+            "  styleHead: st ? st.textContent.slice(0, 150) : null," +
+            "  matches: els.map(function (el) {" +
+            "   return el.matches(':root[data-dshw-bubble=\"' + this.id + '\"] .dshwv-pop .dshwv-bshape'); }.bind({id: '" + gid + "'}))" +
+            " };" +
+            "})()");
+        check('插件气泡 fill 被改写',
+            !!(fillDiag && fillDiag.fills && fillDiag.fills.length > 0 &&
+               fillDiag.fills.some((f) => /#101820|rgb\(16,\s*24,\s*32\)/i.test(String(f)))),
+            JSON.stringify(fillDiag).slice(0, 300));
+        const removed = await evaluate(`window.dshwEnhance.bubble.remove('${gid}')`);
+        check('删除自定义组', !!(removed && removed.ok), JSON.stringify(removed).slice(0, 140));
+        check('内置组不可删', !!(await evaluate(
+            "window.dshwEnhance.bubble.remove('classic')")).ok === false);
+    }
+
+    console.log('\n[8] 心情状态机');
+    const mood0 = await evaluate('window.dshwEnhance.mood()');
+    check('能取到心情', !!(mood0 && mood0.mood), JSON.stringify(mood0).slice(0, 150));
+    check('心情池 ≥6 种', Array.isArray(mood0 && mood0.pool) && mood0.pool.length >= 6,
+        `实际 ${mood0 && mood0.pool && mood0.pool.length}`);
+    check('摸一下会影响心情', !!(await evaluate('window.dshwEnhance.pet()')));
+    check('心情已写到 html[data-dshw-mood]',
+        !!(await evaluate('document.documentElement.dataset.dshwMood')));
+    check('角标带心情 emoji', /[\u{1F300}-\u{1FAFF}]/u.test(String(
+        await evaluate("(document.querySelector('.dshwe-badge')||{}).textContent || ''"))));
+
+    console.log('\n[9] 账单图表三口径');
+    await evaluate("window.dshwEnhance.setChartMode('hour')");
+    await evaluate('window.dshwEnhance.chart(20)');
+    await sleep(900);
+    check('时口径 12 根柱',
+        (await evaluate("document.querySelectorAll('.dshwe-chart.on .dshwe-bar').length")) === 12);
+    await evaluate("window.dshwEnhance.setChartMode('month')");
+    await evaluate('window.dshwEnhance.chart(20)');
+    await sleep(900);
+    const mb = await evaluate("document.querySelectorAll('.dshwe-chart.on .dshwe-bar').length");
+    check('月口径 1~6 根柱', mb >= 1 && mb <= 6, `实际 ${mb}`);
+    await evaluate("window.dshwEnhance.setChartMode('day')");
+    await evaluate('window.dshwEnhance.chart(20)');
+    await sleep(900);
+    check('天口径 7 根柱',
+        (await evaluate("document.querySelectorAll('.dshwe-chart.on .dshwe-bar').length")) === 7);
+
+    console.log('\n[10] 离线一键抠图');
+    const mp = await evaluate('window.dshwEnhance.mattePreview()');
+    check('抠图能算出结果', !!(mp && mp.ok), JSON.stringify((mp && (mp.error || mp)) || null).slice(0, 150));
+    if (mp && mp.ok) {
+        check('输出尺寸合理', mp.width > 32 && mp.height > 32, `${mp.width}x${mp.height}`);
+        check('确实吃掉了背景', mp.ratio > 0.01, `背景占比 ${mp.ratio}`);
+        check('返回的是 PNG dataURL', /^data:image\/png;base64,/.test(String(mp.dataUrl)));
+    }
+
+    console.log('\n[11] 迷你控制条');
+    const btns = await evaluate("document.querySelectorAll('.dshwe-ctl button').length");
+    check('控制条有 3 个按钮', btns === 3, `实际 ${btns}`);
+    const ctlGeo = await evaluate(`(() => {
+      const el = document.querySelector('.dshwe-ctl');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, vw: window.innerWidth };
+    })()`);
+    check('控制条完整在视口内', !!ctlGeo && ctlGeo.right <= ctlGeo.vw + 0.5,
+        JSON.stringify(ctlGeo));
 
     // 收尾：恢复默认主题
     await evaluate("window.dshwEnhance.set({theme:'dark', bubbleSkin:'classic'})");

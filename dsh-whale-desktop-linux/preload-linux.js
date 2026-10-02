@@ -24,7 +24,16 @@
  *     · 面板/气泡等其它可见元素按「是否真的画了东西」收集矩形
  *     · 增强层浮层（.dshwe-*）额外走硬保名单（scanOthers 的启发式可能漏判）
  */
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, contextBridge } = require('electron');
+
+// 给增强层用的桥：它跑在渲染进程且开启了 contextIsolation，自己 require 不到 electron，
+// 所以由 preload 暴露一个最小接口（目前只有「保存抠图结果」）。
+try {
+    contextBridge.exposeInMainWorld('dshwBridge', {
+        saveMatte: (dataUrl) => ipcRenderer.invoke('dshw-save-matte', dataUrl),
+    });
+} catch (_e) { /* 忽略 */ }
+
 
 const WHALE_SEL = '.dshwv-img';
 const MASK = 610;                 // 插件鲸鱼 PNG 是 610x610
@@ -42,7 +51,7 @@ const DEBUG = !!process.env.DSHW_DEBUG;
 // paints() 只要判错就会被 setShape 裁掉 —— 按选择器硬保一份，成本极低。
 // 2026-10-02 实机踩坑：浮层先前挂在 <html> 上，而 scanOthers 只遍历 body，
 // 结果角标被形状切成半截（截图可见）。
-const ENHANCE_SELS = ['.dshwe-toast.on', '.dshwe-badge', '.dshwe-fx', '.dshwe-chart.on'];
+const ENHANCE_SELS = ['.dshwe-toast.on', '.dshwe-badge', '.dshwe-fx', '.dshwe-chart.on', '.dshwe-ctl'];
 
 // 插件自己的气泡/面板：容器不画背景、内容全靠 SVG，属于 paints() 天生判不出的结构。
 // 这里按选择器**硬保**一份（只增不减，宁可少穿透也不能少画）。

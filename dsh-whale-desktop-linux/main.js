@@ -94,7 +94,37 @@ app.on('second-instance', () => {
   }
 });
 
-const WIDGET_PORT = 3090; // 本挂件本地服务端口
+// ---------- 本地服务端口（支持被占用时回退） ----------
+// 3090 是插件的默认端口，但可能被别的程序、或上一次没退干净的实例占用。
+// 原来 srv.listen() 不做任何错误处理 —— 端口一被占，整个挂件直接起不来（白屏/无窗口）。
+const PORT_CANDIDATES = [3090, 3091, 3092, 3093, 3094, 3095, 3096, 3097, 3098, 0];
+let WIDGET_PORT = 3090;
+
+/** 依次尝试候选端口；全被占就让系统随机分配（候选表末尾的 0），保证一定能起来 */
+function listenWithFallback(srv, idx = 0) {
+  return new Promise((resolve, reject) => {
+    const port = PORT_CANDIDATES[Math.min(idx, PORT_CANDIDATES.length - 1)];
+    const onErr = (err) => {
+      srv.removeListener('error', onErr);
+      const retryable = err && (err.code === 'EADDRINUSE' || err.code === 'EACCES');
+      if (retryable && idx + 1 < PORT_CANDIDATES.length) {
+        console.warn('[dsh-whale] 端口 ' + port + ' 不可用（' + err.code + '），换下一个');
+        resolve(listenWithFallback(srv, idx + 1));
+        return;
+      }
+      reject(err);
+    };
+    srv.once('error', onErr);
+    srv.listen(port, '127.0.0.1', () => {
+      srv.removeListener('error', onErr);
+      const addr = srv.address();
+      WIDGET_PORT = (addr && addr.port) || port;
+      console.log('[dsh-whale] 本地服务端口 = ' + WIDGET_PORT +
+        (port === 3090 ? '' : '（3090 被占用 / 系统分配，已回退）'));
+      resolve(WIDGET_PORT);
+    });
+  });
+}
 const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
 const CRED_FILE = path.join(DSH_HOME, '.credentials.yaml');
 const SIZE_FILE = path.join(DSH_HOME, '.dshw-size.json');   // 与插件共用：挂件尺寸/开关配置
@@ -443,6 +473,29 @@ function loadPluginHost() {
 }
 
 /** 本地服务：自包含实现 /dsh-whale/* 全部路由（不依赖 dsh web）。 */
+// ---------- 增强层：抠图结果的落盘 + 路由 ----------
+// 增强层在渲染进程里把「一键抠图」算完（dataURL），通过 preload 暴露的 IPC 送过来落盘，
+// 再由本地服务提供出去 —— 这样重启后仍然生效，也不用把大图塞进 localStorage。
+let mattedFile = null;
+function mattedPath() {
+  if (!mattedFile) mattedFile = path.join(app.getPath('userData'), 'dshw-matted.png');
+  return mattedFile;
+}
+
+ipcMain.handle('dshw-save-matte', async (_e, dataUrl) => {
+  try {
+    const m = /^data:image\/png;base64,(.+)$/.exec(String(dataUrl || ''));
+    if (!m) return { ok: false, error: 'bad data url' };
+    const buf = Buffer.from(m[1], 'base64');
+    if (buf.length < 100) return { ok: false, error: 'too small' };
+    fs.writeFileSync(mattedPath(), buf);
+    console.log('[dsh-whale] 抠图结果已保存（' + buf.length + ' 字节）');
+    return { ok: true, url: '/dsh-whale/matted.png?v=' + Date.now(), bytes: buf.length };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+});
+
 function startServer() {
   const srv = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://127.0.0.1:' + WIDGET_PORT);
@@ -556,6 +609,22 @@ function startServer() {
       res.end(JSON.stringify({ ok: false, error: 'method not allowed' }));
       return;
     }
+    if (p === '/dsh-whale/matted.png') {
+      // 一键抠图的结果（由增强层算好 → IPC 落盘 → 在这里提供）
+      try {
+        const b = fs.readFileSync(mattedPath());
+        res.writeHead(200, {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'no-store',
+          'Content-Length': String(b.length),
+        });
+        res.end(b);
+      } catch (_e) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('no matte');
+      }
+      return;
+    }
     if (p === '/dsh-whale/last-turn.json') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: true, seq: 0, turn: null, amount: null, tokens: null, ts: 0 }));
@@ -564,8 +633,7 @@ function startServer() {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('not found');
   });
-  srv.listen(WIDGET_PORT, '127.0.0.1');
-  return srv;
+  return listenWithFallback(srv);
 }
 
 // ---------- 首次运行：自动补齐配置 ----------
@@ -665,6 +733,9 @@ function createWidgetWindow() {
     // Linux 不调用 setIgnoreMouseEvents：实测在 Linux 上它是空操作，还会让透明窗挡住整个桌面。
     // 先保持整窗可交互（保证一定看得见、点得到），等 preload 上报矩形后用 setShape 精确收窄。
     win.setIgnoreMouseEvents(false);
+    // 让 Shell 把我们当成「覆盖层」而不是「占满桌面的普通应用程序窗口」
+    win.setSkipTaskbar(true);
+    try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (_e) {}
   } else {
     // Windows / macOS：官方支持的 forward 逐像素方案（由 preload 的 mousemove 实时切换）
     win.setIgnoreMouseEvents(true, { forward: true });
@@ -681,8 +752,69 @@ function createWidgetWindow() {
   }
   win.loadURL(`http://127.0.0.1:${WIDGET_PORT}/`);
   win.on('closed', () => { win = null; });
+  if (IS_LINUX) {
+    // 窗口显示后再改类型（Mutter 在映射时会读 _NET_WM_WINDOW_TYPE，
+    // 晚到的修改不一定会重新生效，所以必要时来一次 hide→show 强制重读）
+    win.once('ready-to-show', () => {
+      setTimeout(() => applyLinuxOverlayHints(), 300);
+    });
+  }
   console.log('[dsh-whale] window bounds = ' + JSON.stringify(win.getBounds()) +
     (IS_LINUX ? `  [linux/setShape 模式, winH=${winH}]` : '  [forward 模式]'));
+}
+
+// ---------- Linux：把窗口伪装成 dock 类型的覆盖层 ----------
+// 为什么必须这么做（2026-10-02 实机取证）：
+//   本机 dock 在底部，且 autohide=true / intellihide=true / intellihide-mode=ALL_WINDOWS ——
+//   语义就是「只要有窗口压到 dock 区域，dock 就自动隐藏」。
+//   而我们的窗口是**普通类型**、全屏置顶的窗口（_NET_WM_WINDOW_TYPE_NORMAL），于是：
+//     · dock 被它一直顶掉 —— 开机不显示、关掉所有窗口也不回来（点一下桌面才恢复）
+//     · ding（桌面图标）把它当成遮挡窗口，桌面图标的刷新/交互也跟着不正常
+//   改成 _NET_WM_WINDOW_TYPE_DOCK 之后：
+//     · dash-to-dock 的 intellihide 必须忽略 dock 类型窗口（否则它自己也会把自己藏起来）
+//     · dock 类型天然位于普通窗口之上，不进任务栏也不进概览，也不抢焦点
+//     · Shell 不再把它当作「一个占满桌面的普通应用窗口」
+//   注意：只改**窗口类型**；_NET_WM_STATE 留给 Electron 自己管，避免两边打架。
+function applyLinuxOverlayHints() {
+  if (!IS_LINUX || !win || win.isDestroyed()) return;
+  let xid = 0;
+  try {
+    const h = win.getNativeWindowHandle();
+    xid = h.length >= 8 ? Number(h.readBigUInt64LE(0)) : h.readUInt32LE(0);
+  } catch (_e) {
+    return;
+  }
+  if (!xid) return;
+  const id = '0x' + xid.toString(16);
+  let execFile;
+  try {
+    execFile = require('child_process').execFile;
+  } catch (_e) {
+    return;
+  }
+  const q = (args, cb) => execFile('xprop', args, (err, out) => cb && cb(err, out));
+  const setType = () => q(['-id', id, '-f', '_NET_WM_WINDOW_TYPE', '32a',
+    '-set', '_NET_WM_WINDOW_TYPE', '_NET_WM_WINDOW_TYPE_DOCK']);
+  setType();
+  // 确认是否生效；没生效就 hide→show 一次强制 Mutter 重读
+  setTimeout(() => {
+    q(['-id', id, '_NET_WM_WINDOW_TYPE'], (err, out) => {
+      const ok = !err && /DOCK/.test(String(out || ''));
+      if (ok) {
+        console.log('[dsh-whale] 窗口类型已设为 DOCK（dock 的 intellihide 会忽略我们）');
+        return;
+      }
+      try {
+        if (!win || win.isDestroyed()) return;
+        win.hide();
+        setType();
+        setTimeout(() => {
+          try { if (win && !win.isDestroyed()) win.show(); } catch (_e) {}
+        }, 120);
+        console.log('[dsh-whale] 窗口类型需重映射，已 hide→show 重新应用');
+      } catch (_e) { /* 忽略 */ }
+    });
+  }, 900);
 }
 
 // ---------- 点击穿透：Linux 用 setShape，Windows/macOS 用官方 forward ----------
@@ -934,7 +1066,8 @@ ipcMain.on('whale-debug-shape', (_e, info) => {
 app.whenReady().then(async () => {
   // 先加载插件本体，保证挂件发出的第一个请求就能命中插件路由
   await loadPluginHost();
-  startServer();
+  // 等端口就绪再开窗口：URL 里用的是 WIDGET_PORT，回退后的端口才能被用上
+  await startServer();
   createTray();
   // 首次运行：未配置 API Key 时先弹出配置窗口自动补齐，否则直接显示挂件
   if (readApiKey()) createWidgetWindow();

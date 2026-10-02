@@ -115,6 +115,34 @@ const SFX_THEMES = {
     pop: {label: '活泼', pick: 'sfx_pop_pick.mp3', drop: 'sfx_pop_drop.mp3', pet: 'sfx_pop_pick.mp3'},
     chirp: {label: '清脆', pick: 'sfx_chirp_pick.mp3', drop: 'sfx_chirp_drop.mp3', pet: 'sfx_chirp_pick.mp3'},
 };
+
+// —— 音频播放器回退链（A7）——
+// 原实现把 `/usr/bin/pw-play` 写死：本机实测**没有 paplay**（Ubuntu 24.04 只装 PipeWire），
+// 换一台只有 PulseAudio 或只有 ALSA 的机器就直接没声音；而且 spawn 失败是**静默**的，
+// 用户只会觉得「音效坏了，也没什么提示」。
+// 这里按能力探测一次并缓存；播放失败自动换下一个，全都没有就明确报一次日志。
+const SFX_PLAYERS = [
+    {bin: 'pw-play', args: (v, p) => ['--volume', v.toFixed(2), p]},
+    {bin: 'paplay', args: (v, p) => ['--volume', String(Math.round(v * 65536)), p]},
+    {bin: 'ffplay', args: (v, p) => ['-nodisp', '-autoexit', '-loglevel', 'quiet', '-volume', String(Math.round(v * 100)), p]},
+    {bin: 'mpv', args: (v, p) => ['--no-video', '--really-quiet', '--volume=' + Math.round(v * 100), p]},
+    {bin: 'gst-play-1.0', args: (v, p) => ['--quiet', p]},
+];
+
+/** 从 startIdx 起找第一个真实存在的播放器；找不到返回 null */
+function pickSfxPlayer(startIdx) {
+    for (let i = Math.max(0, startIdx); i < SFX_PLAYERS.length; i++) {
+        let p = null;
+        try {
+            p = GLib.find_program_in_path(SFX_PLAYERS[i].bin);
+        } catch (_e) {
+            p = null;
+        }
+        if (p)
+            return {idx: i, path: p, args: SFX_PLAYERS[i].args, name: SFX_PLAYERS[i].bin};
+    }
+    return null;
+}
 const PET_LINES = [
     '呜哇！被摸头了… 好舒服 (〃ω〃)',
     '再…再摸一下也可以哦~',
@@ -175,6 +203,11 @@ export default class DshWhaleWidget extends Extension {
         this._buildWhale();
         this._placeInitial();
         this._captureId = global.stage.connect('captured-event', (s, ev) => this._onCaptured(ev));
+        // A3/A4：触屏支持（触控屏笔记本 / 平板模式）——按住能拖、长按当右键
+        this._touchId = this._whale.connect('touch-event', (a, ev) => this._onTouch(a, ev));
+        // A6：锁屏降级 —— 锁屏时隐藏并停掉定时器（省电，也不会出现在锁屏界面上）
+        this._suspended = false;
+        this._sessionConn = Main.sessionMode.connect('updated', () => this._onSessionMode());
         // 显示器热插拔 / 工作区变化（分辨率、缩放、任务栏变化）：把鲸鱼夹回合法范围，
         // 避免它停在已消失的显示器坐标上而“不见了”（A1）
         this._geomConns = [
@@ -196,6 +229,18 @@ export default class DshWhaleWidget extends Extension {
 
     disable() {
         this._hold = null;
+        if (this._lpTimer) {
+            GLib.source_remove(this._lpTimer);
+            this._lpTimer = 0;
+        }
+        if (this._sessionConn) {
+            try { Main.sessionMode.disconnect(this._sessionConn); } catch (e) { /* 忽略 */ }
+            this._sessionConn = 0;
+        }
+        if (this._touchId && this._whale) {
+            try { this._whale.disconnect(this._touchId); } catch (e) { /* 忽略 */ }
+            this._touchId = 0;
+        }
         if (this._geomConns) {
             for (const c of this._geomConns) {
                 try {
@@ -393,26 +438,53 @@ export default class DshWhaleWidget extends Extension {
     }
 
     _loadPrefs() {
+        let raw = null;
         try {
             const [ok, data] = GLib.file_get_contents(this._prefsFile());
-            if (ok && data && data.length) {
-                const j = JSON.parse(decodeBytes(data));
-                if (j.sfxTheme && SFX_THEMES[j.sfxTheme])
-                    this._sfxTheme = j.sfxTheme;
-                if (typeof j.vol === 'number')
-                    this._vol = Math.max(0, Math.min(1, j.vol));
-                if (typeof j.soundOn === 'boolean')
-                    this._soundOn = j.soundOn;
-                if (typeof j.bubbleOn === 'boolean')
-                    this._bubbleOn = j.bubbleOn;
-                if (PEAK_MODES.includes(j.peakMode))
-                    this._peakMode = j.peakMode;
-                if (typeof j.autoOn === 'boolean')
-                    this._autoOn = j.autoOn;
-                if (j.usageMode === 'token' || j.usageMode === 'ledger')
-                    this._usageMode = j.usageMode;
-            }
-        } catch (e) { /* 忽略 */ }
+            if (ok && data && data.length)
+                raw = decodeBytes(data);
+        } catch (e) {
+            raw = null;
+        }
+        if (raw === null)
+            return;
+        let j = null;
+        try {
+            j = JSON.parse(raw);
+        } catch (e) {
+            // A9：偏好文件坏了，不能让插件变成「已配置却读不到」的玄学状态 ——
+            // 备份成 prefs.json.bad，从默认值继续跑，并明确报一次（用户可自行恢复）。
+            try { logError(e, '[dsh-whale] 偏好文件解析失败，已备份为 prefs.json.bad 并使用默认值'); } catch (_e2) {}
+            try { GLib.file_set_contents(this._prefsFile() + '.bad', raw); } catch (_e3) {}
+            return;
+        }
+        if (!j || typeof j !== 'object')
+            return;
+        const num = (v, lo, hi, dflt) => (typeof v === 'number' && isFinite(v)) ? Math.max(lo, Math.min(hi, v)) : dflt;
+        try {
+            if (j.sfxTheme && SFX_THEMES[j.sfxTheme])
+                this._sfxTheme = j.sfxTheme;
+            this._vol = num(j.vol, 0, 1, this._vol);
+            if (typeof j.soundOn === 'boolean')
+                this._soundOn = j.soundOn;
+            if (typeof j.bubbleOn === 'boolean')
+                this._bubbleOn = j.bubbleOn;
+            if (PEAK_MODES.includes(j.peakMode))
+                this._peakMode = j.peakMode;
+            if (typeof j.autoOn === 'boolean')
+                this._autoOn = j.autoOn;
+            if (j.usageMode === 'token' || j.usageMode === 'ledger')
+                this._usageMode = j.usageMode;
+            // 数值类字段统一夹紧：手改配置写出 NaN / 负值不会再把界面搞崩
+            const ws = num(j.whaleScale, 0.4, 3, null);
+            if (ws !== null)
+                this._whaleScale = ws;
+            const bs = num(j.bubbleSec, 2, 120, null);
+            if (bs !== null)
+                this._bubbleSec = bs;
+        } catch (e) {
+            try { logError(e, '[dsh-whale] 偏好应用失败（已忽略出错项）'); } catch (_e4) {}
+        }
     }
 
     _savePrefs() {
@@ -522,16 +594,34 @@ export default class DshWhaleWidget extends Extension {
     _playSound(kind) {
         if (!this._soundOn)
             return;
+        if (this._sfxDead)
+            return;
         try {
             const th = SFX_THEMES[this._sfxTheme] || SFX_THEMES.default;
             const file = th[kind] || SFX_THEMES.default[kind] || 'Ya1.mp3';
             const p = this._assetPath(file);
-            const v = Math.max(0, Math.min(1, this._vol || 1)).toFixed(2);
-            GLib.spawn_async(null, ['/usr/bin/pw-play', '--volume', v, p], null,
+            const v = Math.max(0, Math.min(1, this._vol || 1));
+            if (!this._sfxArgs) {
+                const f = pickSfxPlayer((this._sfxIdx || -1) + 1);
+                if (!f) {
+                    this._sfxDead = true;
+                    log('[dsh-whale] 未找到任何可用音频播放器（已试 ' +
+                        SFX_PLAYERS.map(x => x.bin).join(' / ') + '），音效改为静音');
+                    return;
+                }
+                this._sfxIdx = f.idx;
+                this._sfxPath = f.path;
+                this._sfxArgs = f.args;
+                log('[dsh-whale] 音效播放器 = ' + f.name + '（' + f.path + '）');
+            }
+            GLib.spawn_async(null, [this._sfxPath].concat(this._sfxArgs(v, p)), null,
                 GLib.SpawnFlags.SEARCH_PATH |
                 GLib.SpawnFlags.STDOUT_TO_DEV_NULL |
                 GLib.SpawnFlags.STDERR_TO_DEV_NULL, null);
-        } catch (e) { /* 静默 */ }
+        } catch (e) {
+            // 这个播放器实际用不了 → 丢掉，下次自动试下一个
+            this._sfxArgs = null;
+        }
     }
 
     _tryBreath() {
@@ -625,6 +715,90 @@ export default class DshWhaleWidget extends Extension {
     }
 
     // ============ 交互 ============
+    // A8：跟随定时器的间隔跟着屏幕刷新率走（60Hz→16ms / 120Hz→8ms，夹在 8~20ms）
+    _frameMs() {
+        try {
+            let idx = null;
+            if (this._whale && global.display.get_monitor_index_for_actor)
+                idx = global.display.get_monitor_index_for_actor(this._whale);
+            if (idx === null || idx === undefined)
+                idx = global.display.get_primary_monitor();
+            const hz = global.display.get_monitor_refresh_rate(idx) || 60;
+            return Math.max(8, Math.min(20, Math.round(1000 / hz)));
+        } catch (e) {
+            return 16;
+        }
+    }
+
+    // A6：锁屏降级
+    _onSessionMode() {
+        let locked = false;
+        try {
+            locked = !!Main.sessionMode.isLocked;
+        } catch (e) {
+            locked = false;
+        }
+        if (locked === this._suspended)
+            return;
+        this._suspended = locked;
+        if (locked) {
+            this._hold = null;
+            if (this._followTimer) { GLib.source_remove(this._followTimer); this._followTimer = 0; }
+            if (this._breathTimer) { GLib.source_remove(this._breathTimer); this._breathTimer = 0; }
+            if (this._fxTimer) { GLib.source_remove(this._fxTimer); this._fxTimer = 0; }
+            if (this._lpTimer) { GLib.source_remove(this._lpTimer); this._lpTimer = 0; }
+            try { this._whale.hide(); } catch (e) { /* 忽略 */ }
+        } else {
+            try { this._whale.show(); } catch (e) { /* 忽略 */ }
+            if (!this._breathTimer)
+                this._breathTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => this._tryBreath());
+            if (!this._fxTimer)
+                this._fxTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 3200, () => this._tryIdleFx());
+        }
+    }
+
+    // A3/A4：触屏——按住拖、长按（550ms）当右键唤出菜单
+    _onTouch(a, ev) {
+        const t = ev.type();
+        if (t === Clutter.EventType.TOUCH_BEGIN) {
+            if (this._menu)
+                this._closeMenu();
+            const [px, py] = ev.get_coords();
+            const [wx, wy] = this._whale.get_position();
+            this._hold = {sx: px, sy: py, moved: false, ox: wx - px, oy: wy - py, touch: true};
+            this._playSound('pick');
+            this._easeScale(0.93, 90, Clutter.AnimationMode.EASE_OUT_QUAD);
+            if (!this._followTimer)
+                this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._frameMs(), () => this._followTick());
+            if (this._lpTimer)
+                GLib.source_remove(this._lpTimer);
+            this._lpTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 550, () => {
+                this._lpTimer = 0;
+                const h = this._hold;
+                if (h && !h.moved) {
+                    this._hold = null;
+                    this._openMenu(px, py);
+                    this._touchMenuAt = Date.now();
+                }
+                return GLib.SOURCE_REMOVE;
+            });
+            return Clutter.EVENT_STOP;
+        }
+        if (t === Clutter.EventType.TOUCH_END || t === Clutter.EventType.TOUCH_CANCEL) {
+            if (this._lpTimer) { GLib.source_remove(this._lpTimer); this._lpTimer = 0; }
+            // 长按刚唤出菜单：这次抬手不要再当成点击
+            if (this._touchMenuAt && Date.now() - this._touchMenuAt < 1200) {
+                this._touchMenuAt = 0;
+                return Clutter.EVENT_STOP;
+            }
+            if (this._hold)
+                this._endHold();
+            return Clutter.EVENT_STOP;
+        }
+        // TOUCH_UPDATE 不用管：位置由 _followTick 从 global.get_pointer() 取
+        return Clutter.EVENT_PROPAGATE;
+    }
+
     _onPress(a, ev) {
         if (this._menu)
             this._closeMenu();
@@ -642,8 +816,8 @@ export default class DshWhaleWidget extends Extension {
         this._playSound('pick');
         this._easeScale(0.93, 90, Clutter.AnimationMode.EASE_OUT_QUAD);
         if (!this._followTimer)
-            // 16ms ≈ 60fps：与屏幕刷新对齐，拖动跟手更顺滑(此前 30ms 仅 33fps，易显顿挫)
-            this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 16, () => this._followTick());
+            // A8：跟随屏幕刷新率（60Hz→16ms / 120Hz→8ms）
+            this._followTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._frameMs(), () => this._followTick());
         return Clutter.EVENT_STOP;
     }
 

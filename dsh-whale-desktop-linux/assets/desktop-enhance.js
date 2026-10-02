@@ -35,15 +35,20 @@
     const cfg = Object.assign(
         {
             peakWarn: true, leadMinutes: 10, badge: true, fxCurrency: 'USD',
-            theme: 'dark', bubbleSkin: 'classic',
+            theme: 'dark', bubbleSkin: 'classic', bubbleGroups: null,
             speechOn: true, speechMinutes: 10,
-            chartOn: true, chartSeconds: 9,
+            chartOn: true, chartSeconds: 9, chartMode: 'day',
+            moodOn: true, budgetCny: 5,
+            matteOn: false, matteUrl: '', matteTolerance: 34,
+            ctlBar: true,
         },
         readCfg(),
     );
     const FX_CYCLE = ['USD', 'EUR', 'JPY', 'GBP', 'HKD', 'OFF'];
     const THEMES = ['dark', 'light', 'glass', 'auto'];
     const SKINS = ['classic', 'night', 'sakura', 'mint'];
+    // 气泡/角标/控制条/图表的纵向堆叠位置（相对鲸鱼顶部向上偏移）
+    const STACK = { fx: 2, badge: 26, ctl: 52, chart: 82 };
 
     // ---------------- 浮层挂载点 ----------------
     // 必须挂到 <body> 内：preload-linux.js 的 scanOthers() 只遍历 document.body，
@@ -254,6 +259,42 @@
           :root[data-dshw-bubble="mint"] .dshwe-toast {
             background: rgba(18,44,38,.94); border-color: rgba(140,240,200,.34); border-radius: 16px;
           }
+
+          /* ---- 迷你控制条（气泡组 / 图表口径 / 一键抠图） ---- */
+          .dshwe-ctl {
+            position: fixed; z-index: 2147483003;
+            display: flex; gap: 3px; padding: 3px;
+            border-radius: 999px;
+            background: var(--dshwe-bg2); border: 1px solid var(--dshwe-line);
+            backdrop-filter: var(--dshwe-blur);
+            -webkit-backdrop-filter: var(--dshwe-blur);
+          }
+          .dshwe-ctl button {
+            all: unset; cursor: pointer;
+            width: 21px; height: 18px; line-height: 18px; text-align: center;
+            font-size: 11px; border-radius: 999px; user-select: none;
+          }
+          .dshwe-ctl button:hover { background: rgba(255,255,255,.16); }
+          .dshwe-ctl button:active { background: rgba(255,255,255,.26); }
+
+          /* ---- 心情状态（用滤镜脉冲表达，不动 transform，避免和插件的镜像动画打架） ---- */
+          @keyframes dshwe-mood-excited {
+            0%,100% { filter: saturate(1.15) brightness(1) }
+            45%     { filter: saturate(1.45) brightness(1.14) }
+          }
+          @keyframes dshwe-mood-angry {
+            0%,100% { filter: contrast(1.05) hue-rotate(0deg) }
+            50%     { filter: contrast(1.2) hue-rotate(9deg) brightness(.95) }
+          }
+          @keyframes dshwe-mood-tired {
+            0%,100% { filter: brightness(.95) saturate(.9) }
+            50%     { filter: brightness(.85) saturate(.78) }
+          }
+          :root[data-dshw-mood="excited"] .dshwv-img { animation: dshwe-mood-excited 1.2s ease-in-out 3; }
+          :root[data-dshw-mood="angry"]   .dshwv-img { animation: dshwe-mood-angry .6s ease-in-out 4; }
+          :root[data-dshw-mood="tired"]   .dshwv-img { animation: dshwe-mood-tired 3.2s ease-in-out infinite; }
+          :root[data-dshw-mood="happy"]   .dshwv-img { filter: saturate(1.16) brightness(1.05); }
+          :root[data-dshw-mood="worried"] .dshwv-img { filter: hue-rotate(-8deg) saturate(.95); }
         `;
         (document.head || document.documentElement).appendChild(st);
     }
@@ -349,17 +390,20 @@
         lastAnchorKey = k;
         log('follow: busy=' + busy + ' k=' + k);
         try {
-            // 插件自己弹东西 → 我们的角标让位
-            for (const el of [bagdeEl, fxEl, chartEl])
+            // 插件自己弹东西 → 我们的浮层让位
+            for (const el of [bagdeEl, fxEl, chartEl, ctlEl])
                 if (el) el.style.visibility = busy ? 'hidden' : '';
+            applyMatteUrl();                 // 插件重设形象图后，把抠图结果补回来
             if (busy)
                 return;
             if (bagdeEl && bagdeEl.textContent && cfg.badge)
-                place(bagdeEl, a.x, Math.round(a.y - 26), { above: true });
+                place(bagdeEl, a.x, Math.round(a.y - STACK.badge), { above: true });
             if (fxEl && fxEl.textContent && fxEl.style.display !== 'none')
-                place(fxEl, a.x, Math.round(a.y - 2), { above: true });
+                place(fxEl, a.x, Math.round(a.y - STACK.fx), { above: true });
+            if (ctlEl && cfg.ctlBar)
+                place(ctlEl, a.x, Math.round(a.y - STACK.ctl), { above: true });
             if (chartEl && chartEl.classList.contains('on'))
-                place(chartEl, a.x, Math.round(a.y - 50), { above: true });
+                place(chartEl, a.x, Math.round(a.y - STACK.chart), { above: true });
         } catch (_e) { /* 忽略 */ }
     }
 
@@ -519,6 +563,7 @@
         } catch (e) {
             log('汇率获取失败（沿用缓存）: ' + e);
             notice('汇率拉取失败，沿用缓存: ' + e);
+            noteError('fx');
         } finally {
             fxFetching = false;
         }
@@ -540,6 +585,7 @@
             }
         } catch (e) {
             log('余额读取失败: ' + e);
+            noteError('balance');
         }
         return balCache;
     }
@@ -645,34 +691,33 @@
         const u = await loadUsage();
         if (!u)
             return;
-        const cur7 = u.total7Currency || 'CNY';
-        const days = u.days7.slice().reverse();        // 旧 → 新（最右边是今天）
-        const tot = days.map((d) => Number(d.total) || 0);
-        const max = Math.max.apply(null, tot.concat([0.0001]));
-        const today = (u.today && u.today.date) || '';
+        const s = buildSeries(u, CHART_MODES.indexOf(cfg.chartMode) >= 0 ? cfg.chartMode : 'day');
+        const max = Math.max.apply(null, s.values.concat([0.0001]));
+        const total = s.values.reduce((a, b) => a + b, 0);
         let bars = '';
         let xrow = '';
-        for (const d of days) {
-            const v = Number(d.total) || 0;
-            const h = Math.max(2, Math.round((v / max) * 38));
-            bars += '<div class="dshwe-bar' + (d.date === today ? ' hot' : '') +
+        for (let i = 0; i < s.values.length; i++) {
+            const h = Math.max(2, Math.round((s.values[i] / max) * 38));
+            bars += '<div class="dshwe-bar' + (i === s.hot ? ' hot' : '') +
                     '" style="height:' + h + 'px"></div>';
-            xrow += '<span>' + String(d.date).slice(8) + '</span>';
+            xrow += '<span>' + s.labels[i] + '</span>';
         }
         const el = ensureChartEl();
         el.innerHTML =
-            '<div>📊 近 7 日用量 ' + cur7 + '　共 ' +
-            (Number(u.total7) || 0).toFixed(2) + '</div>' +
+            '<div>📊 ' + s.title + '（' + CHART_MODE_NAME[cfg.chartMode] + '）' + s.currency +
+            '　共 ' + total.toFixed(2) + '</div>' +
             '<div class="dshwe-bars">' + bars + '</div>' +
             '<div class="dshwe-xrow">' + xrow + '</div>';
         const a = anchor();
         const lift = (toastEl && toastEl.classList.contains('on')) ? toastEl.offsetHeight + 6 : 0;
         el.classList.add('on');
-        place(el, a.x, Math.round(a.y - 50 - lift), { above: true });
+        place(el, a.x, Math.round(a.y - STACK.chart - lift), { above: true });
         clearTimeout(chartHideT);
         chartHideT = setTimeout(() => el.classList.remove('on'),
             (Number(seconds) || cfg.chartSeconds) * 1000);
-        notice('账单图表已显示（近 7 日，峰值 ' + max.toFixed(2) + ' ' + cur7 + '）');
+        if (u.today)
+            todaySpend = Number(u.today.total) || 0;
+        notice('账单图表已显示（' + s.title + '，峰值 ' + max.toFixed(2) + ' ' + s.currency + '）');
     }
 
     // ---------------- 台词轮播 ----------------
@@ -703,11 +748,448 @@
             try {
                 if (cfg.speechOn && !(toastEl && toastEl.classList.contains('on')) &&
                     !(chartEl && chartEl.classList.contains('on'))) {
-                    toast('🐳 ' + SPEECH[Math.floor(Math.random() * SPEECH.length)], 9000);
+                    toast('🐳 ' + pickLine(), 9000);
                 }
             } catch (_e) { /* 忽略 */ }
             scheduleSpeech();
         }, ms);
+    }
+
+    // ================= 气泡组（可新建 / 切换 / 删除） =================
+    // 内置 4 套预设，用户还能自己加。一组 = 「气泡填充色 + 文字色 + 圆角 + 强调色」，
+    // 同时作用于**插件自己的 SVG 气泡**和增强层浮层（插件用 !important 重置了容器背景，
+    // 所以必须改 SVG path 的 fill，见上面的注释）。
+    const BUILTIN_GROUPS = [
+        { id: 'classic', name: '经典', fill: '#ffffff', text: '#1f3a8a', radius: 14, accent: '#ffe6a8' },
+        { id: 'night', name: '暗夜', fill: '#141a2a', text: '#dce6ff', radius: 10, accent: '#9ec3ff' },
+        { id: 'sakura', name: '樱花', fill: '#3c1e2c', text: '#ffe1ec', radius: 16, accent: '#ffb3d1' },
+        { id: 'mint', name: '薄荷', fill: '#12302a', text: '#d6fff0', radius: 16, accent: '#8ef0c8' },
+    ];
+
+    function bubbleGroups() {
+        const custom = (Array.isArray(cfg.bubbleGroups) ? cfg.bubbleGroups : [])
+            .filter((g) => g && g.id && g.fill && g.text);
+        const ids = new Set(custom.map((g) => g.id));
+        return custom.concat(BUILTIN_GROUPS.filter((g) => !ids.has(g.id)));
+    }
+
+    function currentGroup() {
+        const list = bubbleGroups();
+        return list.find((g) => g.id === cfg.bubbleSkin) || list[0];
+    }
+
+    /** 把「当前组」写进一张动态样式表（用户自建的组走这里；内置组另有静态规则） */
+    function applyBubbleGroup() {
+        const old = document.getElementById('dshwe-group-style');
+        if (old) old.remove();
+        const g = currentGroup();
+        const custom = (Array.isArray(cfg.bubbleGroups) ? cfg.bubbleGroups : [])
+            .some((x) => x && x.id === g.id);
+        let css = '';
+        if (custom) {
+            css +=
+                `:root[data-dshw-bubble="${g.id}"] .dshwv-pop .dshwv-bshape,\n` +
+                `:root[data-dshw-bubble="${g.id}"] .dshwv-pop .dshwv-b1,\n` +
+                `:root[data-dshw-bubble="${g.id}"] .dshwv-pop .dshwv-b2 { fill: ${g.fill} !important; }\n` +
+                `:root[data-dshw-bubble="${g.id}"] .dshwv-pop .dshwv-text { color: ${g.text} !important; }\n` +
+                `:root[data-dshw-bubble="${g.id}"] .dshwe-toast,\n` +
+                `:root[data-dshw-bubble="${g.id}"] .dshwe-badge,\n` +
+                `:root[data-dshw-bubble="${g.id}"] .dshwe-fx,\n` +
+                `:root[data-dshw-bubble="${g.id}"] .dshwe-ctl {\n` +
+                `  background: ${g.fill}; color: ${g.text}; border-color: ${g.text}33; }\n`;
+        }
+        css += `:root[data-dshw-bubble="${g.id}"] .dshwe-toast { border-radius: ${g.radius}px; }\n`;
+        if (custom)
+            css += `:root[data-dshw-bubble="${g.id}"] .dshwe-fx { color: ${g.accent} !important; }\n`;
+        const st = document.createElement('style');
+        st.id = 'dshwe-group-style';
+        st.textContent = css;
+        (document.head || document.documentElement).appendChild(st);
+    }
+
+    const bubbleApi = {
+        list: () => bubbleGroups().map((g) => ({ id: g.id, name: g.name, custom: !BUILTIN_GROUPS.some((b) => b.id === g.id) })),
+        current: () => currentGroup().id,
+        use(id) {
+            const g = bubbleGroups().find((x) => x.id === id);
+            if (!g)
+                return { ok: false, error: '没有这个气泡组：' + id };
+            cfg.bubbleSkin = id;
+            writeCfg();
+            applyBubbleGroup();
+            applyTheme();
+            toast('🎨 气泡组 → 「' + g.name + '」', 3000);
+            return { ok: true, id };
+        },
+        next() {
+            const list = bubbleGroups();
+            const i = list.findIndex((g) => g.id === cfg.bubbleSkin);
+            return bubbleApi.use(list[(i + 1) % list.length].id);
+        },
+        /** add('我的配色', {fill:'#101820', text:'#ffe9b0', radius:14, accent:'#ffd166'}) */
+        add(name, spec) {
+            if (!name)
+                return { ok: false, error: '需要给气泡组起个名字' };
+            const s = spec || {};
+            const g = {
+                id: 'g' + Date.now().toString(36),
+                name: String(name),
+                fill: s.fill || '#ffffff',
+                text: s.text || '#1f3a8a',
+                radius: Number(s.radius) || 14,
+                accent: s.accent || '#ffe6a8',
+            };
+            cfg.bubbleGroups = (Array.isArray(cfg.bubbleGroups) ? cfg.bubbleGroups : []).concat([g]);
+            writeCfg();
+            applyBubbleGroup();
+            return { ok: true, group: g, total: bubbleGroups().length };
+        },
+        remove(id) {
+            const cur = Array.isArray(cfg.bubbleGroups) ? cfg.bubbleGroups : [];
+            const next = cur.filter((g) => !g || g.id !== id);
+            if (next.length === cur.length)
+                return { ok: false, error: '内置组不能删除（只保留自定义组的增删）' };
+            cfg.bubbleGroups = next;
+            if (cfg.bubbleSkin === id)
+                cfg.bubbleSkin = 'classic';
+            writeCfg();
+            applyBubbleGroup();
+            applyTheme();
+            return { ok: true, total: bubbleGroups().length };
+        },
+        clearCustom() {
+            cfg.bubbleGroups = [];
+            writeCfg();
+            applyBubbleGroup();
+            return { ok: true };
+        },
+    };
+
+    // ================= 心情状态机（多状态形象） =================
+    // 信号全部来自本地已有数据，不额外发请求：
+    //   接口失败 → 烦躁    长时间没交互 → 困了     高峰时段 → 心疼
+    //   刚被摸/拖 → 兴奋   今日花费超预算 → 心疼   谷价且余额够 → 开心
+    // 表现形式：气质 emoji + 台词池 + 形象滤镜/脉冲动效（只动 filter，不动 transform，
+    // 避免和插件自己的镜像 transform 打架而把鲸鱼翻转坏掉）。
+    const MOODS = {
+        normal: {
+            emoji: '🐳', name: '平常',
+            lines: ['今天也要好好写代码呀～', '我在这儿陪着你呢。', '要不要整理一下 TODO？'],
+        },
+        happy: {
+            emoji: '😊', name: '开心',
+            lines: ['余额还够，放心跑～', '今天状态不错嘛！', '嘿嘿，陪着你的感觉真好。', '谷价时段是跑量的好时候！'],
+        },
+        excited: {
+            emoji: '🤩', name: '兴奋',
+            lines: ['哇！被摸到了！', '再来一次！再来一次！', '今天干劲十足！'],
+        },
+        worried: {
+            emoji: '😰', name: '心疼',
+            lines: ['现在是高峰，贵三倍哦…', '预算要撑住啊。', '轻轻用，别跑太多～'],
+        },
+        tired: {
+            emoji: '😪', name: '困了',
+            lines: ['好困…你也要休息哦。', '我先眯一会儿…', '夜深了，明天再战？', '记得喝水，别一直盯着屏幕。'],
+        },
+        angry: {
+            emoji: '😤', name: '烦躁',
+            lines: ['接口又抽风了…', '哼！重试一下就好。', '别慌，先看看网络。'],
+        },
+    };
+    let mood = 'normal';
+    let moodAt = 0;
+    let lastInteractAt = Date.now();
+    let lastErrAt = 0;
+    let todaySpend = 0;
+    let spendAt = 0;
+
+    function noteInteract() {
+        lastInteractAt = Date.now();
+    }
+
+    function noteError(where) {
+        lastErrAt = Date.now();
+        log('记一次失败（影响心情）：' + where);
+    }
+
+    function computeMood() {
+        const now = Date.now();
+        if (!cfg.moodOn)
+            return 'normal';
+        if (now - lastErrAt < 90 * 1000) return 'angry';
+        if (now - lastInteractAt > 8 * 60 * 1000) return 'tired';
+        if (todaySpend > (Number(cfg.budgetCny) || 5)) return 'worried';
+        if (peakState().peak) return 'worried';
+        if (now - lastInteractAt < 25 * 1000) return 'excited';
+        return 'happy';
+    }
+
+    function pickLine() {
+        const m = MOODS[mood] || MOODS.normal;
+        const pool = (m.lines && m.lines.length) ? m.lines : SPEECH;
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    function applyMood() {
+        const next = computeMood();
+        const changed = next !== mood;
+        mood = next;
+        const m = MOODS[mood] || MOODS.normal;
+        document.documentElement.dataset.dshwMood = mood;
+        if (changed) {
+            moodAt = Date.now();
+            notice('心情 → ' + m.name + ' ' + m.emoji);
+            if (cfg.speechOn && overlayAllowed())
+                toast(m.emoji + ' ' + pickLine(), 6000);
+        }
+        return mood;
+    }
+
+    async function maybeRefreshSpend() {
+        if (Date.now() - spendAt < 60 * 1000)
+            return;
+        spendAt = Date.now();
+        const u = await loadUsage();
+        if (u && u.today)
+            todaySpend = Number(u.today.total) || 0;
+    }
+
+    // ================= 离线一键抠图 =================
+    // 为什么自研而不是上 BiRefNet + onnxruntime：
+    //   官方那条线用 BiRefNet，模型上百 MB、还要背一个推理运行时 —— 对一个桌面挂件来说
+    //   包体和启动代价都不划算（路线图里也标了「暂不建议」）。
+    //   这里用**边界泛洪 + 羽化**，纯浏览器端、零依赖、离线：
+    //     · 从四条边界往里长，只吃掉「与当前像素颜色接近」的邻居（连通域）
+    //       → 渐变背景也能吃掉，而角色内部与背景同色的区域不会被误删
+    //     · 对 alpha 做一次 3x3 均值当羽化，边缘不会有硬锯齿
+    //   对「纯色 / 渐变背景」的立绘效果好；复杂背景仍建议用插件自带的裁剪框。
+    const MATTE_MAX = 1024;
+
+    function floodMatte(d, w, h, tol) {
+        const tol2 = tol * tol * 3;
+        const isBg = new Uint8Array(w * h);
+        const stack = [];
+        const seed = (x, y) => {
+            const p = y * w + x;
+            if (!isBg[p]) { isBg[p] = 1; stack.push(p); }
+        };
+        for (let x = 0; x < w; x++) { seed(x, 0); seed(x, h - 1); }
+        for (let y = 0; y < h; y++) { seed(0, y); seed(w - 1, y); }
+        let removed = 0;
+        while (stack.length) {
+            const p = stack.pop();
+            removed++;
+            const x = p % w;
+            const y = (p - x) / w;
+            const i = p * 4;
+            const r = d[i], g = d[i + 1], b = d[i + 2];
+            for (let k = 0; k < 4; k++) {
+                const nx = x + (k === 0 ? -1 : (k === 1 ? 1 : 0));
+                const ny = y + (k === 2 ? -1 : (k === 3 ? 1 : 0));
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                const q = ny * w + nx;
+                if (isBg[q]) continue;
+                const j = q * 4;
+                // 半透明像素不参与泛洪（避免把羽化过的旧抠图越抠越多）
+                if (d[j + 3] < 200) continue;
+                const dr = d[j] - r, dg = d[j + 1] - g, db = d[j + 2] - b;
+                if (dr * dr + dg * dg + db * db <= tol2) { isBg[q] = 1; stack.push(q); }
+            }
+        }
+        for (let p = 0; p < w * h; p++)
+            if (isBg[p]) d[p * 4 + 3] = 0;
+        return removed;
+    }
+
+    function featherAlpha(d, w, h, radius) {
+        const src = new Uint8Array(w * h);
+        for (let p = 0; p < w * h; p++) src[p] = d[p * 4 + 3];
+        const r = radius || 1;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                let sum = 0, n = 0;
+                for (let dy = -r; dy <= r; dy++) {
+                    const ny = y + dy;
+                    if (ny < 0 || ny >= h) continue;
+                    for (let dx = -r; dx <= r; dx++) {
+                        const nx = x + dx;
+                        if (nx < 0 || nx >= w) continue;
+                        sum += src[ny * w + nx];
+                        n++;
+                    }
+                }
+                d[(y * w + x) * 4 + 3] = Math.round(sum / n);
+            }
+        }
+    }
+
+    async function autoMatte() {
+        const img = document.querySelector('.dshwv-img');
+        if (!img)
+            return { ok: false, error: '还没找到挂件形象图' };
+        const url = img.currentSrc || img.src;
+        let bmp;
+        try {
+            const r = await fetch(url, { cache: 'no-store' });
+            bmp = await createImageBitmap(await r.blob());
+        } catch (e) {
+            return { ok: false, error: '取形象图失败：' + e };
+        }
+        const scale = Math.min(1, MATTE_MAX / Math.max(bmp.width, bmp.height));
+        const cw = Math.max(1, Math.round(bmp.width * scale));
+        const ch = Math.max(1, Math.round(bmp.height * scale));
+        const c = document.createElement('canvas');
+        c.width = cw;
+        c.height = ch;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(bmp, 0, 0, cw, ch);
+        let im;
+        try {
+            im = ctx.getImageData(0, 0, cw, ch);
+        } catch (e) {
+            return { ok: false, error: '画布读不出来（跨域限制）' };
+        }
+        const removed = floodMatte(im.data, cw, ch, Number(cfg.matteTolerance) || 34);
+        featherAlpha(im.data, cw, ch, 1);
+        ctx.putImageData(im, 0, 0);
+        return {
+            ok: true, dataUrl: c.toDataURL('image/png'),
+            width: cw, height: ch, removed,
+            ratio: +(removed / (cw * ch)).toFixed(3),
+        };
+    }
+
+    function applyMatteUrl() {
+        const img = document.querySelector('.dshwv-img');
+        if (!img)
+            return;
+        if (cfg.matteOn && cfg.matteUrl) {
+            if (!img.dataset.dshwOrigSrc)
+                img.dataset.dshwOrigSrc = img.getAttribute('src') || '';
+            if (img.getAttribute('src') !== cfg.matteUrl)
+                img.setAttribute('src', cfg.matteUrl);
+        } else if (img.dataset.dshwOrigSrc) {
+            if (img.getAttribute('src') !== img.dataset.dshwOrigSrc)
+                img.setAttribute('src', img.dataset.dshwOrigSrc);
+            delete img.dataset.dshwOrigSrc;
+        }
+    }
+
+    async function runMatte() {
+        const bridge = window.dshwBridge;
+        if (!bridge || !bridge.saveMatte) {
+            toast('✂️ 当前形态不支持抠图（缺少 IPC 桥）', 6000);
+            return { ok: false, error: 'no bridge' };
+        }
+        toast('✂️ 正在抠图…', 4000);
+        const r = await autoMatte();
+        if (!r.ok) {
+            toast('✂️ 抠图失败：' + r.error, 6000);
+            noteError('matte');
+            return r;
+        }
+        const saved = await bridge.saveMatte(r.dataUrl);
+        if (!saved || !saved.ok) {
+            toast('✂️ 结果保存失败：' + ((saved && saved.error) || '未知'), 6000);
+            return { ok: false, error: (saved && saved.error) || 'save failed' };
+        }
+        cfg.matteOn = true;
+        cfg.matteUrl = saved.url;
+        writeCfg();
+        applyMatteUrl();
+        toast('✂️ 抠图完成：背景占 ' + Math.round(r.ratio * 100) + '%，已应用', 6000);
+        notice('抠图完成 ' + r.width + 'x' + r.height + '，背景占比 ' + r.ratio);
+        return { ...r, url: saved.url };
+    }
+
+    function resetMatte() {
+        cfg.matteOn = false;
+        writeCfg();
+        applyMatteUrl();
+        toast('✂️ 已恢复原始形象图', 4000);
+        return { ok: true };
+    }
+
+    // ================= 账单图表：时 / 天 / 月 三种口径 =================
+    const CHART_MODES = ['hour', 'day', 'month'];
+    const CHART_MODE_NAME = { hour: '时', day: '天', month: '月' };
+
+    function buildSeries(u, mode) {
+        const cur = u.total7Currency || 'CNY';
+        if (mode === 'hour') {
+            const today = (u.today && u.today.date) || '';
+            const buckets = new Array(12).fill(0);
+            const evs = (u.all && Array.isArray(u.all.events)) ? u.all.events : [];
+            for (const e of evs) {
+                if (!e || e.day !== today) continue;
+                const t = new Date(Number(e.ts) || 0);
+                const bh = Math.floor(t.getHours() / 2);
+                if (bh >= 0 && bh < 12) buckets[bh] += Number(e.cost) || 0;
+            }
+            return {
+                title: '今日按 2 小时', currency: cur,
+                labels: buckets.map((_, i) => (i === 0 ? '0' : String(i * 2))),
+                values: buckets, hot: 11,
+            };
+        }
+        if (mode === 'month') {
+            const days = (u.all && Array.isArray(u.all.days)) ? u.all.days : [];
+            const map = new Map();
+            for (const d of days) {
+                const k = String((d && d.date) || '').slice(0, 7);
+                if (!k) continue;
+                map.set(k, (map.get(k) || 0) + (Number(d.total) || 0));
+            }
+            const keys = Array.from(map.keys()).sort().slice(-6);
+            return {
+                title: '近 6 个月', currency: cur,
+                labels: keys.map((k) => k.slice(5)),
+                values: keys.map((k) => map.get(k)), hot: keys.length - 1,
+            };
+        }
+        const days = (u.days7 || []).slice().reverse();
+        return {
+            title: '近 7 日', currency: cur,
+            labels: days.map((d) => String(d.date).slice(8)),
+            values: days.map((d) => Number(d.total) || 0),
+            hot: days.findIndex((d) => d.date === ((u.today && u.today.date) || '')),
+        };
+    }
+
+    // ================= 迷你控制条 =================
+    let ctlEl = null;
+
+    function ensureCtlEl() {
+        ensureStyles();
+        if (ctlEl)
+            return ctlEl;
+        ctlEl = document.createElement('div');
+        ctlEl.className = 'dshwe-ctl';
+        const mk = (label, title, fn) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = label;
+            b.title = title;
+            b.addEventListener('click', (ev) => {
+                try { ev.stopPropagation(); ev.preventDefault(); } catch (_e) { /* 忽略 */ }
+                fn();
+            });
+            ctlEl.appendChild(b);
+        };
+        mk('🎨', '切换气泡组（也可 dshwEnhance.bubble.add/use/remove 自定义）', () => bubbleApi.next());
+        mk('📊', '切换账单口径：时 → 天 → 月', () => {
+            const i = CHART_MODES.indexOf(cfg.chartMode);
+            cfg.chartMode = CHART_MODES[(i + 1) % CHART_MODES.length];
+            writeCfg();
+            showChart(12);
+        });
+        mk('✂️', '一键抠图：去掉形象图背景（离线，点第二次恢复原图）', () => {
+            if (cfg.matteOn) resetMatte();
+            else runMatte();
+        });
+        mount(ctlEl);
+        return ctlEl;
     }
 
     // ---------------- 主循环 ----------------
@@ -717,14 +1199,15 @@
         try {
             const s = peakState();
             // 常驻角标
+            const me = (MOODS[mood] || MOODS.normal).emoji;
             if (s.secondsToSwitch >= 0)
                 badge(
-                    (s.peak ? '⛰ 高峰 ' : '🌙 谷价 ') +
+                    me + ' ' + (s.peak ? '⛰ 高峰 ' : '🌙 谷价 ') +
                     mmss(s.secondsToSwitch) + ' 后切换',
                     s.peak ? '#ffd7a8' : '#a8e6c8',
                 );
             else
-                badge('🌙 谷价（周末）', '#a8e6c8');
+                badge(me + ' 🌙 谷价（周末）', '#a8e6c8');
 
             // 提前预警：距切换 ≤ leadMinutes 时提示一次
             if (cfg.peakWarn && s.secondsToSwitch >= 0 &&
@@ -744,32 +1227,41 @@
             console.log(NS, 'tick 出错: ' + e);
         }
         tickFx();          // 多币种汇率（异步，内部有缓存，不会频繁请求）
+        applyMood();       // 心情状态机
+        maybeRefreshSpend();
     }
 
     function boot() {
         ensureStyles();
         applyTheme();
+        applyBubbleGroup();
+        applyMatteUrl();
+        ensureCtlEl();
         tick();
         setInterval(tick, CHECK_MS);
         setInterval(follow, 200);          // 浮层跟随鲸鱼
         scheduleSpeech();
-        console.log(NS, '增强层已加载（峰谷预警 lead=' + cfg.leadMinutes + 'min, badge=' + cfg.badge +
-            ', theme=' + cfg.theme + ', bubble=' + cfg.bubbleSkin +
+        // 交互信号（拖 / 点 / 摸）→ 心情；只在我们自己的窗口收到时计
+        window.addEventListener('pointerdown', noteInteract, true);
+        window.addEventListener('pointermove', (e) => { if (e.buttons) noteInteract(); }, true);
+        console.log(NS, '增强层已加载（心情=' + cfg.moodOn + ', 气泡组=' + currentGroup().name +
+            ', 色调=' + cfg.theme + ', 图表=' + cfg.chartMode +
             ', 台词=' + (cfg.speechOn ? cfg.speechMinutes + 'min' : '关') +
-            ', 图表=' + cfg.chartOn + '）');
-        toast('✅ 桌面增强层已启用（峰谷预警 · 汇率 · 台词 · 账单图表）', 4000);
-        // 启动速览：近 7 日账单（也相当于“开机看一眼花了多少”）
+            ', 拍图=' + (cfg.matteOn ? '已应用' : '未启用') + '）');
+        toast('✅ 桌面增强层已就绪（点鲸鱼旁的 🎨 📊 ✂️ 可以切换）', 5000);
         if (cfg.chartOn)
             setTimeout(() => showChart(), 3000);
     }
 
-    // 对外暴露，便于调整配置 / 自测
+    // 对外暴露，便于调配置 / 自测 / 二次开发
     window.dshwEnhance = {
         cfg,
         set(patch) {
             Object.assign(cfg, patch || {});
             writeCfg();
             applyTheme();
+            applyBubbleGroup();
+            applyMatteUrl();
             scheduleSpeech();
             tick();
             return cfg;
@@ -783,13 +1275,36 @@
             return cfg.theme;
         },
         skin(s) {
-            if (SKINS.indexOf(s) >= 0) cfg.bubbleSkin = s;
-            writeCfg();
-            applyTheme();
-            return cfg.bubbleSkin;
+            return bubbleApi.use(s);
+        },
+        /** 气泡组：list() / use(id) / next() / add(name,{fill,text,radius,accent}) / remove(id) */
+        bubble: bubbleApi,
+        /** 心情：查看当前状态与今日花费 */
+        mood: () => ({
+            mood,
+            name: (MOODS[mood] || MOODS.normal).name,
+            emoji: (MOODS[mood] || MOODS.normal).emoji,
+            spend: todaySpend,
+            budget: Number(cfg.budgetCny) || 5,
+            since: moodAt,
+            pool: Object.keys(MOODS),
+        }),
+        /** 手动摸一下（会影响心情） */
+        pet: () => { noteInteract(); return applyMood(); },
+        /** 图表口径：hour | day | month */
+        setChartMode(m) {
+            if (CHART_MODES.indexOf(m) >= 0) {
+                cfg.chartMode = m;
+                writeCfg();
+            }
+            return cfg.chartMode;
         },
         chart: (s) => showChart(s),
         usage: () => loadUsage(),
+        /** 一键抠图（算 + 落盘 + 应用）；传 'off' 则恢复原图 */
+        matte: (mode) => (mode === 'off' ? resetMatte() : runMatte()),
+        /** 只算不应用，返回尺寸与背景占比，便于自测 */
+        mattePreview: () => autoMatte(),
         busy: () => pluginUiBusy(),
         follow,
         toast,
