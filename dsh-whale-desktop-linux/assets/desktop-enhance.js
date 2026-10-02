@@ -27,9 +27,10 @@
     const CHECK_MS = 20000;
 
     const cfg = Object.assign(
-        { peakWarn: true, leadMinutes: 10, badge: true },
+        { peakWarn: true, leadMinutes: 10, badge: true, fxCurrency: 'USD' },
         readCfg(),
     );
+    const FX_CYCLE = ['USD', 'EUR', 'JPY', 'GBP', 'HKD', 'OFF'];
 
     function readCfg() {
         try {
@@ -48,6 +49,15 @@
     function log(...a) {
         if (cfg.debug)
             console.log(NS, ...a);
+    }
+
+    // 状态变化时无条件输出（不受 cfg.debug 影响），便于外部验证
+    let lastNotice = '';
+    function notice(msg) {
+        if (msg === lastNotice)
+            return;
+        lastNotice = msg;
+        console.log(NS, msg);
     }
 
     // ---------------- 峰谷计算（北京时间，与插件/扩展版口径一致） ----------------
@@ -113,6 +123,13 @@
             font: 11px/1.5 system-ui, "Noto Sans CJK SC", sans-serif;
             pointer-events: none; white-space: nowrap;
           }
+          .dshwe-fx {
+            position: fixed; z-index: 2147483001;
+            padding: 3px 9px; border-radius: 999px;
+            background: rgba(24, 30, 48, .86); color: #ffe6a8;
+            font: 11px/1.5 system-ui, "Noto Sans CJK SC", sans-serif;
+            cursor: pointer; white-space: nowrap; user-select: none;
+          }
         `;
         document.documentElement.appendChild(st);
     }
@@ -167,6 +184,123 @@
         return h > 0 ? `${h}h${String(m).padStart(2, '0')}m` : `${m}m`;
     }
 
+    // ---------------- 多币种汇率（对齐官方 Windows 独立版） ----------------
+    // 余额走插件自己的 /dsh-whale/balance.json（稳定接口，同源）；汇率走开放接口 + 本地缓存
+    const FX_TTL = 6 * 3600 * 1000;    // 汇率缓存 6 小时
+    const BAL_TTL = 60 * 1000;         // 余额缓存 60 秒
+    const SYM = { CNY: '¥', USD: '$', EUR: '€', JPY: '¥', GBP: '£', HKD: 'HK$' };
+
+    let fxEl = null;
+    let fxCache = null;
+    let balCache = null;
+    let fxFetching = false;
+
+    function readCached(key, ttl) {
+        try {
+            const j = JSON.parse(localStorage.getItem(key) || 'null');
+            if (j && j.at && Date.now() - j.at < ttl)
+                return j;
+        } catch (_e) { /* 忽略 */ }
+        return null;
+    }
+
+    async function loadFx(base) {
+        if (fxFetching)
+            return fxCache;
+        fxFetching = true;
+        try {
+            const r = await fetch('https://open.er-api.com/v6/latest/' +
+                encodeURIComponent(base), { cache: 'no-store' });
+            const j = await r.json();
+            if (j && j.rates) {
+                fxCache = { base, rates: j.rates, at: Date.now() };
+                localStorage.setItem('dshwFx', JSON.stringify(fxCache));
+                log('汇率已更新 base=' + base);
+                notice('汇率拉取成功 base=' + base + '（' + Object.keys(j.rates).length + ' 种货币）');
+            }
+        } catch (e) {
+            log('汇率获取失败（沿用缓存）: ' + e);
+            notice('汇率拉取失败，沿用缓存: ' + e);
+        } finally {
+            fxFetching = false;
+        }
+        return fxCache;
+    }
+
+    async function loadBalance() {
+        const c = readCached('dshwBal', BAL_TTL);
+        if (c) {
+            balCache = { total: c.total, currency: c.currency, at: c.at };
+            return balCache;
+        }
+        try {
+            const r = await fetch('/dsh-whale/balance.json', { cache: 'no-store' });
+            const j = await r.json();
+            if (j && j.ok && typeof j.totalBalance === 'number') {
+                balCache = { total: j.totalBalance, currency: j.currency || 'CNY', at: Date.now() };
+                localStorage.setItem('dshwBal', JSON.stringify(balCache));
+            }
+        } catch (e) {
+            log('余额读取失败: ' + e);
+        }
+        return balCache;
+    }
+
+    function ensureFxEl() {
+        ensureStyles();
+        if (fxEl)
+            return fxEl;
+        fxEl = document.createElement('div');
+        fxEl.className = 'dshwe-fx';
+        fxEl.title = '点击切换显示币种（USD → EUR → JPY → GBP → HKD → 关）';
+        fxEl.addEventListener('click', () => {
+            const i = FX_CYCLE.indexOf(cfg.fxCurrency);
+            cfg.fxCurrency = FX_CYCLE[(i + 1) % FX_CYCLE.length];
+            writeCfg();
+            if (fxEl)
+                fxEl.style.display = 'none';      // 先隐藏，避免切换瞬间显示错币种
+            tickFx();
+            toast('💱 汇率显示：' + (cfg.fxCurrency === 'OFF' ? '已关闭' : cfg.fxCurrency), 3000);
+        });
+        document.documentElement.appendChild(fxEl);
+        return fxEl;
+    }
+
+    async function tickFx() {
+        const cur = cfg.fxCurrency;
+        if (!cur || cur === 'OFF') {
+            if (fxEl)
+                fxEl.style.display = 'none';
+            return;
+        }
+        const bal = await loadBalance();
+        if (!bal)
+            return;
+
+        let rate = 1;
+        if (bal.currency !== cur) {
+            let c = readCached('dshwFx', FX_TTL) || fxCache;
+            if (!c || c.base !== bal.currency)
+                c = await loadFx(bal.currency);
+            if (!c || !c.rates || typeof c.rates[cur] !== 'number') {
+                log('拿不到 ' + bal.currency + '→' + cur + ' 汇率，不显示（避免显示错数据）');
+                notice('拿不到 ' + bal.currency + '→' + cur + ' 汇率，暂不显示');
+                return;
+            }
+            rate = c.rates[cur];
+        }
+
+        const el = ensureFxEl();
+        const digits = cur === 'JPY' ? 0 : 2;
+        el.style.display = '';
+        el.textContent = '💱 ' + (SYM[bal.currency] || '') + bal.total.toFixed(2) +
+            ' ≈ ' + (SYM[cur] || '') + (bal.total * rate).toFixed(digits) + ' ' + cur;
+        notice('汇率显示已更新：' + el.textContent);
+        const a = anchor();
+        el.style.left = Math.max(8, Math.min(window.innerWidth - 240, a.x)) + 'px';
+        el.style.top = Math.max(8, a.y - 48) + 'px';
+    }
+
     // ---------------- 主循环 ----------------
     let warnedKey = '';
 
@@ -200,6 +334,7 @@
         } catch (e) {
             console.log(NS, 'tick 出错: ' + e);
         }
+        tickFx();          // 多币种汇率（异步，内部有缓存，不会频繁请求）
     }
 
     function boot() {
@@ -216,6 +351,7 @@
         cfg,
         set(patch) { Object.assign(cfg, patch || {}); writeCfg(); tick(); return cfg; },
         state: peakState,
+        fx: () => ({ currency: cfg.fxCurrency, rate: fxCache, balance: balCache }),
         toast,
     };
 

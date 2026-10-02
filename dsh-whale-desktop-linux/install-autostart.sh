@@ -9,7 +9,7 @@ cat > "$HOME/.config/autostart/dsh-whale-widget.desktop" <<EOF
 Type=Application
 Name=DSH Whale Widget
 Comment=DeepSeek 余额小鲸鱼桌面挂件
-Exec="$EXE"
+Exec=env APPIMAGE_EXTRACT_AND_RUN=1 "$EXE" --ozone-platform=x11
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF
