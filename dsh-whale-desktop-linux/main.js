@@ -15,7 +15,9 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { startPlugin } = require('./host-shim');
 
 const WIDGET_PORT = 3090; // 本挂件本地服务端口
 const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
@@ -33,9 +35,17 @@ const PAGE = `<!doctype html>
 <meta charset="utf-8">
 <style>
   html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; }
+  /* 供插件前端做「是否处于主聊天界面」自检用的占位节点：不参与布局、不可见、不可交互 */
+  #root { position:absolute; top:0; left:0; width:0; height:0; overflow:hidden; }
+  #root > textarea { width:0; height:0; opacity:0; border:0; padding:0; margin:0; }
 </style>
 </head>
 <body>
+<!-- 插件前端（whale-widget.js）开头有一段页面自检：只在实际的 DSH 主聊天界面（能在 #root 里
+     查到 composer 输入区）才挂载挂件，否则不碰 DOM —— 这是为避免干扰 DSH 的 SPA 视图。
+     桌面版加载的不是 DSH 页面，因此这里提供一个不可见、不参与布局的等价占位节点让自检通过；
+     真正决定挂件外观与行为的是前端自身与其 /dsh-whale/* 接口，不依赖此占位节点。 -->
+<div id="root"><textarea readonly aria-hidden="true" tabindex="-1"></textarea></div>
 <script src="/dsh-whale/widget.js"></script>
 </body>
 </html>`;
@@ -194,6 +204,87 @@ function createTray() {
 }
 
 // ---------- 记账：小鲸鱼记账模式（余额差值本地记账） ----------
+// 账本 ~/.dsh/.dshw-usage.json 与 DSH 网页版插件（dsh-whale-widget）**共用同一本账**，
+// 因此这里的数据格式与语义和插件 lib/accounting.mjs 保持一致：
+//   { accounting: { version:1, active, books:{ "<scope>-<币种>": { currency, days:{...}, lastAt } } } }
+// 同时继续维护旧版兼容字段（date/lastBalance/todayUsage/history），供旧 UI 与插件读取。
+// 注意：切勿整体重建账本对象 —— 那会丢掉插件写入的 accounting.books 历史（跨天/换 key 场景）。
+const ACCOUNTING_VERSION = 1;
+const MONEY_SCALE = 100000000; // 8 位小数定点记账，避免浮点误差
+
+// 账本日期一律按北京时间（与插件 beijingDay 对齐）
+function beijingDay(t) {
+  const d = new Date(Number(t == null ? Date.now() : t) + 8 * 3600000);
+  return d.toISOString().slice(0, 10);
+}
+function moneyUnits(v) {
+  const n = Number(v);
+  const units = Math.round(n * MONEY_SCALE);
+  if (!Number.isFinite(n) || !Number.isSafeInteger(units)) throw new Error('金额无效或超出可记账范围');
+  return units;
+}
+// 账户标识：与插件一致 —— sha256(API key) 前 24 位十六进制。同一把 key 即同一本账。
+function ledgerScope(apiKey) {
+  return crypto.createHash('sha256').update(String(apiKey)).digest('hex').slice(0, 24);
+}
+function observedUnits(row) {
+  const c = row.correction;
+  return c ? c.amountUnits + row.debitUnits - c.debitUnits : row.debitUnits;
+}
+// 记录一次余额观测（原地修改 ledger），返回「今日已用」金额
+function observeBalance(ledger, snapshot) {
+  const at = Number(snapshot.at == null ? Date.now() : snapshot.at);
+  const day = beijingDay(at);
+  const units = moneyUnits(snapshot.balance);
+  const currency = String(snapshot.currency || 'CNY').toUpperCase();
+  const context = String(snapshot.scope) + '-' + currency;
+
+  let a = ledger.accounting;
+  if (!a || a.version !== ACCOUNTING_VERSION) {
+    // 旧格式账本：历史数值缺少可信的充值信息，保留到 legacyHistory 供参考，并开启新的观测窗口
+    a = ledger.accounting = {
+      version: ACCOUNTING_VERSION, active: context, books: {}, migratedAt: at,
+      legacyHistory: Object.assign({}, ledger.history || {}),
+    };
+  }
+  if (!a.books) a.books = {};
+  let book = a.books[context];
+  if (!book) book = a.books[context] = { currency: currency, days: {} };
+  if (!book.days) book.days = {};
+  // 忽略重复 / 乱序样本（含迟到的昨天样本）
+  if (book.lastAt != null && at <= book.lastAt) {
+    return Number(ledger.todayUsage || 0);
+  }
+  a.active = context;
+
+  let row = book.days[day];
+  if (!row) {
+    row = book.days[day] = {
+      day: day, firstAt: at, lastAt: at, openingUnits: units, lastUnits: units,
+      debitUnits: 0, creditUnits: 0, revision: 0, correction: null,
+    };
+  } else {
+    const delta = row.lastUnits - units;
+    if (delta > 0) row.debitUnits += delta;
+    if (delta < 0) row.creditUnits -= delta;
+    row.lastUnits = units;
+    row.lastAt = at;
+  }
+  book.lastAt = at;
+  book.currency = currency;
+
+  // 兼容字段：旧 UI / 插件的老设置写入器仍会读这些键
+  const amount = observedUnits(row) / MONEY_SCALE;
+  ledger.date = day;
+  ledger.dayStart = row.openingUnits / MONEY_SCALE;
+  ledger.lastBalance = row.lastUnits / MONEY_SCALE;
+  ledger.lastCurrency = currency;
+  ledger.todayUsage = amount;
+  if (!ledger.history) ledger.history = {};
+  ledger.history[day] = amount;
+  return amount;
+}
+
 function fetchBalancePayload() {
   return new Promise((resolve) => {
     const key = readApiKey();
@@ -210,18 +301,18 @@ function fetchBalancePayload() {
           const total = Number(info && info.total_balance);
           const currency = (info && info.currency) || 'CNY';
           if (!isFinite(total)) throw new Error('balance parse failed');
-          const today = todayKey();
-          let usage = readJson(USAGE_FILE);
-          if (!usage || usage.date !== today) usage = { date: today, lastBalance: null, lastCurrency: null, todayUsage: 0, history: {} };
-          if (usage.lastBalance != null && usage.lastCurrency === currency && total < usage.lastBalance) {
-            usage.todayUsage = Number(usage.todayUsage || 0) + (usage.lastBalance - total);
+          // 与 DSH 插件共用账本：统一走 observeBalance（格式/语义对齐 accounting.mjs）
+          const ledger = readJson(USAGE_FILE) || {};
+          let todayUsage;
+          try {
+            todayUsage = observeBalance(ledger, { balance: total, currency, scope: ledgerScope(key), at: Date.now() });
+          } catch (_e) {
+            todayUsage = Number(ledger.todayUsage || 0); // 记账异常不影响余额显示
           }
-          usage.lastBalance = total;
-          usage.lastCurrency = currency;
-          writeJson(USAGE_FILE, usage);
+          writeJson(USAGE_FILE, ledger);
           resolve({
             ok: true, totalBalance: total, currency, updatedAt: new Date().toISOString(),
-            todayUsage: Number(usage.todayUsage || 0), isPeak: isPeakTime(), usageMode: 'ledger',
+            todayUsage: todayUsage, isPeak: isPeakTime(), usageMode: 'ledger',
           });
         })
         .catch((err) => {
@@ -241,11 +332,64 @@ function sendFile(res, filePath, contentType, cache = 'no-store') {
   res.end(buf);
 }
 
+// ---------- 插件宿主：直接运行 vendored 的 DSH 插件本体 ----------
+// 桌面版与网页版插件共用同一份实现（dsh-whale-widget/lib/index.js），因此：
+//   · 功能完全一致：余额/记账/多厂商额度/自定义角色·音效·泡泡图/余额校正…（23 条路由）；
+//   · 插件目录是唯一实现来源，以后更新插件桌面版自动同步，不必再逐条适配路由。
+// 插件加载失败时**自动回退**到下面本文件内置的路由实现，保证挂件始终可用。
+let pluginHost = null;
+let pluginLoadPromise = null;
+
+function loadPluginHost() {
+  if (pluginLoadPromise) return pluginLoadPromise;
+  pluginLoadPromise = startPlugin({
+    appDir: __dirname,
+    resourcesPath: process.resourcesPath,
+    dshHome: DSH_HOME,
+    credFile: CRED_FILE,
+    logger: console,
+  })
+    .then((r) => {
+      if (r.ok) {
+        pluginHost = r.host;
+        console.log('[dsh-whale] 已加载插件本体：' + r.entry + '（路由 ' + r.host.routes.size + ' 条）');
+      } else {
+        console.warn('[dsh-whale] 插件本体加载失败，已回退内置路由实现：' + r.error);
+      }
+      return r;
+    })
+    .catch((err) => {
+      console.warn('[dsh-whale] 插件本体加载异常，已回退内置路由实现：' + String((err && err.message) || err));
+      return { ok: false, error: String(err) };
+    });
+  return pluginLoadPromise;
+}
+
 /** 本地服务：自包含实现 /dsh-whale/* 全部路由（不依赖 dsh web）。 */
 function startServer() {
   const srv = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://127.0.0.1:' + WIDGET_PORT);
     const p = u.pathname;
+
+    // 插件本体优先接管 /dsh-whale/*：未命中的路径再走本文件内置实现
+    // （内置部分保留桌面版特有路由：/setup、/dsh-whale/apikey、autostart、first-run-done）
+    if (pluginHost) {
+      const pluginRoute = pluginHost.routes.get(p);
+      if (pluginRoute) {
+        Promise.resolve()
+          .then(() => pluginRoute.handler(req, res))
+          .catch((err) => {
+            console.warn('[dsh-whale] 插件路由 ' + p + ' 处理失败: ' + String((err && err.message) || err));
+            try {
+              if (!res.headersSent) {
+                res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+                res.end('internal error');
+              }
+            } catch (_e) {}
+          });
+        return;
+      }
+    }
 
     if (p === '/' || p === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -436,7 +580,9 @@ ipcMain.on('whale-hover', (_e, over) => {
   if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!over, { forward: true });
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 先加载插件本体，保证挂件发出的第一个请求就能命中插件路由
+  await loadPluginHost();
   startServer();
   createTray();
   // 首次运行：未配置 API Key 时先弹出配置窗口自动补齐，否则直接显示挂件

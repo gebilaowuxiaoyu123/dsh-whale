@@ -9,6 +9,11 @@
 鲸鱼直接浮在 Windows 桌面上，**不依赖 dsh web、不用打开任何网页**。余额由挂件自己直连
 DeepSeek API 拉取（读 `DEEPSEEK_API_KEY`），「今日已用」用本地记账模式计算。开机自动启动挂件。
 
+**功能来源**：挂件通过 `host-shim.js` **直接运行 `../dsh-whale-widget/lib/index.js`**
+（DSH 网页版插件本体），因此余额 / 记账 / 多厂商额度 / 自定义角色·音效·泡泡图等功能
+与网页版插件**完全一致**（23 条路由）；以后更新插件，桌面版自动同步。
+插件加载失败时自动回退到内置实现，挂件始终可用；打包时插件目录经 `extraResources` 随包分发。
+
 ## 依赖
 
 - 本机已装 Node.js（挂件文件夹内的 Electron 已装好）。
@@ -19,10 +24,11 @@ DeepSeek API 拉取（读 `DEEPSEEK_API_KEY`），「今日已用」用本地记
 
 ```
 dsh-whale-desktop/
-├── main.js                    # Electron 主进程：本地服务(3090) + 直连余额 + 透明置顶窗口
+├── main.js                    # Electron 主进程：本地服务(3090) + 窗口/托盘 + 插件宿主
+├── host-shim.js               # DSH 宿主契约适配层：让插件本体在本机 HTTP 服务里运行
 ├── preload.js                 # 像素级点击穿透控制（仅鲸鱼身体/菜单可交互）
-├── widget.js                  # 小鲸鱼前端（静态副本，本地提供）
-├── assets/                    # 图片/音效资源（本地提供）
+├── widget.js                  # 回退用前端（插件不可用时启用）
+├── assets/                    # 回退用图片/音效资源
 ├── package.json
 ├── start-widget.ps1           # 启动脚本：直接拉起挂件（不依赖 dsh web）
 ├── install-autostart.ps1      # 注册开机自启（计划任务）
