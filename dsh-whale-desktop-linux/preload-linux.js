@@ -20,7 +20,9 @@
  *     · 鲸鱼 = 按 PNG alpha 轮廓做「横向分带」，比整块方形贴合得多
  *     · 检测到鲸鱼刚移动过 → 临时用大 padding（宽松形状，绝不裁切）
  *       静止 250ms 后 → 收紧为小 padding（点击穿透更精确）
+ *     · 拖动中（.dshwv-dragging）→ 形状直接放整窗，指针永不跑出输入区，拖动不会中断
  *     · 面板/气泡等其它可见元素按「是否真的画了东西」收集矩形
+ *     · 增强层浮层（.dshwe-*）额外走硬保名单（scanOthers 的启发式可能漏判）
  */
 const { ipcRenderer } = require('electron');
 
@@ -28,11 +30,18 @@ const WHALE_SEL = '.dshwv-img';
 const MASK = 610;                 // 插件鲸鱼 PNG 是 610x610
 const BANDS = 16;                 // 垂直分带数
 const PAD_IDLE = 12;              // 静止时的外扩（逻辑像素）
-const PAD_MOVE = 56;              // 运动中的外扩（覆盖跟手滞后，防止裁切）
+const PAD_MOVE = 80;              // 运动中的外扩（覆盖跟手滞后，防止裁切）
 const MAX_RECTS = 160;
-const SEND_INTERVAL = 33;         // 最多约 30fps 上报
+const SEND_INTERVAL = 16;         // 最多约 60fps 上报（拖动跟手要求高）
 const SCAN_INTERVAL = 150;        // 其它元素的重扫间隔
 const DEBUG = !!process.env.DSHW_DEBUG;
+
+// 增强层浮层（desktop-enhance.js）显式纳入形状。
+// 它们现在挂在 <body> 内，理论上 scanOthers() 能扫到；但那是「启发式判断有没有画东西」，
+// paints() 只要判错就会被 setShape 裁掉 —— 按选择器硬保一份，成本极低。
+// 2026-10-02 实机踩坑：浮层先前挂在 <html> 上，而 scanOthers 只遍历 body，
+// 结果角标被形状切成半截（截图可见）。
+const ENHANCE_SELS = ['.dshwe-toast.on', '.dshwe-badge', '.dshwe-fx', '.dshwe-chart.on'];
 
 // ---------------- 鲸鱼轮廓分带（基于 PNG alpha，只算一次） ----------------
 let bandCache = null;
@@ -179,6 +188,33 @@ function scanOthers() {
     return out;
 }
 
+// ---------------- 增强层浮层（硬保名单） ----------------
+function enhanceRects() {
+    const out = [];
+    for (const s of ENHANCE_SELS) {
+        let els;
+        try {
+            els = document.querySelectorAll(s);
+        } catch (_e) {
+            continue;
+        }
+        for (const el of els) {
+            let r;
+            try {
+                r = el.getBoundingClientRect();
+            } catch (_e) {
+                continue;
+            }
+            if (r.width < 2 || r.height < 2) continue;
+            out.push({
+                x: Math.round(r.left - 4), y: Math.round(r.top - 4),
+                width: Math.round(r.width + 8), height: Math.round(r.height + 8),
+            });
+        }
+    }
+    return out;
+}
+
 // ---------------- 去重：被大矩形完全包住的直接丢掉 ----------------
 function dedupe(rects) {
     const sorted = rects.slice().sort(
@@ -204,6 +240,8 @@ let otherRects = [];
 let lastSentKey = '';
 let lastPad = 0;
 let lastWhaleRect = null;
+let lastDragState = false;
+let pointerDown = false;      // 是否真有鼠标按住（拖动形状的安全网）
 
 function collect() {
     const now = performance.now();
@@ -219,6 +257,27 @@ function collect() {
         lastMoveAt = now;                  // 鲸鱼位置变了 → 进入「运动模式」
     }
 
+    // 拖动中：形状直接放成整窗。
+    // 插件拖拽靠 document 级 pointermove；鲸鱼跟手有延迟，而形状是节流更新的，
+    // 快速拖动时指针会瞬间跑到形状外 → Chromium 派发 pointercancel → 拖动中断
+    // （用户感受就是「不好在全屏随意拖动」）。拖动期间本就不需要点击穿透，
+    // 直接把整窗设为可输入区，拖动就再也不会断。
+    // 安全网：必须「有鼠标按住」且「插件自己标记了 dragging」两个条件同时成立，
+    // 否则类名万一卡住会让整窗一直吞点击（桌面就点不动了）。
+    const dragging = pointerDown && !!document.querySelector('.dshwv-root.dshwv-dragging');
+    if (dragging !== lastDragState) {
+        lastDragState = dragging;
+        lastSendAt = 0;                    // 状态翻转立刻上报，不等节流
+    }
+    if (dragging) {
+        lastPad = 0;
+        return [{
+            x: 0, y: 0,
+            width: Math.max(1, Math.round(window.innerWidth)),
+            height: Math.max(1, Math.round(window.innerHeight)),
+        }];
+    }
+
     if (now - lastScanAt >= SCAN_INTERVAL) {
         lastScanAt = now;
         otherRects = scanOthers();
@@ -228,7 +287,7 @@ function collect() {
     const pad = moving ? PAD_MOVE : PAD_IDLE;
     lastPad = pad;
     const wr = whaleRects(pad) || [];
-    return dedupe(wr.concat(otherRects));
+    return dedupe(wr.concat(otherRects, enhanceRects()));
 }
 
 function loop() {
@@ -286,6 +345,16 @@ function loop() {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+    // 记录鼠标按住状态：拖动形状只在「按住 + 插件标记 dragging」时才启用
+    window.addEventListener('pointerdown', (e) => {
+        if (e.button === 0 || e.pointerType !== 'mouse')
+            pointerDown = true;
+    }, true);
+    const clearDown = () => { pointerDown = false; };
+    window.addEventListener('pointerup', clearDown, true);
+    window.addEventListener('pointercancel', clearDown, true);
+    window.addEventListener('blur', clearDown, true);
+
     // 首帧可能鲸鱼图还没加载完，多试几次
     let tries = 0;
     const boot = setInterval(() => {
