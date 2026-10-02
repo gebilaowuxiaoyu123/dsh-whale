@@ -40,6 +40,7 @@ const { startPlugin } = require('./host-shim');
 const IS_LINUX = process.platform === 'linux';
 const OZONE_X11_FLAG = '--ozone-platform=x11';
 const MAX_SHAPE_RECTS = 400;   // 上限只作保险丝用；形状宁大勿小（小了会裁掉内容）
+const SHAPE_PAD = 30;          // 每个矩形统一外扩（逻辑像素）—— 见 reapplyShape 的说明
 const DEBUG_SHAPE = !!process.env.DSHW_DEBUG;
 
 /** 是否需要显式关闭沙箱：AppImage 无法保留 setuid chrome-sandbox，
@@ -844,12 +845,24 @@ function reapplyShape() {
   const out = [];
   for (const r of merged) {
     if (!r) continue;
-    let x = Math.round(r.x), y = Math.round(r.y);
-    let w = Math.round(r.width), h = Math.round(r.height);
+    // ⚠️ 形状宁大勿小（2026-10-02 实机对拍定位）：
+    //   setShape 走 X11 ShapeBounding，**同时裁剪绘制** —— 矩形比实际内容小一点点，
+    //   那一点就被直接切掉（实机表现为插件气泡右侧被切掉约 30px、圆角变成直角）。
+    //   而矩形来源是各元素的盒模型 / 凸包近似，天然比真实绘制范围小。
+    //   所以统一外扩 SHAPE_PAD：多出来的部分只是"少一点点点击穿透"，
+    //   少掉的却是"内容被切"—— 两害相权取其轻。
+    let x = Math.round(r.x) - SHAPE_PAD;
+    let y = Math.round(r.y) - SHAPE_PAD;
+    let w = Math.round(r.width) + SHAPE_PAD * 2;
+    let h = Math.round(r.height) + SHAPE_PAD * 2;
     if (w < 1 || h < 1) continue;
     if (x + w < 0 || y + h < 0 || x > winW || y > winH) continue;
     x = Math.max(0, x); y = Math.max(0, y);
-    out.push({ x, y, width: Math.min(w, winW - x), height: Math.min(h, winH - y) });
+    out.push({
+      x, y,
+      width: Math.min(Math.max(w, 0), winW - x),
+      height: Math.min(Math.max(h, 0), winH - y),
+    });
     if (out.length >= MAX_SHAPE_RECTS) break;
   }
   if (!out.length) return;
@@ -861,6 +874,15 @@ function reapplyShape() {
 
   try {
     win.setShape(out);
+    // ⚠️ 关键修复（2026-10-02 实机对拍定位）：
+    //   setShape 扩大窗口的 X11 形状后，**新纳入的那部分区域 Chromium 从来没绘制过**，
+    //   在透明窗上就会露出合成器的“空白底色” —— 实机表现为气泡/鲸鱼旁边一块**白块**
+    //   （用 Page.captureScreenshot 的页面真实渲染 vs xwd 抓的窗口实际像素对拍出来的：
+    //    页面那一块是透明背景，窗口那一块是白的）。
+    //   强制把整窗标记为脏区重绘一遍，透明处会被重新画成 alpha=0，白块消失。
+    try {
+      win.webContents.invalidate();
+    } catch (_e) { /* 忽略 */ }
   } catch (e) {
     if (!shapeWarned) {
       shapeWarned = true;
