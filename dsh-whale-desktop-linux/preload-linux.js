@@ -36,6 +36,7 @@ const DEBUG = !!process.env.DSHW_DEBUG;
 
 // ---------------- 鲸鱼轮廓分带（基于 PNG alpha，只算一次） ----------------
 let bandCache = null;
+let maskData = null;   // 缓存的 alpha 掩膜，用于自检「可见像素是否被形状完整覆盖」
 
 function buildBands() {
     const img = document.querySelector(WHALE_SEL);
@@ -56,6 +57,7 @@ function buildBands() {
     } catch (_e) {
         return null;   // 跨域/画布受限时退化为整块矩形
     }
+    maskData = data;
 
     const bands = [];
     const step = 2;
@@ -200,6 +202,8 @@ let lastSendAt = 0;
 let lastScanAt = 0;
 let otherRects = [];
 let lastSentKey = '';
+let lastPad = 0;
+let lastWhaleRect = null;
 
 function collect() {
     const now = performance.now();
@@ -208,6 +212,7 @@ function collect() {
     if (img) {
         const r = img.getBoundingClientRect();
         key = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`;
+        lastWhaleRect = { x: r.left, y: r.top, w: r.width, h: r.height };
     }
     if (key !== lastWhaleKey) {
         lastWhaleKey = key;
@@ -221,6 +226,7 @@ function collect() {
 
     const moving = now - lastMoveAt < 250;
     const pad = moving ? PAD_MOVE : PAD_IDLE;
+    lastPad = pad;
     const wr = whaleRects(pad) || [];
     return dedupe(wr.concat(otherRects));
 }
@@ -243,7 +249,39 @@ function loop() {
     lastSentKey = key;
     lastSendAt = now;
 
-    if (DEBUG) console.log(`[dshw-preload] 上报 ${rects.length} 个矩形（pad=${key ? '' : ''}）`);
+    if (DEBUG) {
+        const wr = lastWhaleRect;
+        console.log('[dshw-preload] 上报 ' + rects.length + ' 个矩形  pad=' + lastPad +
+            (wr ? '  鲸鱼矩形=' + Math.round(wr.x) + ',' + Math.round(wr.y) + ',' +
+                  Math.round(wr.w) + ',' + Math.round(wr.h) : '  鲸鱼未就绪'));
+        // 严格自检：统计「不透明像素」是否全部落在上报矩形内。
+        // 这是「不会被 setShape 裁掉」的充分条件（setShape 走 X11 ShapeBounding，同时裁剪绘制）
+        let opaqueTotal = 0;
+        let opaqueMiss = 0;
+        if (maskData && wr) {
+            const root = document.querySelector('.dshwv-root');
+            const mirrored = !!(root && root.classList.contains('dshwv-left'));
+            for (let my = 6; my < MASK; my += 20) {
+                for (let mx = 6; mx < MASK; mx += 20) {
+                    if (maskData[(my * MASK + mx) * 4 + 3] <= 12) continue;
+                    opaqueTotal++;
+                    const vx = mirrored
+                        ? wr.x + ((MASK - mx) / MASK) * wr.w
+                        : wr.x + (mx / MASK) * wr.w;
+                    const vy = wr.y + (my / MASK) * wr.h;
+                    const hit = rects.some((r) =>
+                        vx >= r.x && vx < r.x + r.width && vy >= r.y && vy < r.y + r.height);
+                    if (!hit) opaqueMiss++;
+                }
+            }
+        }
+        // 便于外部脚本校验（同时把严格自检结果带给主进程）
+        try {
+            require('electron').ipcRenderer.send('whale-debug-shape', {
+                whale: wr, pad: lastPad, rects, opaqueTotal, opaqueMiss,
+            });
+        } catch (_e) { /* 忽略 */ }
+    }
     ipcRenderer.send('whale-input-rects', rects);
 }
 

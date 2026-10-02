@@ -714,6 +714,37 @@ ipcMain.on('whale-hover', (_e, over) => {
 // Linux：preload 上报「当前所有可见内容」的矩形，主进程交给 setShape
 ipcMain.on('whale-input-rects', (_e, rects) => applyInputShape(rects));
 
+// 自检（仅 DSHW_DEBUG 时 preload 会上报）：形状是否完整覆盖鲸鱼包围盒。
+// setShape 走的是 X11 ShapeBounding，会**同时裁剪绘制** —— 覆盖不全鲸鱼就会被切掉。
+ipcMain.on('whale-debug-shape', (_e, info) => {
+  try {
+    if (!info || !info.whale || !Array.isArray(info.rects))
+      return;
+    const w = info.whale;
+    let miss = 0;
+    let total = 0;
+    for (let i = 0; i < 20; i++) {
+      for (let j = 0; j < 10; j++) {
+        const x = w.x + ((i + 0.5) * w.w) / 20;
+        const y = w.y + ((j + 0.5) * w.h) / 10;
+        total++;
+        const hit = info.rects.some((r) =>
+          x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+        if (!hit) miss++;
+      }
+    }
+    const pct = (100 * (total - miss)) / total;
+    const oTotal = info.opaqueTotal || 0;
+    const oMiss = info.opaqueMiss || 0;
+    const oPct = oTotal ? (100 * (oTotal - oMiss)) / oTotal : null;
+    console.log(`[dsh-whale][自检] 包围盒覆盖 ${pct.toFixed(1)}%（漏 ${miss}/${total}）` +
+      ` | 不透明像素覆盖 ${oPct === null ? 'n/a' : oPct.toFixed(1) + '%'}（漏 ${oMiss}/${oTotal}）` +
+      ` | pad=${info.pad} 矩形数=${info.rects.length}`);
+    if (oTotal && oMiss === 0)
+      console.log('[dsh-whale][自检] ✅ 所有可见像素都在形状内 → 不会被裁切');
+  } catch (e) { /* 忽略 */ }
+});
+
 app.whenReady().then(async () => {
   // 先加载插件本体，保证挂件发出的第一个请求就能命中插件路由
   await loadPluginHost();
