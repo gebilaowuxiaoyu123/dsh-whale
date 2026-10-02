@@ -29,6 +29,7 @@
 //   tools/ci-audit-selftest.mjs     本脚本的自检（先干净样本全绿，再逐项证明写坏必红）
 // 门禁挂载：.github/workflows/ci.yml 用 `--no-pack`（日常），publish.yml 用完整版（发布前）。
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync, execSync } from 'node:child_process'
@@ -316,18 +317,31 @@ run('3', '检查打包后是否可以运行', (problems, notes) => {
   if (!cands.length) problems.push('解析不到 WIDGET_FILE_CANDIDATES —— 宿主如何找前端单文件无法核验')
 
   // 真正打包，看产物里到底有什么
-  // （Windows 上 npm 是 npm.cmd，直接 spawn 'npm' 会 ENOENT；CI 在 Linux 上没这个问题，
-  //   但本脚本要能在开发机上跑，所以按平台选可执行名）
+  // ⚠️ v0.3.17：**不再依赖 `npm pack --json` 的输出形态**。发版 workflow 会把 npm 升到 latest（OIDC 需要），
+  //   而不同 npm 版本/环境下 `--json` 的形状并不一致 —— 2026-09-29 实测：runner 上 `JSON.parse(out)[0]`
+  //   是 undefined（`Cannot read properties of undefined (reading 'filename')`），整个发布门禁在 dry-run
+  //   阶段就红了，本地却 5/5 通过（本机 npm 11.17 正常返回数组）⇒ 这种"依赖外部 CLI 输出格式"的写法太脆。
+  //   现在改成只依赖两个稳定接口：
+  //     ① `npm pack --pack-destination <临时目录>`（产物落在临时目录，仓库里不留 .tgz）；
+  //     ② 从目录里取 .tgz 文件名（不解析 stdout）；③ 用 `tar -tzf` 列包内文件（ubuntu 自带 tar，Win10+ 带 bsdtar）。
   let tarball = ''
+  let packDir = ''
   try {
-    // Windows 上 npm 实际是 npm.cmd，Node 不会自动走 PATHEXT：借 shell 执行。
-    // 刻意用「单条命令串」而不是「shell:true + 参数数组」——后者会触发 Node 的 DEP0190 警告。
-    const out = process.platform === 'win32'
-      ? execSync('npm pack --json --ignore-scripts', { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-      : execFileSync('npm', ['pack', '--json', '--ignore-scripts'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-    const info = JSON.parse(out)[0]
-    tarball = path.join(ROOT, info.filename)
-    const inPack = new Set(info.files.map((f) => f.path))
+    packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-pack-'))
+    if (process.platform === 'win32') {
+      // Windows 上 npm 实际是 npm.cmd，Node 不会自动走 PATHEXT：借 shell 执行（单条命令串，避免 DEP0190）
+      execSync('npm pack --ignore-scripts --pack-destination "' + packDir + '"', { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    } else {
+      execFileSync('npm', ['pack', '--ignore-scripts', '--pack-destination', packDir], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    }
+    const tgz = fs.readdirSync(packDir).filter((f) => f.endsWith('.tgz')).sort().pop()
+    if (!tgz) throw new Error('npm pack 没有产出 .tgz（目录内容：' + fs.readdirSync(packDir).join(',') + '）')
+    tarball = path.join(packDir, tgz)
+    const inPack = new Set(
+      execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+        .split('\n').map((s) => s.trim().replace(/^package\//, '')).filter(Boolean),
+    )
+    const pkgSizeKb = Math.round(fs.statSync(tarball).size / 1024)
 
     for (const need of ['lib/index.js', 'lib/accounting.mjs', FRONT_FILE, 'package.json']) {
       if (!inPack.has(need)) problems.push('发布包里缺少 ' + need)
@@ -346,6 +360,12 @@ run('3', '检查打包后是否可以运行', (problems, notes) => {
     })
     if (!hit) problems.push('发布包里没有任何 WIDGET_FILE_CANDIDATES 候选（宿主 loadWidgetJs() 会返回空串 → 挂件不出现）')
 
+    // 发布产物里不得出现备份/临时/运行数据 —— 本地脏工作区直接 `npm publish` 时的真实风险
+    //（2026-09-29 实测：本机工作区里的 `lib/index.js.bak-devpaths`（strip 脚本的备份，含开发机路径）
+    //  会被 `npm pack` 打进去。已发布的 0.3.16 是干净的 —— 它在 .gitignore 里、CI 从干净 clone 打包。）
+    const junk = [...inPack].filter((f) => /(^|\/)[^/]*\.bak|\.tmp$|(^|\/)\.dshw-|(^|\/)node_modules\//.test(f))
+    if (junk.length) problems.push('发布产物里出现备份/临时/运行数据文件（发布前请清理工作区）：' + junk.slice(0, 5).join(', '))
+
     // 发布副本不得含开发机路径：在打包白名单涉及的三个源文件上静态确认
     const devHit = [HOST_FILE, 'lib/accounting.mjs', FRONT_FILE]
       .filter((f) => has(f))
@@ -354,12 +374,12 @@ run('3', '检查打包后是否可以运行', (problems, notes) => {
       problems.push('这些发布文件里出现开发机路径 TestBox（必须先跑 _strip-dev-paths.mjs --apply）：' + devHit.join(', '))
     }
 
-    notes.push('包 ' + pkg.name + '@' + pkg.version + '：' + info.files.length + ' 个文件 / '
-      + (info.size / 1024).toFixed(0) + ' KB；候选命中 ' + (hit || '无'))
+    notes.push('包 ' + pkg.name + '@' + pkg.version + '：' + inPack.size + ' 个文件 / '
+      + pkgSizeKb + ' KB；候选命中 ' + (hit || '无'))
   } catch (err) {
     problems.push('npm pack 失败（无法验证发布产物）：' + String((err && err.message) || err))
   } finally {
-    if (tarball && fs.existsSync(tarball)) { try { fs.unlinkSync(tarball) } catch (e) { void e } }
+    try { if (packDir) fs.rmSync(packDir, { recursive: true, force: true }) } catch (e) { void e }
   }
 })
 

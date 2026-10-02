@@ -4,7 +4,7 @@
 >
 > - **GNOME Shell 扩展版**（`dsh-whale-shell-extension/`，Wayland 桌面首选，当前主力迭代）：v9 → v12 → … → v31
 >   （v10/v11 为引入初期的一次性内部迭代，未单独建档，已合并体现在 v12 定型）
-> - **桌面版 / DSH 网页插件**（Windows、Ubuntu Linux、dsh-web）：v1.0 + 上游插件跟进至 v0.3.16
+> - **桌面版 / DSH 网页插件**（Windows、Ubuntu Linux、dsh-web）：v1.0 + 上游插件跟进至 **v0.3.17**
 
 ---
 
@@ -180,6 +180,14 @@
 
 ## 变更与杂项
 
+- `2026-10-02` chore(widget)：vendored 上游插件 **v0.3.16 → v0.3.17**（整目录覆盖，与上游 tag `v0.3.17` 逐字节一致）
+  - 变更规模：前端 `assets/whale-widget.js` +282 行、宿主 `lib/index.js` +17 行；新增 `tools/check-dead-settings.mjs`、`.gitattributes`
+  - 内容：②区「提示音量」死控件修复（音量解析器 + 三态，含音效组）、②区「冒泡提示」开关接上、设置保存失败可见化、
+    等待提问/授权气泡可点关、死键体检护栏
+  - 验证：`tools/ci-audit.mjs --no-pack` **5/5**、`tools/ledger-compat-test.mjs` **25/25**、
+    `tools/desktop-plugin-integration-test.mjs` **23/23**（含回环/同源安全栅栏用例）
+  - 两个桌面版经 `host-shim.js` 直接复用本插件（`path.join(appDir,'..','dsh-whale-widget','lib','index.js')`），**自动获得同样更新**
+- `2026-10-02` chore(third-party)：上游研究克隆的 remote 由失效的 `ghfast.top` 代理改为直连；解除浅克隆（`--unshallow`）并补齐 `For-Codex` / `For-Windows` / `For–WinDesktop` 三个分支
 - `2026-10-02` docs：新增 `docs/linux-adaptation-plan.md` —— Linux 适配实机基线（Ubuntu 24.04.4 / GNOME 46 / Wayland /
   Intel Meteor Lake / 3120×2080@120Hz 缩放 2.0 / 内建触屏）、仓库代码状态（合并远端 v0.3.16 与 host-shim 桌面版）、
   形态取舍（扩展版为主力；Electron 版按 T11 实测结果定性）、A1–A10 改造项、外接显示器与触屏专项风险、

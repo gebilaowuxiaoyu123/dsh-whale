@@ -85,6 +85,14 @@ jobs:
           fi
           echo "未发现开发机路径"
 
+      # v778：「控件有值、没有消费方」初筛 + kind 级消费方契约（0.3.16 出过一次：
+      #   ②区「提示音量」滑块看着能调、实际完全无效；同批还查出②区「冒泡提示」也没人读）。
+      #   两层：① 设置键在运行时必须有属性读点（防"新键没人接"）；② 契约表声明每个键必须由哪个
+      #   函数消费（防"同名键在别的事件被读、本事件没人读"这种第一层抓不到的形态）。
+      #   脚本 0 依赖（只用 node:fs），改设置键/播放入口后必然要跑。
+      - name: Dead-settings audit (控件有值但没有消费方)
+        run: node tools/check-dead-settings.mjs
+
       # package.json 必须能被解析，且 version 是 semver（发布流程按它取版本号）
       - name: package.json sanity
         run: |
