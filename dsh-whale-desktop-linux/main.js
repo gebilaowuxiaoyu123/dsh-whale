@@ -120,6 +120,8 @@ const PAGE = `<!doctype html>
      真正决定挂件外观与行为的是前端自身与其 /dsh-whale/* 接口，不依赖此占位节点。 -->
 <div id="root"><textarea readonly aria-hidden="true" tabindex="-1"></textarea></div>
 <script src="/dsh-whale/widget.js"></script>
+<!-- 桌面版增强层：在不修改 vendored 插件本体的前提下，叠加桌面版特有功能 -->
+<script src="/dsh-whale/desktop-enhance.js"></script>
 </body>
 </html>`;
 
@@ -475,6 +477,11 @@ function startServer() {
       else { res.writeHead(404); res.end('missing widget.js'); }
       return;
     }
+    if (p === '/dsh-whale/desktop-enhance.js') {
+      sendFile(res, path.join(ASSETS_DIR, 'desktop-enhance.js'),
+        'application/javascript; charset=utf-8');
+      return;
+    }
     if (p === '/dsh-whale/image.png') { sendFile(res, path.join(ASSETS_DIR, 'DSniang1.png'), 'image/png'); return; }
     if (p === '/dsh-whale/rua.gif') { sendFile(res, path.join(ASSETS_DIR, 'rua.gif'), 'image/gif'); return; }
     if (p === '/dsh-whale/sound/press.mp3' || p === '/dsh-whale/sound/release.mp3') {
@@ -659,6 +666,16 @@ function createWidgetWindow() {
   } else {
     // Windows / macOS：官方支持的 forward 逐像素方案（由 preload 的 mousemove 实时切换）
     win.setIgnoreMouseEvents(true, { forward: true });
+  }
+  if (process.env.DSHW_DEBUG) {
+    // 便于验证注入的增强层/preload 是否真的跑起来（渲染进程 console 转发到主进程）
+    win.webContents.on('console-message', (...args) => {
+      const d = args[1];
+      const msg = (d && typeof d === 'object' && 'message' in d) ? d.message : args[2];
+      if (typeof msg === 'string' &&
+          (msg.includes('[dshw-enhance]') || msg.includes('[dshw-preload]')))
+        console.log('[renderer] ' + msg);
+    });
   }
   win.loadURL(`http://127.0.0.1:${WIDGET_PORT}/`);
   win.on('closed', () => { win = null; });

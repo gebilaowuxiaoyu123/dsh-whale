@@ -167,6 +167,28 @@
 
 ---
 
+## [桌面版 Linux v1.2] - 2026-10-02
+
+### 新增（桌面版增强层 —— 不修改 vendored 插件本体）
+- 新增 `assets/desktop-enhance.js`：由主进程在插件脚本**之后**注入，用于叠加桌面版特有功能。
+  这样 `dsh-whale-widget/` 继续保持**原样 vendored**，上游升级插件时不产生冲突
+- **峰谷提前预警**（对齐官方 Windows 独立版、插件本体缺失）：进入/离开高峰前 N 分钟提醒
+  （默认 10 分钟，可配），并常驻显示「现在高峰/谷价，还有多久切换」角标
+  · 配置：`localStorage['dshwDesktopEnhance']`，或控制台 `window.dshwEnhance.set({leadMinutes:15})`
+- 验证：`/dsh-whale/desktop-enhance.js` 返回 200；渲染进程日志确认增强层加载与提示执行；
+  `setShape` 自检仍为不透明像素覆盖 100%（无回归）
+- 未实现（路线图见 `docs/feature-comparison.md`）：多币种汇率、多套气泡组、台词轮播、账单图表、三态主题
+
+### 工程（打包链修复）
+- `build.deb.depends` 加 t64 备选：Ubuntu 24.04 把 `libgtk-3-0` / `libatspi2.0-0` 改名为 `*t64`，
+  原名不存在会让 `dpkg -i` 被依赖阻断；改为 `libgtk-3-0 | libgtk-3-0t64` 等，兼容 22.04/24.04
+- 补 `homepage`（fpm 生成 deb 必需）、`desktopName` + `linux.syncDesktopName`（修 dock 窗口关联）、
+  `build/icon.png` 512×512（此前用默认 Electron 图标）
+- 产物：`dsh-whale-widget-1.0.0-x86_64.AppImage`（126 MB，已实际运行验证）；
+  `dsh-whale-widget-1.0.0-amd64.deb`（101 MB，9 组依赖在 24.04 全部可满足）
+
+---
+
 ## [桌面版 Linux v1.1] - 2026-10-02
 
 > 实机基线：Ubuntu 24.04.4 / GNOME 46 / **Wayland** / Intel Meteor Lake / 3120×2080 缩放 2.0
