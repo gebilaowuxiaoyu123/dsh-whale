@@ -44,6 +44,15 @@ const DEBUG = !!process.env.DSHW_DEBUG;
 // 结果角标被形状切成半截（截图可见）。
 const ENHANCE_SELS = ['.dshwe-toast.on', '.dshwe-badge', '.dshwe-fx', '.dshwe-chart.on'];
 
+// 插件自己的气泡/面板：容器不画背景、内容全靠 SVG，属于 paints() 天生判不出的结构。
+// 这里按选择器**硬保**一份（只增不减，宁可少穿透也不能少画）。
+const PLUGIN_UI_SELS = [
+    '.dshwv-pop-open', '.dshwv-pop-open svg', '.dshwv-pop-open path',
+    '.dshwv-pop-open ellipse', '.dshwv-pop-open rect',
+    '.dshwv-menuview', '.dshwv-usagepanel', '.dshwv-rolelist', '.dshwv-audiolist',
+    '.dshwv-custmenu', '.dshwv-qedit', '.dshwv-bubmask',
+];
+
 // ---------------- 鲸鱼轮廓分带（基于 PNG alpha，只算一次） ----------------
 let bandCache = null;
 let maskData = null;   // 缓存的 alpha 掩膜，用于自检「可见像素是否被形状完整覆盖」
@@ -134,8 +143,18 @@ function whaleRects(pad) {
 
 // ---------------- 其它可见元素（面板 / 气泡 / 飘字等） ----------------
 function paints(el, cs) {
-    const tag = el.tagName;
+    // ⚠️ tagName 大小写坑（2026-10-02 实机定位到「气泡右边缘缺一个缺口」的元凶）：
+    //   HTML 文档里内联 `<svg>` 元素的 tagName 是**小写 'svg'**，
+    //   而 SVG 子元素也是小写（'path' / 'ellipse'…）。旧代码写的是 'SVG'，永远不成立。
+    //   插件的气泡正好是「容器自身不画背景（被 !important 重置为 transparent）+ 内容用 SVG 画」
+    //   → 整层都判不出「画了东西」，形状里只剩下几个文字小盒子，
+    //   于是气泡右边缘被切掉一块。
+    const tag = String(el.tagName || '').toUpperCase();
     if (tag === 'IMG' || tag === 'CANVAS' || tag === 'VIDEO' || tag === 'SVG')
+        return true;
+    // SVG 里的图形元素本身就是绘制内容
+    if (tag === 'PATH' || tag === 'ELLIPSE' || tag === 'CIRCLE' || tag === 'RECT' ||
+        tag === 'POLYGON' || tag === 'POLYLINE' || tag === 'LINE' || tag === 'G' || tag === 'USE')
         return true;
     if (cs.backgroundImage && cs.backgroundImage !== 'none') return true;
     const bg = cs.backgroundColor || '';
@@ -189,10 +208,10 @@ function scanOthers() {
     return out;
 }
 
-// ---------------- 增强层浮层（硬保名单） ----------------
-function enhanceRects() {
+// ---------------- 增强层浮层 + 插件气泡面板（硬保名单） ----------------
+function rectsForSelectors(sels) {
     const out = [];
-    for (const s of ENHANCE_SELS) {
+    for (const s of sels) {
         let els;
         try {
             els = document.querySelectorAll(s);
@@ -207,13 +226,23 @@ function enhanceRects() {
                 continue;
             }
             if (r.width < 2 || r.height < 2) continue;
+            if (r.left > window.innerWidth || r.top > window.innerHeight ||
+                r.right < 0 || r.bottom < 0) continue;
             out.push({
-                x: Math.round(r.left - 4), y: Math.round(r.top - 4),
-                width: Math.round(r.width + 8), height: Math.round(r.height + 8),
+                x: Math.round(r.left - 8), y: Math.round(r.top - 8),
+                width: Math.round(r.width + 16), height: Math.round(r.height + 16),
             });
         }
     }
     return out;
+}
+
+function enhanceRects() {
+    return rectsForSelectors(ENHANCE_SELS);
+}
+
+function pluginUiRects() {
+    return rectsForSelectors(PLUGIN_UI_SELS);
 }
 
 // ---------------- 去重：被大矩形完全包住的直接丢掉 ----------------
@@ -291,7 +320,7 @@ function collect() {
     const pad = moving ? PAD_MOVE : PAD_IDLE;
     lastPad = pad;
     const wr = whaleRects(pad) || [];
-    return dedupe(wr.concat(otherRects, enhanceRects()));
+    return dedupe(wr.concat(otherRects, enhanceRects(), pluginUiRects()));
 }
 
 function loop() {
