@@ -10,6 +10,18 @@ import Gio from 'gi://Gio';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+// GJS 的 `Uint8Array.toString()` 已弃用：旧行为把字节按 UTF-8 解释成字符串（能用），
+// 但未来版本会变成逗号分隔的数字串 → 会**静默**读不到凭据/账本/余额。
+// 统一用 TextDecoder 显式解码（GJS 1.78+ / GNOME 45+ 均提供）。
+const UTF8_DECODER = new TextDecoder('utf-8');
+function decodeBytes(bytes) {
+    if (bytes == null)
+        return '';
+    if (typeof bytes === 'string')
+        return bytes;
+    return UTF8_DECODER.decode(bytes);
+}
+
 const CRED_FILE = `${GLib.get_home_dir()}/.dsh/.credentials.yaml`;
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
 const PEAK_MODES = ['default', 'liangwen', 'qiangqiang'];
@@ -163,6 +175,18 @@ export default class DshWhaleWidget extends Extension {
         this._buildWhale();
         this._placeInitial();
         this._captureId = global.stage.connect('captured-event', (s, ev) => this._onCaptured(ev));
+        // 显示器热插拔 / 工作区变化（分辨率、缩放、任务栏变化）：把鲸鱼夹回合法范围，
+        // 避免它停在已消失的显示器坐标上而“不见了”（A1）
+        this._geomConns = [
+            {
+                obj: Main.layoutManager,
+                id: Main.layoutManager.connect('monitors-changed', () => this._onGeometryChanged()),
+            },
+            {
+                obj: global.display,
+                id: global.display.connect('workareas-changed', () => this._onGeometryChanged()),
+            },
+        ];
         this._breathTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => this._tryBreath());
         this._fxTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 3200, () => this._tryIdleFx());
         this._autoTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 60000, () => this._autoTick());
@@ -172,6 +196,15 @@ export default class DshWhaleWidget extends Extension {
 
     disable() {
         this._hold = null;
+        if (this._geomConns) {
+            for (const c of this._geomConns) {
+                try {
+                    if (c && c.obj && c.id)
+                        c.obj.disconnect(c.id);
+                } catch (e) { /* 忽略 */ }
+            }
+            this._geomConns = null;
+        }
         if (this._followTimer) {
             GLib.source_remove(this._followTimer);
             this._followTimer = 0;
@@ -251,7 +284,8 @@ export default class DshWhaleWidget extends Extension {
         return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18);
     }
 
-    _workArea() {
+    /** 主屏工作区：首次摆放与「回到左下角」的基准 */
+    _primaryWorkArea() {
         const lm = Main.layoutManager;
         const mono = lm.primaryMonitor
             || (Array.isArray(lm.monitors) && lm.monitors[0])
@@ -265,6 +299,37 @@ export default class DshWhaleWidget extends Extension {
         } catch (e) {
             return {x: 0, y: 0, width: 1920, height: 1080};
         }
+    }
+
+    /** 点 (x,y) 所在显示器的工作区；不落在任何显示器内（拔屏/多屏间空隙）时回落主屏 */
+    _workAreaFor(x, y) {
+        try {
+            const lm = Main.layoutManager;
+            const monitors = lm.monitors;
+            if (Array.isArray(monitors) && monitors.length > 1) {
+                for (const m of monitors) {
+                    if (x >= m.x && x < m.x + m.width &&
+                        y >= m.y && y < m.y + m.height) {
+                        const wa = lm.getWorkAreaForMonitor(m.index);
+                        if (wa && wa.width > 0 && wa.height > 0)
+                            return wa;
+                        return {x: m.x, y: m.y, width: m.width, height: m.height};
+                    }
+                }
+            }
+        } catch (e) {
+            log(`[dsh-whale] workAreaFor err: ${e}`);
+        }
+        return this._primaryWorkArea();
+    }
+
+    /** 鲸鱼当前所在显示器的工作区：吸附 / 气泡 / 菜单都以它为准（多显示器） */
+    _workArea() {
+        if (!this._whale)
+            return this._primaryWorkArea();
+        const [nw, nh] = this._whale.get_size();
+        return this._workAreaFor(this._whale.get_x() + nw / 2,
+                                 this._whale.get_y() + nh / 2);
     }
 
     _buildWhale() {
@@ -288,7 +353,7 @@ export default class DshWhaleWidget extends Extension {
     }
 
     _placeInitial() {
-        const wa = this._workArea();
+        const wa = this._primaryWorkArea();
         const nw = Math.round(this._w * this._whaleScale);
         const nh = Math.round(this._h * this._whaleScale);
         const x = wa.x;
@@ -305,7 +370,7 @@ export default class DshWhaleWidget extends Extension {
         try {
             const [ok, data] = GLib.file_get_contents(CRED_FILE);
             if (ok) {
-                const s = data.toString();
+                const s = decodeBytes(data);
                 const m = s.match(/DEEPSEEK_API_KEY\s*:\s*"?([^\s"#]+)"?/);
                 if (m)
                     this._apiKey = m[1];
@@ -331,7 +396,7 @@ export default class DshWhaleWidget extends Extension {
         try {
             const [ok, data] = GLib.file_get_contents(this._prefsFile());
             if (ok && data && data.length) {
-                const j = JSON.parse(data.toString());
+                const j = JSON.parse(decodeBytes(data));
                 if (j.sfxTheme && SFX_THEMES[j.sfxTheme])
                     this._sfxTheme = j.sfxTheme;
                 if (typeof j.vol === 'number')
@@ -378,7 +443,7 @@ export default class DshWhaleWidget extends Extension {
         try {
             const [ok, data] = GLib.file_get_contents(this._ledgerFile());
             if (ok && data && data.length) {
-                const j = JSON.parse(data.toString());
+                const j = JSON.parse(decodeBytes(data));
                 if (j && typeof j === 'object' && Array.isArray(j.history))
                     this._usage = j;
             }
@@ -598,7 +663,8 @@ export default class DshWhaleWidget extends Extension {
             const [mx, my] = global.get_pointer();
             if (Math.abs(mx - h.sx) > 5 || Math.abs(my - h.sy) > 5)
                 h.moved = true;
-            const wa = this._workArea();
+            // 边界以「指针所在显示器」为准：这样才能从主屏拖到外接屏（A2）
+            const wa = this._workAreaFor(mx, my);
             const nw = Math.round(this._w * this._whaleScale);
             const nh = Math.round(this._h * this._whaleScale);
             // 跟随：位置 = 鼠标 + 按下时偏移，仅做边界 clamp（单调、无临界翻转 → 不再抖动）
@@ -736,6 +802,32 @@ export default class DshWhaleWidget extends Extension {
         } catch (e) { /* 忽略 */ }
     }
 
+    /** 显示器 / 工作区变化后：把鲸鱼拉回合法范围（已贴边则重新贴边） */
+    _onGeometryChanged() {
+        try {
+            if (!this._whale || this._hold)
+                return;
+            const s = this._snap || {h: 0, v: 0};
+            if (s.h || s.v) {
+                // 已贴边：按「鲸鱼当前所在显示器」重新贴边即可；
+                // 若该显示器已消失，_workArea() 会回落到主屏
+                this._snapAlign(220);
+                return;
+            }
+            const nw = Math.round(this._w * this._whaleScale);
+            const nh = Math.round(this._h * this._whaleScale);
+            const x = this._whale.get_x();
+            const y = this._whale.get_y();
+            const wa = this._workAreaFor(x + nw / 2, y + nh / 2);
+            const nx = Math.round(Math.max(wa.x, Math.min(wa.x + wa.width - nw, x)));
+            const ny = Math.round(Math.max(wa.y, Math.min(wa.y + wa.height - nh, y)));
+            if (nx !== x || ny !== y)
+                this._whale.set_position(nx, ny);
+        } catch (e) {
+            log(`[dsh-whale] geometry change err: ${e}`);
+        }
+    }
+
     _onScroll(a, ev) {
         let up = null;
         try {
@@ -770,6 +862,12 @@ export default class DshWhaleWidget extends Extension {
     _goHome() {
         if (this._hold)
             this._endHold();
+        // 「回家」= 主屏左下角：多显示器下不再受当前所在屏影响
+        const wa = this._primaryWorkArea();
+        const nw = Math.round(this._w * this._whaleScale);
+        const nh = Math.round(this._h * this._whaleScale);
+        if (this._whale)
+            this._whale.set_position(wa.x, wa.y + wa.height - nh);
         this._snap = {h: -1, v: 1};
         this._setMirror(-1);
         this._snapAlign(280);
@@ -963,7 +1061,7 @@ export default class DshWhaleWidget extends Extension {
             this._fetching = false;
             try {
                 const bytes = s.send_and_read_finish(res);
-                const j = JSON.parse(bytes.get_data());
+                const j = JSON.parse(decodeBytes(bytes.get_data()));
                 const info = j.balance_infos && j.balance_infos[0];
                 const total = info ? Number(info.total_balance) : null;
                 const cur = (info && info.currency) || 'CNY';

@@ -2,9 +2,36 @@
 
 > 记录 DSH 小鲸鱼所有形态的版本演进。格式参照 [Keep a Changelog](https://keepachangelog.com/)。
 >
-> - **GNOME Shell 扩展版**（`dsh-whale-shell-extension/`，Wayland 桌面首选，当前主力迭代）：v9 → v12 → … → v30
+> - **GNOME Shell 扩展版**（`dsh-whale-shell-extension/`，Wayland 桌面首选，当前主力迭代）：v9 → v12 → … → v31
 >   （v10/v11 为引入初期的一次性内部迭代，未单独建档，已合并体现在 v12 定型）
-> - **桌面版 / DSH 网页插件**（Windows、Ubuntu Linux、dsh-web）：v1.0
+> - **桌面版 / DSH 网页插件**（Windows、Ubuntu Linux、dsh-web）：v1.0 + 上游插件跟进至 v0.3.16
+
+---
+
+## [扩展版 v31] - 2026-10-02
+
+### 修复（未来兼容性 / 静默失效）
+- **GJS `Uint8Array` 兼容**：4 处 `data.toString()` / `JSON.parse(bytes.get_data())` 统一改为
+  `decodeBytes()`（内部用 `TextDecoder`）。`journalctl` 已对 `Uint8Array.toString()` 发出弃用警告，
+  未来 GJS 版本会改为返回逗号分隔的数字串 —— 届时凭据 / 账本 / 偏好 / 余额都会**静默读不到**
+  （表现为「已配置却提示未配置」）。本版先消除该隐患
+
+### 新增（多显示器）
+- **显示器热插拔守卫**：监听 `Main.layoutManager` 的 `monitors-changed` 与 `global.display` 的
+  `workareas-changed`，变化后把鲸鱼夹回合法工作区（已贴边则重新贴边）
+  —— 修复「拔掉外接屏 / 改分辨率或缩放后，鲸鱼停在已消失的显示器坐标上而不见了」
+- **跨显示器拖动**：拖动时的边界以「指针所在显示器」为准，可把鲸鱼从主屏拖到外接屏
+- **吸附 / 气泡 / 菜单**改为跟随「鲸鱼当前所在显示器」的 `workArea`（此前一律按主屏计算，
+  在外接屏上吸附会跳回主屏）
+- **「回到左下角」**明确定义为主屏左下角（多显示器下不再受当前所在屏影响）
+
+### 变更
+- `metadata.json` 的 `version` 由 `1` 对齐为 `31`（与本节版本号一致）
+
+### 说明
+- 显示器相关改动在本机（Ubuntu 24.04 / GNOME 46 / Wayland，DP-1～DP-4 当前未接外接屏）**无法完整实机
+  覆盖**，验收口径与测试矩阵见 `docs/linux-adaptation-plan.md`（D5 / T5）
+- 本次**未改**：触屏长按菜单（A3）、音频回退（A7）、锁屏降级（A6）等，见该文档 §3 与 §10
 
 ---
 

@@ -3,7 +3,7 @@
   "name": "DSH Whale Widget",
   "description": "悬浮小鲸鱼：显示 DeepSeek 账户余额与今日已用。可拖拽、按压、点击刷新（GNOME Wayland 桌面宠物版）。",
   "shell-version": ["45", "46", "47"],
-  "version": 1,
+  "version": 31,
   "url": "https://github.com/gebilaowuxiaoyu123/dsh-whale",
   "session-modes": ["user", "unlock-dialog"],
   "gettext-domain": "dsh-whale"
