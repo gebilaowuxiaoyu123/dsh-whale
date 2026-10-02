@@ -30,13 +30,35 @@
 > `udevadm info --query=property --path=/sys/class/input/inputN`、`gnome-extensions list --enabled`、
 > `journalctl --user -b`。
 
+### 0.1 仓库代码状态（2026-10-02 合并远端后）
+
+本仓库与 GitHub 远端曾**分叉**，本次已合并（合并提交 `549e056`）：
+
+| 侧 | 独有内容 |
+|---|---|
+| 本地 | GNOME 扩展版 v9–v30 全部迭代、根 README/CHANGELOG 重构、`docs/linux-adaptation-plan.md` |
+| 远端（6 个提交） | `chore(widget): 同步上游插件 v0.2.10 → v0.3.16（含凭据外带安全修复）`、`fix(desktop): 账本格式对齐插件 v0.3.16`、`feat(desktop): 桌面版直接运行插件本体`、`fix(desktop): 修复挂件不显示`、`fix(desktop): 修复插件新 UI 点击穿透判定失效`、`test(desktop): 新增按钮全覆盖检查工具` |
+
+合并后桌面版的关键事实（**与本地旧副本完全不同**）：
+
+| 项 | 状态 |
+|---|---|
+| vendored 插件版本 | **v0.3.16**（不再是 v0.2.10；已含 v0.3.11 / v0.3.15 两个安全修复） |
+| 桌面版实现 | 新增 `dsh-whale-desktop{,-linux}/host-shim.js`（238 行）：把插件本体 `lib/index.js` 直接跑在 Electron 本地服务里 → **插件目录是唯一功能实现来源**，桌面版与网页插件功能对齐（23 条 `/dsh-whale/*` 路由） |
+| 点击穿透判定 | `preload.js` 已由“硬编码 4 个类名”改为按 CSS `pointer-events` 语义**通用判定**（插件 v0.3.16 有 300+ 个 `.dshwv-*` 类名） |
+| 本地服务安全 | 插件在宿主缺少 `connection` 服务时会**启用自带「回环 + 同源」校验保护全部路由（含写接口）**，并跳过依赖 DSH 会话的功能 → 原先 3090 服务 `ACAO: *` 的风险**已由插件侧缓解** |
+| 回退网 | 插件加载失败时自动回退到 `main.js` 内置路由实现 |
+| 测试工具 | 新增 `tools/ledger-compat-test.mjs`、`desktop-plugin-integration-test.mjs`、`desktop-ui-smoke-test.mjs`、`desktop-button-audit.mjs` |
+| ⚠️ 仍未变化 | `main.js` 第 573 / 580 行**仍是** `setIgnoreMouseEvents(true, { forward: true })` → §2 的 Linux 平台限制**依然存在** |
+
 ---
 
 ## 1. 结论摘要（TL;DR）
 
 1. **本机是 Wayland + HiDPI(2.0) + 120Hz + 内建触屏**，这是适配的真正主战场。
-2. **GNOME 扩展版是唯一正确形态**：Mutter 不提供 `wlr-layer-shell`，Electron 透明窗无法在 Wayland 原生悬浮。本机扩展已在跑且数据链路正常。
-3. **Linux Electron 桌面版在本机不可用**，且存在 P0 级硬伤（见 §2）；建议**降级为 experimental 并明确只支持 X11 会话**，不投入适配。
+2. **GNOME 扩展版是 Wayland 下的正解**：Mutter 不提供 `wlr-layer-shell`，Electron 透明窗无法在 Wayland 原生悬浮。本机扩展已在跑且数据链路正常。
+3. **Linux Electron 桌面版已随远端大改**（host-shim + 插件本体 v0.3.16 + 通用命中判定 + 4 个测试工具），功能已与网页插件对齐；
+   但它在 Linux 上仍有 **3 个平台级障碍（见 §2）**，其中「点击穿透能否唤醒」必须实测 —— 这是本次交付的**第一个决策点**。
 4. 扩展版有 **3 个必须修的技术债**：
    - 只按 `primaryMonitor` 取几何 + **无热插拔监听** → 接/拔外接屏后鲸鱼可能跑出可视区；
    - **触屏无长按菜单入口**，拖动 `moved` 阈值对触摸过于敏感；
@@ -50,17 +72,24 @@
 | 形态 | 本机（Wayland）可用性 | 结论 |
 |---|---|---|
 | **GNOME Shell 扩展版** | ✅ 原生悬浮、可置顶、可满屏拖动；已启用运行中 | **主力形态**，投入全部适配资源 |
-| Linux Electron 桌面版 | ❌ 见下 3 条硬伤 | **降级 experimental**，README 明示仅 X11；不建议在本机投入 |
+| Linux Electron 桌面版 | ⚠️ 功能已与插件对齐（host-shim），但**点击穿透受平台限制、须实测**（见下 3 条） | **有条件保留**：先做 §8 T11 实测；通过则与扩展版并存，不通过则限定 X11 并在 Wayland 引导到扩展版 |
 | Windows Electron 桌面版 | 不在本机范围 | 保持现状 |
-| DSH 网页插件（vendored） | 与桌面环境无关 | 保持；升级到上游 0.3.17 属独立议题 |
+| DSH 网页插件（vendored） | 与桌面环境无关 | 已随远端同步到 **v0.3.16**；`0.3.16 → 0.3.17` 属独立议题 |
 
-**Electron 版不可用的三条硬伤（均已核对官方文档）：**
+**Linux 上 Electron 版的三个平台级障碍（均已核对官方文档）：**
 
 1. `setIgnoreMouseEvents(true, {forward: true})` 的 `forward` 选项**官方仅支持 macOS/Windows**。Linux 上该参数被忽略 → 窗口一旦穿透就**再也收不到 `mousemove`**，而 `preload.js` 正是靠 `mousemove` 解锁 → **鲸鱼永久穿透、菜单气泡全点不到**。
 2. `setAlwaysOnTop` / `setPosition` / `moveTop` / `center` **不支持 Wayland**；本机默认就是 Wayland → 悬浮与定位失效（需 `--ozone-platform=x11` 强制 XWayland 才有机会）。
 3. Ubuntu 24.04 的 `kernel.apparmor_restrict_unprivileged_userns=1` + AppImage 无法保留 setuid `chrome-sandbox` → user-namespace 沙箱被拒 → **启动即崩**；另 22.04/24.04 默认**无 `libfuse2`**。
 
-**取舍决定**：本机基线**只交付扩展版**；Electron 版保留代码但标注 experimental，不纳入本次验收。理由：Wayland 是 Ubuntu 24.04 默认会话，Electron 版即便修好穿透也仍需强制 XWayland，收益低于成本。
+**取舍决定（已根据合并后代码修订）**：远端那 6 个提交（host-shim + 插件本体 + 通用命中判定 + 4 个测试工具）已把桌面版从“落后的静态前端副本”提升为“与插件功能一致的宿主”，这份投入不应被否定；
+但 §2 列出的 Linux 平台限制**与业务逻辑无关、无法靠业务代码绕过**，因此改为“**先实测、后定性**”：
+
+- 若 §8 **T11 实测通过**（Linux 下穿透可被唤醒）→ 桌面版与扩展版**并存**，两形态都纳入验收；Wayland 下仍默认推荐扩展版。
+- 若 **T11 不通过** → 桌面版**限定 X11 会话**（README Linux 章节顶部已有警示），本机（Wayland）验收以扩展版为唯一形态。
+
+> 注意：`setIgnoreMouseEvents(…, { forward: true })` 这个限制**与本次“点击穿透判定失效”修复无关** ——
+> 后者修的是「命中区域算错」（业务逻辑，已修好），前者是「Linux 根本不转发 `mousemove`」（平台能力，未变）。两者症状相似、根因完全不同，不要因前者已修就认为后者也好了。
 
 ---
 
@@ -162,6 +191,16 @@
 | R-CODE-7 | 锁屏叠加 | 🟡 低 | `session-modes` 含 `unlock-dialog` | A6 |
 | R-CODE-8 | 版本号不一致 | 🟡 低 | `metadata.json version:1` vs CHANGELOG v30 | A10 |
 
+> **本次合并带来的修订**：
+> - 原先“3090 本地服务 `Access-Control-Allow-Origin: *` 且不校验 Origin/Host/Sec-Fetch-Site”的风险
+>   **已缓解** —— 桌面版改由插件本体承载路由后，插件在宿主缺少 `connection` 服务时会启用自带
+>   「回环 + 同源」校验保护**全部路由（含写接口）**。仅当插件加载失败、走 `main.js` 回退实现时
+>   才会回到旧行为（需确认回退路径不对外暴露写接口）。
+> - 但 `main.js` 的 `setIgnoreMouseEvents(true, {forward: true})`（573 / 580 行）**未随本次改造修正**，
+>   在 Linux 上的有效性存疑 → 见 §2 与 §8 T11。
+> - 另新增一项：**桌面版与扩展版共存**时的交互冲突（两者都会响应点击/右键，虽分布在不同层，
+>   但同一区域同时命中时行为需确认）。
+
 ### 6.2 扩展冲突面（本机 14 个已启用扩展中需重点观察的 4 个）
 
 | 扩展 | 冲突点 | 预判 | 验证方式 |
@@ -227,6 +266,13 @@
 | T8 | 降级测试 | 临时 `mv /usr/bin/pw-play`（需 root，或用 PATH 注入模拟）后触发音效 | 无异常抛出 |
 | T9 | 长稳测试 | 24h 挂机 + `Vitals` 采样（CPU/内存/线程） | 无持续增长 |
 | T10 | 回滚验证 | disable → 删目录 → 重装 `install.sh` | 数据（账本/凭据/偏好）不丢 |
+| T11 | **点击穿透平台验证（决定性）** | 用最小复现：Electron 透明窗 + `setIgnoreMouseEvents(true,{forward:true})`，渲染进程打印 `mousemove`；在 X11 会话与 XWayland 各跑一次，用**真实鼠标**移过窗口 | 渲染进程能收到 `mousemove` → 穿透可唤醒；收不到 → 桌面版在 Linux 不可交互，须走 §2 的降级分支 |
+| T12 | 桌面版真实鼠标端到端 | 运行 `dsh-whale-desktop-linux`，用**真实鼠标**逐面板点按（不用 CDP） | 全部按钮可点、面板可关，结论与 T11 一致 |
+
+> ⚠️ **现有自动化测试的盲区（重要）**：`tools/desktop-ui-smoke-test.mjs` 与 `tools/desktop-button-audit.mjs`
+> 通过 **CDP（DevTools 协议）**注入事件，而 CDP 直接把事件送进渲染进程，**绕过了合成器层面的输入区域**。
+> 因此即使 Linux 上窗口真的整窗穿透，这两个工具**依然会全绿**。这正是必须补 T11 / T12（真实鼠标）的原因 ——
+> 自动化全红能说明有问题，**全绿并不能说明没问题**。
 
 **不可在本机完成的项（必须显式声明）**：外接屏相关（T5 需接入显示器）、非 Intel GPU、非 Ubuntu 发行版、GNOME 45/47、纯 X11 会话、纯 PulseAudio 环境。
 
@@ -253,19 +299,36 @@
 
 ### 9.3 降级 / 下线
 
-- **Linux Electron 桌面版** → 标记 `experimental`，README 明示"仅 X11 会话、Linux 上点击穿透不可用"；本机不验收、不投入适配。
+- **Linux Electron 桌面版** → **条件性保留**（不再是“不投入”）：待 §8 T11 实测定性。若 Linux 下穿透不可唤醒，
+  则 README 明确“仅 X11 会话”，并在 Wayland 下引导用户改用 GNOME 扩展版；同时补一条**真实鼠标**的
+  回归测试（现有 CDP 工具测不到这一层）。
+- **桌面版 `main.js` 内置路由实现** → 已降级为**回退网**（插件加载失败时才使用）；需确认该回退路径同样具备
+  回环 / 同源校验，否则不要对外暴露写接口。
 - **`DEEPSEEK_PLATFORM_TOKEN` 令牌模式** → 上游 0.3.x 已下线该模式；建议标注 `deprecated` 并在下一轮移除（属独立议题，涉及 CHANGELOG/README 口径同步）。
 
 ### 9.4 与上游（vendored 插件）的关系
 
-- 本轮**无需**升级 vendored 插件即可完成 Linux 适配；两者代码无耦合。
-- 上游 `0.2.10 → 0.3.17` 的升级（含 v0.3.11/v0.3.15 两个安全修复）建议**单独作为一个变更**推进，见 `CHANGELOG.md` 与根 `README.md`。
-- 遗留合规缺口：仓库根**缺 `LICENSE` 文件**（README badge 指向死链），且上游 `assets/` 素材**不在 MIT 覆盖范围**（as-is，不授予再许可）。建议在下一轮补齐 `LICENSE` + 素材来源声明。
+- **`0.2.10 → 0.3.16` 的升级已在远端完成**（提交 `60a9a97`，含 v0.3.11 / v0.3.15 两个安全修复），
+  并进一步通过 `host-shim.js` 让桌面版**直接复用插件本体** —— 插件目录从此是**唯一功能实现来源**。
+  这比“本地各写一份”更优，也把此前“桌面版无法自动获得上游修复”的问题一并解决了。
+- 剩余差距：上游已到 **v0.3.17**（2026-09-29），本地为 v0.3.16，仅差 1 个版本 → 建议**单独一个小变更**跟进。
+- 遗留合规缺口（仍未处理）：仓库根**缺 `LICENSE` 文件**（README badge 指向死链），且上游 `assets/`
+  素材**不在 MIT 覆盖范围**（as-is，不授予再许可）。建议下一轮补齐 `LICENSE` + 素材来源声明。
+
+### 9.5 交付/同步风险：仓库分叉与推送通道（本次实测）
+
+| 编号 | 风险 | 实测结论 | 处置 |
+|---|---|---|---|
+| R-GIT-1 | 仓库曾分叉 | 本地独有 24 个提交 / 远端独有 6 个提交；`README.md` 有 4 处冲突已人工解决 | 保留合并提交 `549e056`；**勿用 `-X ours/theirs` 强压** |
+| R-GIT-2 | remote 指向失效代理 | `origin` = `https://ghfast.top/https://github.com/gebilaowuxiaoyu123/dsh-whale`；实测该代理**已完全不通**（curl 15s 超时）；而**直连 GitHub 正常**（`info/refs` 200 / 0.49s，`ls-remote` 成功） | 把 remote 改回直连（`git remote set-url origin https://github.com/gebilaowuxiaoyu123/dsh-whale.git`），或临时 `git push https://github.com/…` |
+| R-GIT-3 | 推送缺凭据 | `git-receive-pack` 返回 **401**（端点在、缺鉴权）；本机**无 credential helper、无 `gh`、无 SSH 公钥** | 先配置凭据（`gh auth login`，或 PAT + `git config --global credential.helper store`），或由用户在本机终端自行 `git push` |
 
 ---
 
 ## 10. 建议执行顺序
 
+0. **T11 / T12 实测（决定性）** —— 先确认桌面版在 Linux 上到底能否交互，再决定 §2 走哪个分支；
+   同时它也决定了扩展版 A1/A3 的优先级（若桌面版不可交互，扩展版就是唯一交付物）。
 1. **A5（GJS 兼容）** —— 改动最小、消除未来静默失效，先落地。
 2. **A1（热插拔守卫）+ A2（多显示器）** —— 外接屏专项的前置，一起改。
 3. **A3 + A4（触屏）** —— 本机可直接实机验收。

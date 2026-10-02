@@ -154,7 +154,10 @@
 ## 变更与杂项
 
 - `2026-10-02` docs：新增 `docs/linux-adaptation-plan.md` —— Linux 适配实机基线（Ubuntu 24.04.4 / GNOME 46 / Wayland /
-  Intel Meteor Lake / 3120×2080@120Hz 缩放 2.0 / 内建触屏）、形态取舍（扩展版为主力、Electron 版降级 experimental）、
-  A1–A10 改造项、外接显示器与触屏专项风险、完成判定标准 DoD（D1–D13）、交付前测试方案（T0–T10）
+  Intel Meteor Lake / 3120×2080@120Hz 缩放 2.0 / 内建触屏）、仓库代码状态（合并远端 v0.3.16 与 host-shim 桌面版）、
+  形态取舍（扩展版为主力；Electron 版按 T11 实测结果定性）、A1–A10 改造项、外接显示器与触屏专项风险、
+  完成判定标准 DoD（D1–D13）、交付前测试方案（T0–T12，含 CDP 测试盲区说明与真实鼠标验证）
+- `2026-10-02` merge：合并远端 6 个提交（插件同步 v0.2.10→v0.3.16、桌面版 host-shim 直跑插件本体、
+  点击穿透判定改通用 `pointer-events` 语义、新增 4 个测试工具）；`README.md` 4 处冲突已人工解决
 - `2026-09-04` chore：`third-party/` 加入 .gitignore（仅存放上游研究克隆，不入库）
 - `2026-09-02` chore：忽略 Windows 便携 exe 构建产物（由 CI 自动构建分发）
