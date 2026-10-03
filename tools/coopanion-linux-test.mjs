@@ -47,6 +47,21 @@ function sh(cmd, args) {
     }
 }
 
+/**
+ * 当前的「置顶显示」：优先环境变量 PET_ALWAYS_ON_TOP（1/0），否则读 Coopanion 的配置文件。
+ * 用法要求 cwd = third-party/Coopanion（见文件头）。
+ */
+function petAlwaysOnTop() {
+    if (process.env.PET_ALWAYS_ON_TOP != null) return process.env.PET_ALWAYS_ON_TOP === '1';
+    try {
+        const f = path.join(process.cwd(), 'build', 'data', 'home', 'companion', 'config.json');
+        const cfg = JSON.parse(fs.readFileSync(f, 'utf8'));
+        return cfg?.worlds?.['desktop-pet']?.window?.alwaysOnTop === true;
+    } catch {
+        return false;
+    }
+}
+
 /** 用 xwd + ffmpeg 取窗口像素，返回 { w, h, ink: Uint8Array, bbox } */
 function windowInk(winId) {
     try {
@@ -159,10 +174,15 @@ async function main() {
     }
 
     console.log('\n[2] 窗口属性');
+    const onTop = petAlwaysOnTop();
+    console.log(`  （当前「置顶显示」= ${onTop ? '开' : '关'}）`);
     const wtype = sh('xprop', ['-id', winId, '_NET_WM_WINDOW_TYPE']);
-    check('窗口类型 = DOCK（避免顶掉桌面 dock）', /_NET_WM_WINDOW_TYPE_DOCK/.test(wtype), wtype);
+    check(onTop ? '窗口类型 = DOCK（置顶：避免顶掉桌面 dock）' : '窗口类型 = NORMAL（不置顶：应用窗口能盖住桌宠）',
+        onTop ? /_NET_WM_WINDOW_TYPE_DOCK/.test(wtype) : /_NET_WM_WINDOW_TYPE_NORMAL/.test(wtype), wtype);
     const wstate = sh('xprop', ['-id', winId, '_NET_WM_STATE']);
-    check('置顶 + 不进任务栏', /_NET_WM_STATE_ABOVE/.test(wstate) && /SKIP_TASKBAR/.test(wstate), wstate.slice(0, 90));
+    check(onTop ? '置顶 + 不进任务栏' : '不置顶（无 ABOVE）+ 不进任务栏',
+        /SKIP_TASKBAR/.test(wstate) && (onTop ? /_NET_WM_STATE_ABOVE/.test(wstate) : !/_NET_WM_STATE_ABOVE/.test(wstate)),
+        wstate.slice(0, 90));
 
     console.log('\n[3] 点击穿透（形状）');
     const shape = shapeExtents(winId);
@@ -207,6 +227,8 @@ async function main() {
     check('页面标题正确', /桌宠|Cortico/.test(String(title)), String(title));
     check('preload 暴露了 petHost', Array.isArray(hostKeys) && hostKeys.length >= 5,
         JSON.stringify(hostKeys));
+    check('preload 暴露了 setAlwaysOnTop（「置顶显示」开关的落地通道）',
+        Array.isArray(hostKeys) && hostKeys.includes('setAlwaysOnTop'), JSON.stringify(hostKeys));
     const shapeErr = await evaluate('(window.petHost && window.petHost.shapeError) || ""');
     check('形状上报无初始化错误', !shapeErr, String(shapeErr));
 

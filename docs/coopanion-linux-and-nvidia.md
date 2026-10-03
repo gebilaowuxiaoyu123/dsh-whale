@@ -23,6 +23,11 @@
 另外把窗口类型改成 `_NET_WM_WINDOW_TYPE_DOCK`（`xprop`），否则 GNOME 的 dash-to-dock
 （intellihide-mode=ALL_WINDOWS）会把常驻置顶的全屏窗当成「抢屏幕的窗口」而自动隐藏 dock。
 
+> ⚠️ **这两个目标是互相拉扯的（2026-10-04 补充）**：默认不再置顶（「置顶显示」关）时窗口类型用
+> `_NET_WM_WINDOW_TYPE_NORMAL`（普通窗，应用窗口能盖住桌宠），代价是本机 autohide 的 dock 可能被这个
+> 铺满工作区的窗口顶掉；把控制台「习惯」页的「置顶显示」勾上就回到 `DOCK` + `ABOVE`（旧行为，dock 不受影响）。
+> 开着或关着都不影响 `setShape` 的点击穿透 —— 那是另一回事。
+
 ---
 
 ## 2. 功能对照表（Windows 版 → Linux 实机验证）
@@ -30,8 +35,7 @@
 | 能力 | Windows | Linux（本次） | 验证方式 |
 |------|---------|---------------|----------|
 | 桌宠窗口出现并可自定位 | ✅ | ✅ | `xwininfo` 找到 `Cortico 桌宠` |
-| 常驻置顶 + 不抢任务栏 | ✅ | ✅ | `xprop`：`_NET_WM_WINDOW_TYPE_DOCK`、`ABOVE,SKIP_TASKBAR` |
-| 点击穿透（只鲸鱼可点） | ✅ | ✅ | 形状面积 < 窗口 25%，且形状 ⊇ 墨迹包围盒 |
+| 常驻置顶 + 不抢任务栏 | ✅ | ✅ | `xprop`：`_NET_WM_WINDOW_TYPE_DOCK`、`ABOVE,SKIP_TASKBAR` || 置顶层级跟随「置顶显示」开关 | ✅（托盘勾选） | ✅（控制台「习惯」页） | `xprop`：开 → `DOCK`+`ABOVE`；关 → `NORMAL`（无 `ABOVE`） || 点击穿透（只鲸鱼可点） | ✅ | ✅ | 形状面积 < 窗口 25%，且形状 ⊇ 墨迹包围盒 |
 | Live2D 鲸鱼娘形象渲染 | ✅ | ✅ | X11 抓屏墨迹包围盒非空 + 截图人工审阅 |
 | 引导气泡可点 | ✅ | ✅ | 真实 CDP 点击 |
 | 右键菜单（≥9 项） | ✅ | ✅ | 真实 `Input.dispatchMouseEvent` 右键，DOM 读项 |

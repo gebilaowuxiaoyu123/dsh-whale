@@ -1,5 +1,5 @@
 diff --git a/app/main.cjs b/app/main.cjs
-index b6bbec3..097d924 100644
+index b6bbec3..4c91d94 100644
 --- a/app/main.cjs
 +++ b/app/main.cjs
 @@ -30,9 +30,22 @@ const LINUX = process.platform === 'linux';
@@ -25,10 +25,15 @@ index b6bbec3..097d924 100644
  }
  const APP_ROOT = app.getAppPath();
  const ICONS = join(__dirname, 'icons');
-@@ -55,6 +68,50 @@ if (process.argv.includes('--pet-host')) {
-   return;
- }
- 
+@@ -51,7 +64,51 @@ if (process.argv.includes('--pet-host')) {
+   app.setPath('userData', join(app.getPath('userData'), 'pet-window'));
+   if (MAC) app.dock?.hide();
+   const { runPetHost } = require(require.resolve('cortico-world-desktop-pet/host/electron-main.cjs'));
+-  runPetHost({ url: arg('pet-url'), parentPid: Number(arg('parent-pid')) || 0, tray: false });
++  runPetHost({ url: arg('pet-url'), parentPid: Number(arg('parent-pid')) || 0, tray: false, alwaysOnTop: arg('always-on-top') !== '0' });
++  return;
++}
++
 +/* ---------- start at login ---------- */
 +/**
 + * Started by the system at login: the pet and the tray show, but no window opens on its own.
@@ -70,12 +75,9 @@ index b6bbec3..097d924 100644
 +    }
 +    app.exit(0);
 +  });
-+  return;
-+}
-+
- /* ---------- app mode ---------- */
- if (!app.requestSingleInstanceLock()) {
-   app.quit();
+   return;
+ }
+ 
 @@ -63,9 +120,24 @@ if (!app.requestSingleInstanceLock()) {
  
  const { CoreHost } = require('./core-host.cjs');
@@ -154,10 +156,18 @@ index b6bbec3..097d924 100644
        { label: '退出', click: () => app.quit() },
      ]));
 diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
-index fca746d..3ab6943 100644
+index fca746d..761a673 100644
 --- a/console/features/pet/index.ts
 +++ b/console/features/pet/index.ts
-@@ -42,6 +42,7 @@ const S = pick({
+@@ -21,6 +21,7 @@ const KEYS = {
+   roam: `${K}.roam`,
+   theme: `${K}.theme`,
+   scale: `${K}.window.scale`,
++  alwaysOnTop: `${K}.window.alwaysOnTop`,
+   sound: `${K}.sound`,
+   hover: `${K}.hoverButtons`,
+ } as const;
+@@ -42,10 +43,13 @@ const S = pick({
      roamFree: '常走动',
      roamCalm: '多待着',
      roamOff: '不乱动',
@@ -165,7 +175,13 @@ index fca746d..3ab6943 100644
      theme: '颜色',
      themeDark: '夜间(浅色身体)',
      themeLight: '白天(深色身体)',
-@@ -65,6 +66,7 @@ const S = pick({
+     scale: '大小',
++    alwaysOnTop: '置顶显示',
++    alwaysOnTopHint: '关着：普通应用窗口会盖住桌宠（看视频、全屏时不会挡在前面），桌宠仍在桌面图标之上。打开：桌宠浮在所有窗口之上。',
+     sound: '音效',
+     hover: '悬停按钮',
+     hoverHint: (n: number) => `鼠标停在 Coo 身上时旁边出现的按钮,最多 ${n} 个。`,
+@@ -65,10 +69,13 @@ const S = pick({
      roamFree: 'Often',
      roamCalm: 'Now and then',
      roamOff: 'Stay put',
@@ -173,7 +189,13 @@ index fca746d..3ab6943 100644
      theme: 'Colors',
      themeDark: 'Night (light body)',
      themeLight: 'Day (dark body)',
-@@ -99,7 +101,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+     scale: 'Size',
++    alwaysOnTop: 'Always on top',
++    alwaysOnTopHint: 'Off: normal app windows cover the pet (no more covering videos or full screen); it stays above the desktop icons. On: the pet floats above every window.',
+     sound: 'Sounds',
+     hover: 'Hover buttons',
+     hoverHint: (n: number) => `Buttons beside Coo while the pointer rests on it, up to ${n}.`,
+@@ -99,7 +106,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
  
    const user = ui.input({ placeholder: '伙伴' });
    const roam = ui.segmented([
@@ -182,6 +204,30 @@ index fca746d..3ab6943 100644
    ], { size: 'sm', onSelect: (v) => void save(KEYS.roam, v) });
    const theme = ui.segmented([
      { value: 'dark', label: S.themeDark }, { value: 'light', label: S.themeLight },
+@@ -111,6 +118,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+   const scaleBox = ui.h('div', 'companion-rangebox');
+   scaleBox.append(scale, scaleText);
+   const sound = ui.checkbox(S.sound, { onChange: (on) => void save(KEYS.sound, on) });
++  const alwaysOnTop = ui.checkbox(S.alwaysOnTop, { onChange: (on) => void save(KEYS.alwaysOnTop, on) });
+   const stats = ui.checkbox(S.stats, { onChange: (on) => void save(STATS_KEY, on, STATS_GROUP) });
+   const statsDoc = ui.h('a', 'home-link', S.statsDoc);
+   statsDoc.href = STATS_DOC;
+@@ -163,6 +171,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+     row(S.theme, theme.el),
+     row(S.scale, scaleBox),
+     row('', sound.el),
++    row('', alwaysOnTop.el, S.alwaysOnTopHint),
+     row(S.hover, hoverBox, S.hoverHint(MAX_HOVER)),
+     row('', statsBox, S.statsHint),
+     msg,
+@@ -219,6 +228,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+     if (typeof values[KEYS.theme] === 'string') theme.setValue(values[KEYS.theme] as string);
+     if (typeof values[KEYS.scale] === 'number' && active !== scale) { scale.value = String(values[KEYS.scale]); showScale(); }
+     if (typeof values[KEYS.sound] === 'boolean') sound.setChecked(values[KEYS.sound] as boolean);
++    if (typeof values[KEYS.alwaysOnTop] === 'boolean') alwaysOnTop.setChecked(values[KEYS.alwaysOnTop] as boolean);
+     if (typeof values[KEYS.hover] === 'string') {
+       picked = (values[KEYS.hover] as string).split(',').map((x) => x.trim()).filter((x) => ACTIONS.some(([a]) => a === x));
+       renderHover();
 diff --git a/core/companion.ts b/core/companion.ts
 index 86f313f..80d9cbf 100644
 --- a/core/companion.ts
@@ -209,10 +255,28 @@ index 86f313f..80d9cbf 100644
    }
    if (!talked) return;
 diff --git a/packages/cortico-world-desktop-pet/host/electron-main.cjs b/packages/cortico-world-desktop-pet/host/electron-main.cjs
-index cb3ebb9..5951ed7 100644
+index cb3ebb9..90d8b01 100644
 --- a/packages/cortico-world-desktop-pet/host/electron-main.cjs
 +++ b/packages/cortico-world-desktop-pet/host/electron-main.cjs
-@@ -16,6 +16,62 @@
+@@ -1,11 +1,14 @@
+ /**
+  * Electron main process for the pet window.
+  *
+- * Run as `electron electron-main.cjs --pet-url=http://127.0.0.1:<port>/pet`, or call
++ * Run as `electron electron-main.cjs --pet-url=http://127.0.0.1:<port>/pet [--always-on-top=0|1]`, or call
+  * `runPetHost({ url, parentPid })` from an app's own main process. With `--parent-pid=<pid>`
+  * the window closes once that process exits. The window covers the work area of one display
+- * (the primary one at start), is transparent and always on top, and ignores the mouse until the
+- * page reports the pointer is over the figure, a bubble or the menu. When the pet is let go of
++ * (the primary one at start), is transparent, and ignores the mouse until the
++ * page reports the pointer is over the figure, a bubble or the menu. Whether it floats above
++ * every other window is the `alwaysOnTop` option (`--always-on-top=1`, the default) — off leaves
++ * it above the desktop but under normal app windows — and the page can change it while running
++ * through `petHost.setAlwaysOnTop`. When the pet is let go of
+  * over another display, the window moves to that display; when its display is unplugged, it
+  * moves to the primary one. A tray icon shows, hides and closes it; an embedding app that has its
+  * own tray passes `tray: false`.
+@@ -16,6 +19,69 @@
   * macOS gives no way to hand it back to the app that had it.
   */
  const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, session, shell, systemPreferences } = require('electron');
@@ -227,8 +291,11 @@ index cb3ebb9..5951ed7 100644
 + * 桌宠窗口铺满整个工作区且置顶，于是 dock 被它一直顶掉：开机不显示、关掉所有窗口也不回来。
 + * 改成 _NET_WM_WINDOW_TYPE_DOCK 后，dash-to-dock 的 intellihide 会忽略它；
 + * 另外 dock 类型天然在普通窗口之上，也不会进任务栏/概览。
++ *
++ * `on` 就是「置顶显示」：开 → DOCK + ABOVE（旧行为）；关 → NORMAL（普通应用窗口盖住桌宠，
++ * 桌宠仍在桌面图标之上）。注意：关掉时 GNOME 的 dock 可能被这个铺满工作区的窗口顶掉 —— 介意的话把开关打开。
 + */
-+function applyOverlayHints(win) {
++function applyOverlayHints(win, on) {
 +  if (!LINUX || !win || win.isDestroyed()) return;
 +  let xid = 0;
 +  try {
@@ -246,19 +313,23 @@ index cb3ebb9..5951ed7 100644
 +    return;
 +  }
 +  const q = (args, cb) => execFile('xprop', args, (err, out) => cb && cb(err, out));
++  // on: DOCK + ABOVE —— 压在普通窗口之上；off: NORMAL —— 普通应用窗口能盖住桌宠
++  const type = on ? '_NET_WM_WINDOW_TYPE_DOCK' : '_NET_WM_WINDOW_TYPE_NORMAL';
++  const state = on
++    ? '_NET_WM_STATE_ABOVE, _NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_STICKY'
++    : '_NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_STICKY';
 +  const setType = () => {
-+    q(['-id', id, '-f', '_NET_WM_WINDOW_TYPE', '32a',
-+       '-set', '_NET_WM_WINDOW_TYPE', '_NET_WM_WINDOW_TYPE_DOCK']);
-+    q(['-id', id, '-f', '_NET_WM_STATE', '32a',
-+       '-set', '_NET_WM_STATE',
-+       '_NET_WM_STATE_ABOVE, _NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_STICKY']);
++    q(['-id', id, '-f', '_NET_WM_WINDOW_TYPE', '32a', '-set', '_NET_WM_WINDOW_TYPE', type]);
++    q(['-id', id, '-f', '_NET_WM_STATE', '32a', '-set', '_NET_WM_STATE', state]);
 +  };
 +  setType();
 +  // 映射后再改不一定被 WM 重新读取，确认一次；没生效就来一次 hide→show 强制重读
 +  setTimeout(() => {
 +    q(['-id', id, '_NET_WM_WINDOW_TYPE'], (err, out) => {
-+      if (!err && /DOCK/.test(String(out || ''))) {
-+        console.log('[pet] 窗口类型已设为 DOCK（dock 的 intellihide 会忽略桌宠窗口）');
++      if (!err && (on ? /DOCK/.test(String(out || '')) : /NORMAL/.test(String(out || '')))) {
++        console.log(on
++          ? '[pet] 窗口类型已设为 DOCK（置顶：dock 的 intellihide 会忽略桌宠窗口）'
++          : '[pet] 窗口类型已设为 NORMAL（不置顶：普通应用窗口会盖住桌宠）');
 +        return;
 +      }
 +      try {
@@ -275,8 +346,57 @@ index cb3ebb9..5951ed7 100644
  const { join } = require('node:path');
  
  /** Milliseconds between the cursor reports the page gets. */
-@@ -203,7 +259,16 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
-     win.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'screen-saver');
+@@ -163,12 +229,14 @@ function trayIcon() {
+   return img;
+ }
+ 
+-function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
++function runPetHost({ url, parentPid = 0, tray: withTray = true, alwaysOnTop = true }) {
+   if (!url) throw new Error('pet host needs --pet-url');
+   const origin = new URL(url).origin;
+   let win = null, tray = null, dress = null;
+   /** Id of the display whose work area the window covers. */
+   let displayId = null;
++  /** 「置顶显示」：true 时压在普通应用窗口之上，false 时只留在桌面图标之上。运行中可改。 */
++  let onTop = alwaysOnTop !== false;
+ 
+   /** The display the window belongs on: the one it was moved to, or the primary display once that one is gone. */
+   const display = () => screen.getAllDisplays().find((d) => d.id === displayId) ?? screen.getPrimaryDisplay();
+@@ -185,12 +253,25 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+ 
+   const place = () => { if (win) cover(display()); };
+ 
++  /**
++   * 「置顶显示」：打开时让桌宠压在普通应用窗口之上（原行为）；关闭时它只是一个普通窗口，
++   * 会被应用窗口盖住，但仍留在桌面图标之上。Linux 上窗口类型要跟着一起换（DOCK / NORMAL）。
++   */
++  const applyOnTop = () => {
++    if (!win || win.isDestroyed()) return;
++    try {
++      if (onTop) win.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'screen-saver');
++      else win.setAlwaysOnTop(false);
++    } catch (_e) { /* 切换失败也不影响使用 */ }
++    if (LINUX) applyOverlayHints(win, onTop);
++  };
++
+   const create = () => {
+     const d = display(), wa = d.workArea;
+     win = new BrowserWindow({
+       x: wa.x, y: wa.y, width: wa.width, height: wa.height,
+       transparent: true, frame: false, resizable: false, movable: false, minimizable: false, maximizable: false,
+-      fullscreenable: false, skipTaskbar: true, hasShadow: false, alwaysOnTop: true, show: false,
++      fullscreenable: false, skipTaskbar: true, hasShadow: false, alwaysOnTop: onTop, show: false,
+       backgroundColor: '#00000000', title: 'Cortico 桌宠',
+       webPreferences: {
+         preload: join(__dirname, 'preload.cjs'),
+@@ -199,11 +280,14 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+       },
+     });
+     cover(d);
+-    // Native candidate windows and Chromium popups must remain above the pet.
+-    win.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'screen-saver');
++    // 按「置顶显示」摆位：开 → 在所有窗口之上；关 → 普通窗口（应用窗口盖住它）
++    applyOnTop();
      // on every Space, and over an app in full screen
      if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
 -    win.setIgnoreMouseEvents(true, { forward: true });
@@ -284,21 +404,17 @@ index cb3ebb9..5951ed7 100644
 +    // 铺满工作区的透明窗会把整个桌面的点击全吞掉。真正的做法是把窗口形状收窄到
 +    // 「页面上确实画了东西的地方」（由 preload 上报，见 pet:shape）。
 +    if (!LINUX) win.setIgnoreMouseEvents(true, { forward: true });
-+    // Linux 二次修复：这个窗口铺满整个工作区且置顶，会被 dash-to-dock 的
-+    // intellihide（本机 intellihide-mode=ALL_WINDOWS）当成「挡住了 dock 的应用窗口」，
-+    // 于是**桌面 dock 一直不显示**（开机不显示、关完窗口也不回来）。
-+    // 把窗口类型改成 DOCK：dash-to-dock 必须忽略 dock 类型窗口（否则它自己也会把自己藏起来），
-+    // 同时补 SKIP_TASKBAR / SKIP_PAGER / STICKY。
-+    if (LINUX) applyOverlayHints(win);
      win.webContents.setWindowOpenHandler(({ url: target }) => {
        if (target.startsWith(origin)) { openDress(target); return { action: 'deny' }; }
        shell.openExternal(target);
-@@ -236,7 +301,39 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+@@ -236,7 +320,41 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
      dress.loadURL(target);
    };
  
 -  ipcMain.on('pet:interactive', (_e, on) => { if (win) win.setIgnoreMouseEvents(!on, { forward: true }); });
 +  ipcMain.on('pet:interactive', (_e, on) => { if (win && !LINUX) win.setIgnoreMouseEvents(!on, { forward: true }); });
++  // 「置顶显示」开关：控制台的「习惯」页改配置 → World 通过 prefs 广播到页面 → 页面发到这里
++  ipcMain.on('pet:alwaysOnTop', (_e, on) => { onTop = !!on; applyOnTop(); });
 +
 +  // Linux：页面上报「可见矩形」→ setShape 收窄窗口。没上报到之前保持整窗（宁可暂时挡一下，
 +  // 也不能先把桌宠裁没了 —— setShape 同时裁剪绘制）。
@@ -334,11 +450,23 @@ index cb3ebb9..5951ed7 100644
    ipcMain.on('pet:focus', () => {
      if (!win) return;
      // Explicit text input activates this menu-bar process as well as its window.
+@@ -322,5 +440,10 @@ module.exports = { runPetHost };
+ if (process.argv[1] && require('node:path').resolve(process.argv[1]) === __filename) {
+   const arg = process.argv.find((a) => a.startsWith('--pet-url='));
+   const parent = process.argv.find((a) => a.startsWith('--parent-pid='));
+-  runPetHost({ url: arg ? arg.slice('--pet-url='.length) : '', parentPid: parent ? Number(parent.slice('--parent-pid='.length)) : 0 });
++  const top = process.argv.find((a) => a.startsWith('--always-on-top='));
++  runPetHost({
++    url: arg ? arg.slice('--pet-url='.length) : '',
++    parentPid: parent ? Number(parent.slice('--parent-pid='.length)) : 0,
++    alwaysOnTop: top ? top.slice('--always-on-top='.length) !== '0' : true,
++  });
+ }
 diff --git a/packages/cortico-world-desktop-pet/host/preload.cjs b/packages/cortico-world-desktop-pet/host/preload.cjs
-index aa3068e..3b8e8d5 100644
+index aa3068e..c35baa1 100644
 --- a/packages/cortico-world-desktop-pet/host/preload.cjs
 +++ b/packages/cortico-world-desktop-pet/host/preload.cjs
-@@ -1,7 +1,134 @@
+@@ -1,9 +1,138 @@
  // The only surface the pet page gets from the window process.
  const { contextBridge, ipcRenderer } = require('electron');
  
@@ -472,12 +600,31 @@ index aa3068e..3b8e8d5 100644
 +  platform: process.platform,
    /** true: the window takes the mouse; false: clicks pass through to what is underneath. */
    setInteractive: (on) => ipcRenderer.send('pet:interactive', !!on),
++  /** true: the window floats above every other window; false: normal app windows cover it. */
++  setAlwaysOnTop: (on) => ipcRenderer.send('pet:alwaysOnTop', !!on),
    focus: () => ipcRenderer.send('pet:focus'),
+   /** Takes the keyboard from whatever window has it (a question's number keys), and gives it back. */
+   grabFocus: () => ipcRenderer.send('pet:grabFocus'),
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
-index e5fca42..3744034 100644
+index e5fca42..2b218eb 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts
 +++ b/packages/cortico-world-desktop-pet/src/config.ts
-@@ -98,8 +98,13 @@ export const DESKTOP_PET_DEFAULTS: DesktopPetConfigSection = {
+@@ -57,6 +57,8 @@ export interface DesktopPetConfigSection extends WorldSection {
+     electronFile: string;
+     /** Figure size on screen, 1 = 256 logo units drawn at 107 px. */
+     scale: number;
++    /** Keep the pet above every other window; off leaves it above the desktop but under normal windows. */
++    alwaysOnTop: boolean;
+   };
+   roam: RoamMode;
+   sound: boolean;
+@@ -93,13 +95,18 @@ export const DESKTOP_PET_DEFAULTS: DesktopPetConfigSection = {
+   enabled: false,
+   port: 7797,
+   user: '伙伴',
+-  window: { enabled: true, electronFile: '', scale: 1 },
++  window: { enabled: true, electronFile: '', scale: 1, alwaysOnTop: false },
+   roam: 'calm',
    sound: true,
    theme: 'dark',
    hoverButtons: 'chat,voice',
@@ -492,7 +639,7 @@ index e5fca42..3744034 100644
      colors: { head: { main: 'body', acc: 'eye' }, side: { main: 'eye', acc: 'eye' }, glasses: { main: 'body', acc: 'eye' }, neck: { main: 'eye', acc: 'eye' } },
    },
    touch: { enabled: true, wakeOn: 'poke' },
-@@ -125,7 +130,7 @@ export const DESKTOP_PET_CONFIG_GROUP: ConfigGroup = {
+@@ -125,12 +132,13 @@ export const DESKTOP_PET_CONFIG_GROUP: ConfigGroup = {
      title: '桌宠',
      properties: {
        [`${K}.user`]: { type: 'string', title: '怎么称呼你', description: '语音、打字和互动事件里用这个名字指代你。', 'x-hot': true },
@@ -501,11 +648,96 @@ index e5fca42..3744034 100644
        [`${K}.sound`]: { type: 'boolean', title: '音效', 'x-hot': true },
        [`${K}.theme`]: { type: 'string', title: '黑白模式', enum: ['dark', 'light'], description: 'dark 夜间:浅色身体、深色气泡;light 白天:深色身体、浅色气泡。', 'x-hot': true },
        [`${K}.hoverButtons`]: { type: 'string', title: '悬停按钮', description: `鼠标停在桌宠身上时旁边出现的按钮,最多 ${MAX_HOVER_BUTTONS} 个,逗号分隔:${PET_ACTIONS.join(', ')}。`, 'x-hot': true },
+       [`${K}.window.enabled`]: { type: 'boolean', title: '启动时打开桌宠窗口', 'x-hot': false },
+       [`${K}.window.scale`]: { type: 'number', title: '大小', minimum: .5, maximum: 2, multipleOf: .05, 'x-hot': true },
++      [`${K}.window.alwaysOnTop`]: { type: 'boolean', title: '置顶显示', description: '打开后桌宠浮在所有窗口之上(看视频、全屏时也会挡在前面);关闭时普通应用窗口会盖住桌宠,桌宠仍在桌面图标之上。', 'x-hot': true },
+       [`${K}.window.electronFile`]: { type: 'string', title: 'Electron 程序', description: '留空时依次用 CORTICO_DESKTOP_PET_HOST 和面板里安装的运行时。', 'x-path': { kind: 'file' }, 'x-hot': false },
+       [`${K}.port`]: { type: 'integer', title: '页面端口', minimum: 1024, maximum: 65535, description: '被占用时向上顺延。', 'x-hot': false },
+       [`${K}.touch.enabled`]: { type: 'boolean', title: '互动发成事件', description: '戳、摸、拎起来甩出去。', 'x-hot': true },
+diff --git a/packages/cortico-world-desktop-pet/src/window-host.ts b/packages/cortico-world-desktop-pet/src/window-host.ts
+index 383a00c..ff18a4b 100644
+--- a/packages/cortico-world-desktop-pet/src/window-host.ts
++++ b/packages/cortico-world-desktop-pet/src/window-host.ts
+@@ -1,7 +1,10 @@
+ /**
+  * Starts and stops the process that shows the pet window: an Electron main process running
+- * `host/electron-main.cjs`, which opens a transparent, frameless, always-on-top window over
+- * the work area of one display (the primary one at start) and loads the pet page.
++ * `host/electron-main.cjs`, which opens a transparent, frameless window over the work area of one
++ * display (the primary one at start) and loads the pet page. Whether it floats above every other
++ * window or sits under normal app windows is passed on as `--always-on-top=0|1` (the `alwaysOnTop`
++ * world setting); it can also change while the window runs, over the pet page's `pet:alwaysOnTop`
++ * IPC from a `prefs` message.
+  *
+  * Which Electron, in order:
+  * 1. `CORTICO_DESKTOP_PET_HOST`: a JSON array command set by an embedding app; it gets
+@@ -31,25 +34,26 @@ export interface HostState {
+ 
+ export type HostCommand = { command: string; args: string[]; source: string } | { missing: string };
+ 
+-export function resolveHostCommand(url: string, electronFile: string, managed: string | null): HostCommand {
++export function resolveHostCommand(url: string, electronFile: string, managed: string | null, alwaysOnTop = true): HostCommand {
++  const top = `--always-on-top=${alwaysOnTop ? 1 : 0}`;
+   const env = process.env[HOST_ENV];
+   if (env) {
+     try {
+       const argv = JSON.parse(env) as unknown;
+       if (Array.isArray(argv) && argv.length > 0 && argv.every((a) => typeof a === 'string')) {
+-        return { command: argv[0], args: [...argv.slice(1), `--pet-url=${url}`], source: HOST_ENV };
++        return { command: argv[0], args: [...argv.slice(1), `--pet-url=${url}`, top], source: HOST_ENV };
+       }
+     } catch { /* fall through to the reason below */ }
+     return { missing: `${HOST_ENV} 不是 JSON 字符串数组` };
+   }
+   if (electronFile) {
+     if (!existsSync(electronFile)) return { missing: `Electron 程序不存在:${electronFile}` };
+-    return { command: electronFile, args: [HOST_MAIN, `--pet-url=${url}`], source: electronFile };
++    return { command: electronFile, args: [HOST_MAIN, `--pet-url=${url}`, top], source: electronFile };
+   }
+-  if (managed) return { command: managed, args: [HOST_MAIN, `--pet-url=${url}`], source: managed };
++  if (managed) return { command: managed, args: [HOST_MAIN, `--pet-url=${url}`, top], source: managed };
+   try {
+     const bin = createRequire(import.meta.url)('electron') as unknown;
+-    if (typeof bin === 'string' && existsSync(bin)) return { command: bin, args: [HOST_MAIN, `--pet-url=${url}`], source: bin };
++    if (typeof bin === 'string' && existsSync(bin)) return { command: bin, args: [HOST_MAIN, `--pet-url=${url}`, top], source: bin };
+   } catch { /* not installed */ }
+   return { missing: '没有可用的 Electron:在桌宠面板安装窗口运行时,或在配置里指定 Electron 程序' };
+ }
+diff --git a/packages/cortico-world-desktop-pet/src/world.ts b/packages/cortico-world-desktop-pet/src/world.ts
+index 8c40e79..184c21e 100644
+--- a/packages/cortico-world-desktop-pet/src/world.ts
++++ b/packages/cortico-world-desktop-pet/src/world.ts
+@@ -334,7 +334,7 @@ export class DesktopPetWorld implements World {
+   openWindow(): void {
+     if (!this.windowHost || !this.server.port) return;
+     const managed = this.store.electron.executable();
+-    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed));
++    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed, this.cfg.window.alwaysOnTop === true));
+   }
+ 
+   /* ---------- page protocol ---------- */
+@@ -347,6 +347,7 @@ export class DesktopPetWorld implements World {
+       theme: this.cfg.theme,
+       hoverButtons: hoverButtonList(this.cfg.hoverButtons),
+       scale: this.cfg.window.scale,
++      alwaysOnTop: this.cfg.window.alwaysOnTop === true,
+       user: this.cfg.user,
+       mic: this.micWanted(),
+       voice: this.voiceBrief(),
 diff --git a/packages/cortico-world-desktop-pet/web/pet-app.js b/packages/cortico-world-desktop-pet/web/pet-app.js
-index 8535d2f..c6e8a96 100644
+index 8535d2f..0250190 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-app.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-app.js
-@@ -521,14 +521,28 @@ function stepTalkMotion() {
+@@ -88,6 +88,8 @@ function applyPrefs(p) {
+   if (typeof p.sound === 'boolean') { prefs.sound = p.sound; sfx.set(p.sound); }
+   if (p.theme === 'dark' || p.theme === 'light') { prefs.theme = p.theme; applyTheme(p.theme); }
+   if (typeof p.scale === 'number') { prefs.scale = p.scale; ctl.resize(); }
++  // 「置顶显示」：只有桌宠窗口有 petHost，浏览器标签页里这行是空操作
++  if (typeof p.alwaysOnTop === 'boolean') host?.setAlwaysOnTop?.(p.alwaysOnTop);
+   if (typeof p.user === 'string') prefs.user = p.user;
+   if (typeof p.micDevice === 'string' && p.micDevice !== prefs.micDevice) { prefs.micDevice = p.micDevice; stopMic(); }
+   if (typeof p.mic === 'boolean') { prefs.mic = p.mic; p.mic && !watching ? startMic() : stopMic(); }
+@@ -521,14 +523,28 @@ function stepTalkMotion() {
  }
  
  /* ---------- typed input: the hover button, or double-click ---------- */
@@ -535,7 +767,7 @@ index 8535d2f..c6e8a96 100644
    form.addEventListener('submit', (e) => {
      e.preventDefault();
      const v = input.value.trim();
-@@ -636,9 +650,9 @@ function stopMic() {
+@@ -636,9 +652,9 @@ function stopMic() {
  }
  
  /* ---------- actions: the menu's lower zone and the hover buttons draw from one list ---------- */
@@ -548,7 +780,7 @@ index 8535d2f..c6e8a96 100644
  /** The voice button's badge: listening all the time, or only on the talk key. */
  const MIC_BADGE = { always: 'auto', hold: 'key', toggle: 'key' };
  /** Most hover buttons shown beside the pet. */
-@@ -671,7 +685,9 @@ const ACTIONS = {
+@@ -671,7 +687,9 @@ const ACTIONS = {
      icon: () => ICONS[`roam_${prefs.roam}`] ?? ICONS.roam_calm,
      state: () => {
        const next = ROAM_ORDER[(ROAM_ORDER.indexOf(prefs.roam) + 1) % ROAM_ORDER.length];
@@ -559,7 +791,7 @@ index 8535d2f..c6e8a96 100644
      },
      run: () => cycleRoam(),
    },
-@@ -894,7 +910,10 @@ function stepTools() {
+@@ -894,7 +912,10 @@ function stepTools() {
    // shown while the cursor is on the pet or on the buttons, and a moment after it leaves; decided
    // from where the cursor is now, not from the last move event, which may be stale
    const p = cursor.at;
@@ -571,7 +803,7 @@ index 8535d2f..c6e8a96 100644
    tools.hidden = !(ctl.time < toolsUntil && !ctl.pressing && !ctl.busy() && menu.hidden && toolIds !== '');
    if (tools.hidden) endHold();
    tools.querySelector('[data-action="voice"]')?.classList.toggle('live', listen.phase === 'hearing');
-@@ -989,11 +1008,65 @@ host?.onCursor?.((p) => {
+@@ -989,11 +1010,65 @@ host?.onCursor?.((p) => {
    diag.poll = { at: performance.now(), x: p.x, y: p.y, hit, ui };
    setInteractive(ctl.pressing || hit || ui, 'poll');
  });
@@ -637,7 +869,7 @@ index 8535d2f..c6e8a96 100644
  const up = () => { ctl.pointerUp(); stage.style.cursor = ''; };
  /**
   * Most milliseconds a drop on another display waits for the page to take the window's new size
-@@ -1178,8 +1251,26 @@ function stepBackdrop(dt) {
+@@ -1178,8 +1253,26 @@ function stepBackdrop(dt) {
  }
  
  /* ---------- loop ---------- */
@@ -664,7 +896,7 @@ index 8535d2f..c6e8a96 100644
    const dt = Math.min(.05, (now - last) / 1000); last = now;
    stepActs();
    stepDialog(dt);
-@@ -1191,7 +1282,7 @@ function frame(now) {
+@@ -1191,7 +1284,7 @@ function frame(now) {
    stepBackdrop(dt);
    stepTools();
    layout();

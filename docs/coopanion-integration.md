@@ -54,12 +54,13 @@ Coopanion 是别人的 AGPL 代码，所以**改造不直接改在仓库里**，
 patches/coopanion/0001-dsh-pet-features.patch
 ```
 
-安装/更新脚本会自动打上（幂等：已打过就跳过；打不上只报警不硬来）。补丁共四件事：
+安装/更新脚本会自动打上（幂等：已打过就跳过；打不上只报警不硬来）。补丁共五件事：
 
 | 改造 | 落在哪 | 说明 |
 |---|---|---|
 | **聊天框左侧的调试入口** | `web/pet-app.js`、`web/pet.css` | 双击桌宠弹出的输入框，左边多一个小齿轮；一按经 World 的 `control/settings` 打开本地控制台（`http://127.0.0.1:17788/`）。没有嵌入方时这个按钮不显示，而不是给一个按了没用的键 |
 | **「随刷新率」走动模式** | `web/pet-core.js`、`web/pet-app.js`、`src/config.ts`、`console/features/pet/index.ts` | 第四种行为模式：按帧间隔量屏幕刷新率，速度按 `hz/60` 缩放（夹在 0.5×~3×）；**步频同步乘同一个系数**，所以每个步幅周期走过的距离不变 —— 不会滑步。菜单里会写「屏幕约 N Hz」 |
+| **「置顶显示」开关（默认关）** | `src/config.ts`、`src/world.ts`、`src/window-host.ts`、`host/electron-main.cjs`、`host/preload.cjs`、`web/pet-app.js`、`console/features/pet/index.ts` | 上游窗口是 `alwaysOnTop: true` + `screen-saver` 级别 —— 连全屏应用都在它下面。现在默认**关**：桌宠只是普通窗口，**应用窗口盖住它、它仍在桌面图标之上**；控制台「习惯」页勾上就回到浮在所有窗口之上。改动实时生效：配置 → World 快照 → 页面 `prefs` → `petHost.setAlwaysOnTop` → 主进程；启动初值随 `--always-on-top=0\|1` 传给窗口进程 |
 | **开机自启（未打包也能用）** | `app/main.cjs` | 托盘里的「开机自动启动」原来被 `app.isPackaged` 挡着；现在把启动命令行显式写成 `<electron> <应用目录> --background`，另加命令行开关 `--set-autostart=on|off` |
 | **自启时不弹调试界面** | `app/main.cjs`、`core/companion.ts` | `--background` 会传成 `CORTICO_START_BACKGROUND=1`，引导流程里那句「桌宠没连上就打开设置窗」被跳过 |
 
@@ -181,7 +182,7 @@ Coopanion 上游本身已按平台分好了分支，补丁也是平台无关的�
 改完代码、交付之前跑这两个：
 
 ```bash
-node tools/coopanion-feature-test.mjs    # 补丁是否打上 + 构建产物是否跟上（15 项）
+node tools/coopanion-feature-test.mjs    # 补丁是否打上 + 构建产物是否跟上（24 项）
 node tools/coopanion-sync-roam-test.mjs  # 「随刷新率」的数学：读数 / 速度 / 不滑步（19 项）
 ```
 
@@ -196,6 +197,8 @@ node tools/coopanion-sync-roam-test.mjs  # 「随刷新率」的数学：读数 
 - **换形象**：设置窗口「装扮」页 → 形象 → **DeepSeek 大肥鱼**
 - **改走动方式**：设置窗口「习惯」页 → 走动，四选一：常走动 / 多待着 / 不乱动 / **随刷新率**
   （也可以右键 Coo → 行为模式，点一下轮换；停在「随刷新率」时提示里会写当前屏幕约多少 Hz）
+- **改层级**：设置窗口「习惯」页 → **置顶显示**。默认**关** —— 打开的应用窗口会盖住桌宠，
+  桌宠仍在桌面图标之上（看视频/全屏时不再挡在前面）；勾上就回到「浮在所有窗口之上」
 - **快速开调试界面**：双击 Coo → 输入框左边的小齿轮
 - **退出**：右键托盘图标 → 退出（**关掉设置窗口不会退出程序**）
 - **数据目录**：`third-party/Coopanion/build/data`（从源码跑时；记忆 / 设置 / 日志都在这里，重装不丢）

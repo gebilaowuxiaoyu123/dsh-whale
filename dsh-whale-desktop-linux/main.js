@@ -5,7 +5,8 @@
  * 完全本地运行，不依赖 dsh web、也不用打开网页：
  *  - 本地服务（127.0.0.1:3090）自己实现 /dsh-whale/* 全部路由：widget.js、图片、音效都从
  *    本地文件读取；balance.json 直接调 DeepSeek API（读 DEEPSEEK_API_KEY），并本地记账算「今日已用」。
- *  - 无边框、透明、始终置顶、覆盖整个桌面的窗口 → 鲸鱼浮在桌面上、可满桌面拖动。
+ *  - 无边框、透明、默认不置顶（托盘可开「置顶显示」）的窗口 → 鲸鱼浮在桌面上、可满桌面拖动；
+ *    不置顶时普通应用窗口会盖住它，但它仍在桌面图标之上。
  *  - 整窗点击穿透（setIgnoreMouseEvents），仅鲸鱼不透明像素/菜单/气泡接收交互。
  *  - 支持打包成单个 exe（electron-builder portable）；首次运行且未配置 API Key 时自动弹出
  *    配置窗口补齐配置，之后直接显示挂件。
@@ -94,7 +95,7 @@ if (!app.requestSingleInstanceLock()) {
 app.on('second-instance', () => {
   if (win && !win.isDestroyed()) {
     win.show();
-    win.setAlwaysOnTop(true, 'screen-saver');
+    applyAlwaysOnTop();
   }
 });
 
@@ -132,6 +133,9 @@ function listenWithFallback(srv, idx = 0) {
 const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
 const CRED_FILE = path.join(DSH_HOME, '.credentials.yaml');
 const SIZE_FILE = path.join(DSH_HOME, '.dshw-size.json');   // 与插件共用：挂件尺寸/开关配置
+// 桌面版自己的窗口行为配置（置顶显示等）。**不能**放进 .dshw-size.json：
+// 插件保存设置时是按固定字段整包 PUT 覆盖的，会把这个键抹掉。
+const WINDOW_FILE = path.join(DSH_HOME, '.dshw-window.json');
 const USAGE_FILE = path.join(DSH_HOME, '.dshw-usage.json'); // 与插件共用：记账账本
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
 
@@ -228,6 +232,20 @@ function readJson(p) {
 }
 function writeJson(p, obj) {
   try { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(obj, null, 2), 'utf8'); } catch (_e) {}
+}
+// ---------- 「置顶显示」（默认关） ----------
+// 关：挂件只是个普通窗口 —— 打开的应用窗口盖在鲸鱼之上，鲸鱼仍在桌面图标之上。
+// 开：挂件浮在所有窗口之上（旧行为，看视频/全屏时也会挡在前面）。
+// Linux 上窗口类型要跟着一起换：关 → NORMAL，开 → DOCK（DOCK 才能不被 dock 的 intellihide 顶掉）。
+function readAlwaysOnTop() {
+  const cfg = readJson(WINDOW_FILE) || {};
+  return cfg.alwaysOnTop === true;
+}
+function writeAlwaysOnTop(on) {
+  const cfg = readJson(WINDOW_FILE) || {};
+  cfg.alwaysOnTop = !!on;
+  writeJson(WINDOW_FILE, cfg);
+  return cfg.alwaysOnTop;
 }
 function todayKey() {
   const d = new Date();
@@ -340,6 +358,13 @@ function createTray() {
       },
     },
     { type: 'separator' },
+    {
+      // 关（默认）：应用窗口盖住挂件，挂件仍在桌面图标之上；开：浮在所有窗口之上
+      label: '置顶显示',
+      type: 'checkbox',
+      checked: readAlwaysOnTop(),
+      click: (item) => { writeAlwaysOnTop(item.checked); applyAlwaysOnTop(); },
+    },
     { type: 'separator' },
     {
       // 与 L2 桌宠（Coopanion 鲸鱼娘）是同一个仓库里的两个独立应用，这里只做“开关”这一个动作
@@ -618,6 +643,24 @@ function startServer() {
       res.end(JSON.stringify(cfg));
       return;
     }
+    if (p === '/dsh-whale/always-on-top') {
+      if (req.method === 'PUT') {
+        let body = '';
+        req.on('data', (c) => { body += c; if (body.length > 65536) req.destroy(); });
+        req.on('end', () => {
+          let val = readAlwaysOnTop();
+          try { val = !!JSON.parse(body).value; } catch (_e) { /* 非法载荷保持原值 */ }
+          writeAlwaysOnTop(val);
+          applyAlwaysOnTop();
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: true, value: readAlwaysOnTop() }));
+        });
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: true, value: readAlwaysOnTop() }));
+      return;
+    }
     if (p === '/dsh-whale/apikey') {
       if (req.method === 'PUT') {
         let body = '';
@@ -746,6 +789,19 @@ function doneFirstRun() {
   createWidgetWindow();
 }
 
+/** 把「置顶显示」应用到当前挂件窗口（托盘开关、HTTP 路由都会调它）。 */
+function applyAlwaysOnTop() {
+  if (!win || win.isDestroyed()) return;
+  const on = readAlwaysOnTop();
+  try {
+    if (on) win.setAlwaysOnTop(true, 'screen-saver');
+    else win.setAlwaysOnTop(false);
+    if (IS_LINUX) win.setVisibleOnAllWorkspaces(on, { visibleOnFullScreen: true });
+  } catch (_e) { /* 切换失败不影响使用 */ }
+  if (IS_LINUX) applyLinuxOverlayHints();
+  console.log('[dsh-whale] 置顶显示 = ' + on);
+}
+
 function createWidgetWindow() {
   // 覆盖整个桌面：所有显示器的可用区域合并，让鲸鱼可以满桌面拖动
   const areas = screen.getAllDisplays().map((d) => d.workArea);
@@ -762,7 +818,7 @@ function createWidgetWindow() {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
-    alwaysOnTop: true,
+    alwaysOnTop: readAlwaysOnTop(),
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -777,7 +833,7 @@ function createWidgetWindow() {
       nodeIntegration: false,
     },
   });
-  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setAlwaysOnTop(readAlwaysOnTop(), 'screen-saver');
   winW = right - left;
   winH = bottom - top;
   lastShapeKey = '';
@@ -787,7 +843,7 @@ function createWidgetWindow() {
     win.setIgnoreMouseEvents(false);
     // 让 Shell 把我们当成「覆盖层」而不是「占满桌面的普通应用程序窗口」
     win.setSkipTaskbar(true);
-    try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (_e) {}
+    try { win.setVisibleOnAllWorkspaces(readAlwaysOnTop(), { visibleOnFullScreen: true }); } catch (_e) {}
   } else {
     // Windows / macOS：官方支持的 forward 逐像素方案（由 preload 的 mousemove 实时切换）
     win.setIgnoreMouseEvents(true, { forward: true });
@@ -827,8 +883,13 @@ function createWidgetWindow() {
 //     · dock 类型天然位于普通窗口之上，不进任务栏也不进概览，也不抢焦点
 //     · Shell 不再把它当作「一个占满桌面的普通应用窗口」
 //   注意：只改**窗口类型**；_NET_WM_STATE 留给 Electron 自己管，避免两边打架。
+//
+//   「置顶显示」关着的时候反而**不能**用 DOCK —— dock 类型天然在普通窗口之上，
+//   会让挂件又盖住应用窗口。此时用 NORMAL，代价是本机 autohide dock 可能被这个
+//   铺满工作区的窗口顶掉（介意就把「置顶显示」打开）。
 function applyLinuxOverlayHints() {
   if (!IS_LINUX || !win || win.isDestroyed()) return;
+  const on = readAlwaysOnTop();
   let xid = 0;
   try {
     const h = win.getNativeWindowHandle();
@@ -845,15 +906,19 @@ function applyLinuxOverlayHints() {
     return;
   }
   const q = (args, cb) => execFile('xprop', args, (err, out) => cb && cb(err, out));
+  const type = on ? '_NET_WM_WINDOW_TYPE_DOCK' : '_NET_WM_WINDOW_TYPE_NORMAL';
   const setType = () => q(['-id', id, '-f', '_NET_WM_WINDOW_TYPE', '32a',
-    '-set', '_NET_WM_WINDOW_TYPE', '_NET_WM_WINDOW_TYPE_DOCK']);
+    '-set', '_NET_WM_WINDOW_TYPE', type]);
   setType();
   // 确认是否生效；没生效就 hide→show 一次强制 Mutter 重读
   setTimeout(() => {
     q(['-id', id, '_NET_WM_WINDOW_TYPE'], (err, out) => {
-      const ok = !err && /DOCK/.test(String(out || ''));
+      const got = String(out || '');
+      const ok = !err && (on ? /DOCK/.test(got) : /NORMAL/.test(got));
       if (ok) {
-        console.log('[dsh-whale] 窗口类型已设为 DOCK（dock 的 intellihide 会忽略我们）');
+        console.log(on
+          ? '[dsh-whale] 窗口类型已设为 DOCK（置顶：dock 的 intellihide 会忽略我们）'
+          : '[dsh-whale] 窗口类型已设为 NORMAL（不置顶：普通应用窗口会盖住挂件）');
         return;
       }
       try {

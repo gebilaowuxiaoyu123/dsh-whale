@@ -77,7 +77,23 @@ check(join(ROOT, 'core', 'companion.ts'), '--background 时不自己打开设置
   "process.env.CORTICO_START_BACKGROUND === '1'", 'if (!BACKGROUND)',
 ]);
 
-/* ---------- 4. 构建产物跟上没有 ---------- */
+/* ---------- 4. 「置顶显示」开关 ---------- */
+check(join(PET, 'src', 'config.ts'), '配置 schema 有「置顶显示」（默认关）', [
+  'alwaysOnTop', '置顶显示', 'alwaysOnTop: false',
+]);
+check(join(PET, 'src', 'window-host.ts'), '窗口进程命令行带上置顶开关', ['--always-on-top=']);
+check(join(PET, 'src', 'world.ts'), '快照把开关广播给页面', ['alwaysOnTop: this.cfg.window.alwaysOnTop === true']);
+check(join(PET, 'host', 'electron-main.cjs'), '窗口进程能收开关并实时切换（含 Linux 的 NORMAL 回退）', [
+  'pet:alwaysOnTop', 'applyOnTop', '_NET_WM_WINDOW_TYPE_NORMAL', '--always-on-top=',
+]);
+check(join(PET, 'host', 'preload.cjs'), '页面 preload 暴露 setAlwaysOnTop', ['setAlwaysOnTop']);
+check(join(PET, 'web', 'pet-app.js'), '页面收到 prefs 后应用置顶设置', ['host?.setAlwaysOnTop?.(p.alwaysOnTop)']);
+check(join(ROOT, 'app', 'main.cjs'), '桌宠子进程把开关透传给 runPetHost', ["alwaysOnTop: arg('always-on-top') !== '0'"]);
+check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「习惯」页有置顶开关', [
+  'alwaysOnTop', 'alwaysOnTopHint',
+]);
+
+/* ---------- 5. 构建产物跟上没有 ---------- */
 {
   const webRoot = join(ROOT, 'build', 'cortico', 'dist', 'web');
   const main = existsSync(webRoot) ? readdirSync(webRoot).find((f) => /^main-.*\.js$/.test(f)) : null;
@@ -87,11 +103,13 @@ check(join(ROOT, 'core', 'companion.ts'), '--background 时不自己打开设置
     const text = readFileSync(join(webRoot, main), 'utf8');
     ok('构建产物里有「随刷新率」', text.includes('\\u968F\\u5237\\u65B0\\u7387') || text.includes('随刷新率'),
       '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
+    ok('构建产物里有「置顶显示」', text.includes('\\u7F6E\\u9876\\u663E\\u793A') || text.includes('置顶显示'),
+      '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
   }
 }
 ok('桌宠面板 bundle 已构建', existsSync(join(PET, 'dist', 'console.js')));
 
-/* ---------- 5. 补丁文件与工作区一致 ---------- */
+/* ---------- 6. 补丁文件与工作区一致 ---------- */
 {
   ok('补丁文件存在', existsSync(PATCH), PATCH);
   if (existsSync(PATCH)) {
@@ -114,7 +132,7 @@ ok('桌宠面板 bundle 已构建', existsSync(join(PET, 'dist', 'console.js')))
   }
 }
 
-/* ---------- 6. 没漏调试插桩 ---------- */
+/* ---------- 7. 没漏调试插桩 ---------- */
 {
   const roots = ['app', 'core', 'console', join('packages', 'cortico-world-desktop-pet', 'src'), join('packages', 'cortico-world-desktop-pet', 'web')];
   const hits = [];

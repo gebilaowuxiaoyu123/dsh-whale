@@ -16,7 +16,7 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
 | 形态 | 目录 | 说明 |
 |---|---|---|
 | **GNOME Shell 扩展** | `dsh-whale-shell-extension/` | GNOME 45–47，**Wayland 桌面悬浮首选**：直接画在 Shell 层，天然置顶悬浮、可满屏拖动 |
-| **Windows 桌面挂件** | `dsh-whale-desktop/` | 无边框透明置顶悬浮窗，鲸鱼浮在桌面、可满桌面拖动 |
+| **Windows 桌面挂件** | `dsh-whale-desktop/` | 无边框透明悬浮窗（**默认不置顶**：应用窗口会盖住它，它仍在桌面图标之上；托盘可开「置顶显示」），鲨鱼浮在桌面、可满桌面拖动 |
 | **Linux 桌面挂件** | `dsh-whale-desktop-linux/` | 适配 Ubuntu 22.04 / 24.04 amd64（x86_64），AppImage/deb |
 | **DSH 网页版插件** | `dsh-whale-widget/` | 上游 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（MIT）**v0.3.17** 的原样 vendored 副本，随 dsh web 自动启用 |
 
@@ -28,7 +28,9 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
 
 ## ✨ 特性
 
-- 🐋 **桌面悬浮**：无边框、透明、始终置顶、覆盖整个桌面；鲸鱼可**满桌面拖动**（Windows / Linux / GNOME 扩展一致）
+- 🐋 **桌面悬浮**：无边框、透明、覆盖整个桌面；鲨鱼可**满桌面拖动**（Windows / Linux / GNOME 扩展一致）
+- 📌 **置顶显示（默认关）**：默认层级是 **应用窗口 > 挂件 > 桌面图标** —— 看视频、全屏时挂件不会挡在前面；
+  托盘菜单里勾上「置顶显示」就回到「浮在所有窗口之上」（桌面版；Linux 版同时切 DOCK/NORMAL 窗口类型）
 - 🧲 **四边四角吸附**：松手自动贴边/角，缩放与回家保持贴边（扩展版）
 - 🖱️ **桌面宠物动效**：拖动跟手 60fps、摸摸头小跳、静置呼吸/飘音符/眨眼、余额数字 60fps 平滑滚动（扩展版）
 - 💰 **实时余额**：默认 60s 自动刷新，点击鲸鱼手动刷新；余额变化数字滚动动画
@@ -61,21 +63,22 @@ dsh-whale/
 │   ├── desktop-plugin-integration-test.mjs  # 桌面版运行插件本体的端到端集成测试（路由/鉴权）
 │   ├── desktop-ui-smoke-test.mjs   # UI 冒烟测试（用 CDP 查真实 DOM，需调试模式启动挂件）
 │   ├── desktop-button-audit.mjs    # 按钮全覆盖检查（逐面板验证可见按钮可命中/可交互）
+│   ├── desktop-always-on-top-test.mjs # 「置顶显示」开关自检（读写 + 落盘 + 恢复原值）
 │   ├── setup-coopanion.ps1         # Coopanion 桌宠一键安装/更新（Windows；源码放 third-party/，不入库）
 │   ├── setup-coopanion.sh          # Coopanion 桌宠一键安装/更新（Linux）
 │   ├── coopanion-autostart.ps1     # Coopanion 开机自启 登记/撤销/查看（Windows，自启不弹调试界面）
 │   ├── coopanion-autostart.sh      # Coopanion 开机自启 登记/撤销/查看（Linux，XDG）
-│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（15 项）
+│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（24 项）
 │   └── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
 ├── patches/
 │   └── coopanion/                  # 对 Coopanion 源码的改造补丁（AGPL 源码不入库，只存 diff）
-│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗
+│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗 + 置顶显示开关 + Linux 覆盖层
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.17）
 │                                   #   ← 同时是桌面版的**唯一功能实现来源**
 ├── third-party/                    # 第三方项目源码，**不入库**（已被根 .gitignore 忽略）
 │   └── Coopanion/                  #   Coopanion 桌宠（AGPL-3.0-or-later，用 tools/setup-coopanion.ps1 复原）
 ├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
-│   ├── main.js                     #   主进程：本地服务(3090)+窗口/托盘/自启+插件宿主
+│   ├── main.js                     #   主进程：本地服务(3090)+窗口(默认不置顶)/托盘/自启+插件宿主
 │   ├── host-shim.js                #   DSH 宿主契约适配层：让插件本体在本机 HTTP 服务里运行
 │   ├── preload.js                  #   像素级点击穿透
 │   ├── widget.js                   #   回退用前端（插件不可用时启用）

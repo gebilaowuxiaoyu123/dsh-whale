@@ -1,7 +1,7 @@
 # DSH 小鲸鱼桌面挂件 —— Ubuntu 22.04 / 24.04 amd64（x86_64）版
 
 Windows 桌面挂件（`../dsh-whale-desktop`）的 **Linux 移植版**。同样是本地自包含的小鲸鱼余额挂件：
-无边框、透明、置顶、覆盖整个桌面、可满桌面拖动；余额直连 DeepSeek API，首次运行自动弹窗配置
+无边框、透明、默认不置顶、覆盖整个桌面、可满桌面拖动；余额直连 DeepSeek API，首次运行自动弹窗配置
 API Key 并可勾选开机自启。
 
 > 本目录基于 Windows 版复制并做 Linux 适配（开机自启改 XDG autostart、构建目标改 AppImage/deb）。

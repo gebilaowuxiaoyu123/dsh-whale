@@ -5,7 +5,8 @@
  * 完全本地运行，不依赖 dsh web、也不用打开网页：
  *  - 本地服务（127.0.0.1:3090）自己实现 /dsh-whale/* 全部路由：widget.js、图片、音效都从
  *    本地文件读取；balance.json 直接调 DeepSeek API（读 DEEPSEEK_API_KEY），并本地记账算「今日已用」。
- *  - 无边框、透明、始终置顶、覆盖整个桌面的窗口 → 鲸鱼浮在桌面上、可满桌面拖动。
+ *  - 无边框、透明、默认不置顶（托盘可开「置顶显示」）的窗口 → 鲸鱼浮在桌面上、可满桌面拖动；
+ *    不置顶时普通应用窗口会盖住它，但它仍在桌面图标之上。
  *  - 整窗点击穿透（setIgnoreMouseEvents），仅鲸鱼不透明像素/菜单/气泡接收交互。
  *  - 支持打包成单个 exe（electron-builder portable）；首次运行且未配置 API Key 时自动弹出
  *    配置窗口补齐配置，之后直接显示挂件。
@@ -23,6 +24,9 @@ const WIDGET_PORT = 3090; // 本挂件本地服务端口
 const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
 const CRED_FILE = path.join(DSH_HOME, '.credentials.yaml');
 const SIZE_FILE = path.join(DSH_HOME, '.dshw-size.json');   // 与插件共用：挂件尺寸/开关配置
+// 桌面版自己的窗口行为配置（置顶显示等）。**不能**放进 .dshw-size.json：
+// 插件保存设置时是按固定字段整包 PUT 覆盖的，会把这个键抹掉。
+const WINDOW_FILE = path.join(DSH_HOME, '.dshw-window.json');
 const USAGE_FILE = path.join(DSH_HOME, '.dshw-usage.json'); // 与插件共用：记账账本
 const BALANCE_URL = 'https://api.deepseek.com/user/balance';
 
@@ -118,6 +122,19 @@ function readJson(p) {
 function writeJson(p, obj) {
   try { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(obj, null, 2), 'utf8'); } catch (_e) {}
 }
+// ---------- 「置顶显示」（默认关） ----------
+// 关：挂件只是个普通窗口 —— 打开的应用窗口盖在鲸鱼之上，鲸鱼仍在桌面图标之上。
+// 开：挂件浮在所有窗口之上（旧行为，看视频/全屏时也会挡在前面）。
+function readAlwaysOnTop() {
+  const cfg = readJson(WINDOW_FILE) || {};
+  return cfg.alwaysOnTop === true;
+}
+function writeAlwaysOnTop(on) {
+  const cfg = readJson(WINDOW_FILE) || {};
+  cfg.alwaysOnTop = !!on;
+  writeJson(WINDOW_FILE, cfg);
+  return cfg.alwaysOnTop;
+}
 function todayKey() {
   const d = new Date();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -191,6 +208,13 @@ function createTray() {
         else if (win.isVisible()) win.hide();
         else win.show();
       },
+    },
+    {
+      // 关（默认）：应用窗口盖住挂件，挂件仍在桌面图标之上；开：浮在所有窗口之上
+      label: '置顶显示',
+      type: 'checkbox',
+      checked: readAlwaysOnTop(),
+      click: (item) => { writeAlwaysOnTop(item.checked); applyAlwaysOnTop(); },
     },
     { type: 'separator' },
     { label: '退出', click: () => { quitting = true; app.quit(); } },
@@ -431,6 +455,24 @@ function startServer() {
       res.end(JSON.stringify(cfg));
       return;
     }
+    if (p === '/dsh-whale/always-on-top') {
+      if (req.method === 'PUT') {
+        let body = '';
+        req.on('data', (c) => { body += c; if (body.length > 65536) req.destroy(); });
+        req.on('end', () => {
+          let val = readAlwaysOnTop();
+          try { val = !!JSON.parse(body).value; } catch (_e) { /* 非法载荷保持原值 */ }
+          writeAlwaysOnTop(val);
+          applyAlwaysOnTop();
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: true, value: readAlwaysOnTop() }));
+        });
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: true, value: readAlwaysOnTop() }));
+      return;
+    }
     if (p === '/dsh-whale/apikey') {
       if (req.method === 'PUT') {
         let body = '';
@@ -520,6 +562,17 @@ function doneFirstRun() {
   createWidgetWindow();
 }
 
+/** 把「置顶显示」应用到当前挂件窗口（托盘开关、HTTP 路由都会调它）。 */
+function applyAlwaysOnTop() {
+  if (!win || win.isDestroyed()) return;
+  const on = readAlwaysOnTop();
+  try {
+    if (on) win.setAlwaysOnTop(true, 'screen-saver');
+    else win.setAlwaysOnTop(false);
+  } catch (_e) { /* 切换失败不影响使用 */ }
+  console.log('[dsh-whale] 置顶显示 = ' + on);
+}
+
 function createWidgetWindow() {
   // 覆盖整个桌面：所有显示器的可用区域合并，让鲸鱼可以满桌面拖动
   const areas = screen.getAllDisplays().map((d) => d.workArea);
@@ -536,7 +589,7 @@ function createWidgetWindow() {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
-    alwaysOnTop: true,
+    alwaysOnTop: readAlwaysOnTop(),
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -550,7 +603,7 @@ function createWidgetWindow() {
       nodeIntegration: false,
     },
   });
-  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setAlwaysOnTop(readAlwaysOnTop(), 'screen-saver');
   // 整窗默认点击穿透，仅鲸鱼/菜单区域接收交互（由 preload 的 mousemove 实时切换）
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadURL(`http://127.0.0.1:${WIDGET_PORT}/`);

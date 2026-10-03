@@ -8,6 +8,33 @@
 
 ---
 
+## [图层修复 v1] - 2026-10-04
+
+> 主题：**桌宠不再压住一切** —— 默认层级改成「应用窗口 > 桌宠 > 桌面图标」，并给一个「置顶显示」开关。
+>
+> 起因：用户反馈两个桌宠（DSH 小鲸鱼挂件 + Coopanion 鲸鱼娘）不管打开什么软件都浮在最前面，
+> 看视频时一直在屏幕上游。根因是两个窗口都用了 `setAlwaysOnTop(true, 'screen-saver')` —— 那是**最高**层级，
+> 连全屏应用都在它下面。
+>
+> 测试：`tools/desktop-always-on-top-test.mjs` **9/9**、`tools/coopanion-feature-test.mjs` **24/24**、
+> `tools/coopanion-sync-roam-test.mjs` **19/19**、`tools/ledger-compat-test.mjs` **25/25**、
+> `tools/desktop-plugin-integration-test.mjs` **23/23**；真机用 Win32 `WS_EX_TOPMOST` 做 A/B
+> （关 → `normal`，开 → `TOPMOST`）+ DXGI 截屏对照。
+
+### 变更
+- **两个桌宠默认都不置顶**：Windows 上就是普通窗口 —— 打开的应用窗口盖住桌宠，桌宠仍在桌面图标之上。
+- **DSH 桌面挂件（Windows / Linux）**：托盘菜单新增「置顶显示」勾选项，默认**关**；
+  开关值存在 `~/.dsh/.dshw-window.json`（**不能**混进 `.dshw-size.json`：插件保存设置时按固定字段整包覆盖，会把这个键抹掉），
+  另提供 `GET/PUT /dsh-whale/always-on-top` 便于自动化与自检。
+- **Coopanion 桌宠**：配置项 `worlds.desktop-pet.window.alwaysOnTop`（默认 `false`），
+  控制台「习惯」页新增「置顶显示」开关；改动**实时生效**（配置 → World 快照 → 页面 `prefs` →
+  `petHost.setAlwaysOnTop` → 主进程 `setAlwaysOnTop`），并随 `--always-on-top=0|1` 传给窗口进程作启动初值。
+- **Linux 版的连带改动**：窗口类型跟着开关走 —— 开 → `_NET_WM_WINDOW_TYPE_DOCK`（旧行为，
+  dock 的 intellihide 会忽略它）；关 → `NORMAL`（普通窗口，应用窗口能盖住）。
+  代价：关着时那个铺满工作区的窗口可能把 autohide 的 GNOME dock 顶掉，介意就把开关打开（已写进文档）。
+
+---
+
 ## [Coopanion 桌宠改造 v1] - 2026-10-03
 
 > 主题：**把别人的桌宠改成自己顺手的样子** —— 加调试入口、多一种走动模式、能开机自启且不烦人，
