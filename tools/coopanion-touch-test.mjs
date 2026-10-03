@@ -204,16 +204,38 @@ async function main() {
         return { w: Math.round(el.r.width), h: Math.round(el.r.height), items };
     })()`);
 
+    /** 窗口 Map State（IsViewable 才算正常） */
+    const mapState = () => {
+        const g = winGeom();
+        if (!g) return 'no-window';
+        const info = sh('xwininfo', ['-id', g.id, '-stats']);
+        return (/Map State: (\S+)/.exec(info) || [, 'unknown'])[1];
+    };
+    /** 菜单只认 stage 的 pointerdown，所以光 dispatch 一个 click 关不掉它 */
+    const closeMenus = async () => {
+        await evaluate(`(() => { document.body.dispatchEvent(new MouseEvent('click', { bubbles: true })); return true; })()`);
+        // 气泡也要关：它会被算进“墨迹包围盒”，把盒子撑大后按比例推出来的
+        // 坐标就落到气泡上而不是身体上（右键弹不出菜单就是这么来的）
+        await evaluate(`(() => { const c = document.querySelector('.bubble .b-close'); if (c) c.click(); return true; })()`);
+        await tap(send, 10, 10, 40);   // 远处轻点 → 触发 stage.pointerdown → closeMenu()
+        await sleep(160);
+    };
+
     let petPoint = null, firstMenu = null;
-    const ink0 = inkBBox(geom0);
+    // 宠物可能正处在「走出去 / 走回来」的瞬间，同一个位置多测几次再下结论。
+    // （踩过：上一轮测试把它拖到屏幕右边缘外，形状塔缩成 1x1 → 一点墨迹都没有）
+    let ink0 = inkBBox(geom0);
+    for (let i = 0; i < 5 && !ink0.bbox; i++) { await sleep(1200); ink0 = inkBBox(winGeom() || geom0); }
     check('能取到画面墨迹（说明宠物已渲染）', !!ink0.bbox, ink0.error || JSON.stringify(ink0).slice(0, 80));
     if (ink0.bbox) {
         for (const p of candidates(ink0.bbox)) {
             await longPress(send, p.x, p.y);
             const m = await menuVisible();
             if (m) { petPoint = p; firstMenu = m; break; }
-            await evaluate('document.body.click?.()');
-            await sleep(120);
+            // 关键：没弹出菜单也要把可能已经开着的菜单关掉，
+            // 否则下一次候选点可能正好点在菜单最后一项「隐藏桌宠」上，
+            // 窗口会被 unmap，后续所有 xwd 抓屏都报 X_GetImage BadMatch（踩过）
+            await closeMenus();
         }
     }
     check('触屏长按成功弹出菜单（上游：触屏没有右键，菜单完全不可达）', !!petPoint,
@@ -273,15 +295,27 @@ async function main() {
         return toCss(x0 + (x1 - x0) * 0.5, y0 + (y1 - y0) * 0.72);
     };
     let tools = null, toolsPoint = null;
-    // 宠物会走动：每次失败都重新量一次位置再轻点，最多 3 轮
-    for (let i = 0; i < 3; i++) {
-        const p = petPoint || freshPetPoint();
-        if (!p) break;
-        await tap(send, p.x, p.y);
-        await sleep(300);
-        tools = await toolsProbe();
-        if (tools?.clickable) { toolsPoint = p; break; }
-        await sleep(250);
+    // 先清掉可能挡住宠物的气泡/菜单。
+    // 首次运行会有引导气泡，它会被算进"墨迹包围盒"里把盒子撑大，于是按包围盒
+    // 推算出来的点就落不到身体上 —— 这就是本项第一次失败的真因（跑 [3] 时气泡
+    // 还在，所以那里用多候选点能命中，而这里只用了一个点）。
+    await evaluate(`(() => {
+        const b = document.querySelector('.bubble');
+        if (b && getComputedStyle(b).display !== 'none') b.querySelector('.b-close') && b.querySelector('.b-close').click();
+        return true;
+    })()`);
+    await sleep(320);
+    // 宠物会走动、气泡会撑大包围盒：所以像 [3] 一样按多个候选点试，而不是只试一个
+    for (let round = 0; round < 2 && !tools?.clickable; round++) {
+        const ink = inkBBox(winGeom());
+        const pts = ink.bbox ? candidates(ink.bbox) : (petPoint ? [petPoint] : []);
+        for (const p of pts) {
+            await tap(send, p.x, p.y);
+            await sleep(320);
+            tools = await toolsProbe();
+            if (tools?.clickable) { toolsPoint = p; break; }
+            await closeMenus();
+        }
     }
     check('.tools 元素存在', tools?.exists === true, JSON.stringify(tools).slice(0, 160));
     check('轻点后悬停按钮变为可见/可点（否则触屏永远按不到它们）',
@@ -335,6 +369,7 @@ async function main() {
 
     /* ---------------------------------------------------------------- [6] 双击打字 */
     console.log('\n[6] 双击 → 打开输入框（触屏不合成 dblclick）');
+    await closeMenus();
     if (petPoint) {
         const before = await evaluate(`!!document.querySelector('.d-input input, .d-input textarea, .bubble input, #ask input')`);
         await tap(send, petPoint.x, petPoint.y, 70);
@@ -357,21 +392,34 @@ async function main() {
 
     /* ---------------------------------------------------------------- [7] 触摸拖拽 */
     console.log('\n[7] 触摸拖拽（手指拖动宠物）');
+    await closeMenus();
+    // 先把「窗口还活着」这件事单独断言一次：
+    // 如果把它和拖拽失败搔在一起，就会像之前那样看不出到底是拖拽不灵
+    // 还是窗口已经被前面的交互误关了。
+    check('拖拽前宠物窗口仍可见', mapState() === 'IsViewable', mapState());
     if (petPoint) {
         await evaluate(`(() => { document.dispatchEvent(new MouseEvent('click', { bubbles: true })); return true; })()`);
         await sleep(300);
         const g = winGeom();
         const inkA = inkBBox(g);
+        if (!inkA.bbox) { check('触摸拖拽让宠物真的移动了（≥40 CSS px）', false, '量不到墨迹（宠物在屏幕外？）'); }
         const from = toCss(inkA.bbox ? (inkA.bbox[0] + inkA.bbox[2]) / 2 : petPoint.x * dpr,
             inkA.bbox ? (inkA.bbox[1] + inkA.bbox[3]) / 2 : petPoint.y * dpr);
         await touchDown(send, from.x, from.y);
-        const steps = 8;
+        // **朝屏幕中心拉**，不要一古脑往右拖：拖到视口外会让形状塔缩成 1x1，
+        // 宠物从屏幕上消失，下一轮测试连墨迹都量不到（真踩过）
+        const vw = await evaluate('innerWidth') || 1560;
+        const dx = from.x > vw / 2 ? -Math.min(240, Math.max(80, Math.round(vw * 0.35))) : 240;
+        const steps = 10;
         for (let i = 1; i <= steps; i++) {
-            await touchMove(send, from.x + Math.round((160 * i) / steps), from.y);
+            await touchMove(send, from.x + Math.round((dx * i) / steps), from.y);
             await sleep(35);
         }
         await touchUp(send);
-        await sleep(900);
+        // 只等很短时间就量：放手后宠物会 walkTo(home) 往回走，
+        // 等 900ms 再量就只能看到它已经走回去一段（实测只刺 35px，阈值 40）——
+        // 那是测试时序问题，不是“拖拽不灵”。
+        await sleep(250);
         const inkB = inkBBox(winGeom());
         const cxA = inkA.bbox ? (inkA.bbox[0] + inkA.bbox[2]) / 2 : 0;
         const cxB = inkB.bbox ? (inkB.bbox[0] + inkB.bbox[2]) / 2 : 0;
@@ -385,6 +433,7 @@ async function main() {
 
     /* ---------------------------------------------------------------- [8] 滑动不误触菜单 */
     console.log('\n[8] 触摸快速滑动 → 不应误弹菜单（长按必须被正确取消）');
+    await closeMenus();
     if (petPoint) {
         await evaluate(`(() => { document.body.dispatchEvent(new MouseEvent('click', { bubbles: true })); return true; })()`);
         await sleep(250);
@@ -406,6 +455,8 @@ async function main() {
 
     /* ---------------------------------------------------------------- [9] 鼠标路径回归 */
     console.log('\n[9] 回归：鼠标路径没有被触屏代码改坏');
+    await closeMenus();
+    check('鼠标回归前宠物窗口仍可见', mapState() === 'IsViewable', mapState());
     // 关键：必须**先关掉触摸模拟**。setTouchEmulationEnabled(true) 会把
     // Input.dispatchMouseEvent 也转成触摸，右键根本走不到 contextmenu ——
     // 这一点本脚本第一版就踩了，误报成“鼠标路径被改坏”。
