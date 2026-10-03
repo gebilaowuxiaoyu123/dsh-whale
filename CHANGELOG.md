@@ -8,6 +8,48 @@
 
 ---
 
+## [双系统引导安全 v1] - 2026-10-04
+
+> 主题：**Ubuntu 侧 GPU 挂死 → 强制关机 → Windows 自动修复抢走 GRUB** 的取证、结论与保障。
+>
+> 用户反馈：今天在 Ubuntu 里测插件时桌面渲染崩溃（画面定格、只剩光标能动），别的操作都没用，
+> 只能强制关机；重开机时 Windows 自动修复接管，把 GRUB 覆盖/挤掉，变成「只能进 Windows」。
+>
+> 结论：**远程仓库里的 GPU 优化本来就是照这台机器做的**（Intel Meteor Lake i915 实测取证），
+> 要的就是「拉下来并应用」，不需要另做一套；真正缺的是两个本机特有的开关 —— Ubuntu 侧
+> `/etc/fstab` 的 ESP UUID（事故后已从 `2AC8-E406` 变成 `DAA2-C912`），以及 Windows 侧的自动修复开关。
+> 详见 [`docs/dualboot-boot-safety.md`](docs/dualboot-boot-safety.md)。
+
+### 取证的坑（重要）
+- **只看 Windows 事件日志会得出「一切正常」的错误结论**：崩的是 Ubuntu 会话，Windows 自己关机干净，
+  所以既无 `6008` 也无 `41`；`SrtTrail.txt` 也不在装好的系统里（WinRE 的 RAM 盘，重启即丢）。
+  本机实测：最近 7 天「开机 25 / 干净关机 24 / 异常掉电 0」，且每次引导都写「上一次关机成功 = true」。
+  真正的证据在 **ESP 的卷序列号、`\EFI\ubuntu\*` 与 `\EFI\BOOT\BOOTX64.EFI` 的哈希、以及 BCD/UEFI 启动项**里。
+
+### 新增
+- **`tools/boot-safety/check-boot-health.ps1`**（只读体检，退出码 0/1）：机型与固件类型、
+  最近 N 天的开关机事件、ESP 的 UUID 与引导文件哈希（含「回退引导是不是被 Windows 换成了 bootmgfw」）、
+  BCD `{bootmgr}.path` 是否被篡改、UEFI 启动顺序里 ubuntu 是否第一、快速启动/自动重启状态。
+- **`tools/boot-safety/fix-windows-boot-safety.ps1`**（管理员）：先 `bcdedit /export` 备份（可 `bcdedit /import` 回滚），
+  再关快速启动、关崩溃后自动重启、复原 `{bootmgr}.path = \EFI\Microsoft\Boot\bootmgfw.efi`、
+  把 `ubuntu` 顶回 UEFI 第一启动项；`-Check` 只看不改。
+- **`docs/dualboot-boot-safety.md`**：完整时间线、证据表、结论（拉优化 vs 单独优化）、故障链与三个断点的对策、待办清单。
+
+### 本机 Windows 侧已落地（2026-10-04）
+- 导出 BCD 备份 → `%USERPROFILE%\dsh-whale-backups\BCD-20261004-013346.bin`
+- `AutoReboot`: `1` → `0`；`{bootmgr}.path`: `\EFI\ubuntu\grubx64.efi` → `\EFI\Microsoft\Boot\bootmgfw.efi`
+- 复核 `check-boot-health.ps1`：**没发现可疑项（退出码 0）**
+- 复查确认：快速启动本来就已关；UEFI 第一启动项本来就是 `ubuntu`；回退引导仍是 ubuntu 的 shim（未被覆盖）
+
+### 踩坑
+- `bcdedit` 的**键名会跟着控制台代码页变**：中文代码页下 `identifier` 显示成 `标识符`，
+  而 `device`/`path`/`description` 仍是英文；切到 UTF-8（65001）又全变回英文 —— 解析必须两种都认。
+- `Win32_Volume` 没有 `Size` 属性，要用 `Capacity`；否则 `$_.Size -le 600MB` 会因为
+  `$null` 当 0 参与比较而“意外成立”，容量还会打印成 0 MB。
+- 新写的 `.ps1` 必须补 **UTF-8 BOM**（`create_file` 写出的是无 BOM UTF-8，PowerShell 5.1 会按 ANSI 读 → 中文全乱）。
+
+---
+
 ## [图层修复 v1] - 2026-10-04
 
 > 主题：**桌宠不再压住一切** —— 默认层级改成「应用窗口 > 桌宠 > 桌面图标」，并给一个「置顶显示」开关。

@@ -97,5 +97,10 @@ cat <<EOT
      看门狗正常情况下会自动帮你做完 (a)，你不用动手。
 
   Windows 侧务必关掉「快速启动」和「自动重新启动」，否则关机/异常仍可能
-  再次触发 Windows 自动修复来抢引导。
+  再次触发 Windows 自动修复来抢引导。已在 Windows 侧脚本化（管理员）：
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File ..\boot-safety\check-boot-health.ps1
+    powershell -NoProfile -ExecutionPolicy Bypass -File ..\boot-safety\fix-windows-boot-safety.ps1
+
+  体检/修复的意义与证据见仓库根目录 docs/dualboot-boot-safety.md。
 EOT

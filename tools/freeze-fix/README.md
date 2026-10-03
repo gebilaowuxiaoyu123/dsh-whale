@@ -91,13 +91,30 @@ journalctl -u gpu-watchdog -f           # 实时日志
 2. 或 `Alt+SysRq+S`（落盘）→ `Alt+SysRq+U`（只读重挂）→ `Alt+SysRq+B`（重启）
    —— 需 `kernel.sysrq=1`，`i915-stabilize.sh` 会帮你打开
 
-## Windows 侧必须做的两件事
+## Windows 侧必须做的两件事（已脚本化）
 
-否则异常关机后**仍会**触发 Windows 自动修复来抢引导：
+否则异常关机后**仍会**触发 Windows 自动修复来抢引导。
+现在不用再翻控制面板，直接跑只读体检 + 一键修复：
 
-1. 控制面板 → 电源选项 → 选择电源按钮功能 → 更改当前不可用的设置 → **取消「启用快速启动」**
-   （管理员 PowerShell 里 `powercfg /h off` 更彻底，还能避免 NTFS 脏挂载）
-2. 系统属性 → 高级 → 启动和故障恢复 → 设置 → **取消「自动重新启动」**
+```powershell
+# 只读体检（查 ESP/BCD 需要管理员）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\boot-safety\check-boot-health.ps1
+
+# 一键修复（管理员；先自动备份 BCD，可 bcdedit /import 回滚）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\boot-safety\fix-windows-boot-safety.ps1
+```
+
+它做四件事：关快速启动（`HiberbootEnabled=0`）、关崩溃后自动重启（`AutoReboot=0`）、
+复原被篡改的 `{bootmgr}.path`、把 `ubuntu` 顶回 UEFI 第一启动项。
+
+> 本机实测状态（2026-10-04 复查）：快速启动本来就是关的，UEFI 第一启动项本来就是 `ubuntu`；
+> `{bootmgr}.path` 曾被改成 `\EFI\ubuntu\grubx64.efi`（自动修复/引导修复工具留下），已复原；
+> `AutoReboot` 曾是 `1`，已改为 `0`。复核：**没发现可疑项**。
+> 详见 [`docs/dualboot-boot-safety.md`](../../docs/dualboot-boot-safety.md)。
+
+另外：如果 `check-boot-health.ps1` 报「ESP UUID 与期望不一致」，说明 ESP 被自动修复重建过，
+要把 Linux 侧 `/etc/fstab` 里 `/boot/efi` 的 UUID 改成新值（本机当前是 `DAA2-C912`），
+否则 `update-grub` 会往一个没挂上的空目录写。`fix-esp-grub.sh` 会处理这一步。
 
 并建议在 BIOS 里把 `ubuntu` 调到 `Windows Boot Manager` 之前。
 

@@ -41,6 +41,9 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
 - 🖱️ **点击穿透**：只有鲸鱼不透明像素/菜单可交互，其余区域不挡桌面操作（桌面版）
 - ⚙️ **首次运行自动配置**：无配置时自动弹出设置窗口，填 API Key + 可选开机自启（桌面版）
 - 🚀 **CI/CD**：GitHub Actions 自动构建 Windows exe 与 Linux AppImage/deb
+- 🛡️ **双系统（Windows + Ubuntu）引导安全**：Ubuntu 侧 i915 稳定化 + GPU 看门狗（挂死自动救回会话，
+  不用再长按电源键）；Windows 侧一键体检/保障（关快速启动与自动重启、复原被篡改的 bootmgr、ubuntu 置顶）
+  —— 见 [`docs/dualboot-boot-safety.md`](docs/dualboot-boot-safety.md)
 
 ## 📁 目录结构
 
@@ -50,7 +53,8 @@ dsh-whale/
 ├── CHANGELOG.md                    # 版本更新日志（桌面 v1.0 → 扩展版 v9–v30 …）
 ├── docs/
 │   ├── linux-adaptation-plan.md    # ★ Linux 适配规划：实机基线 / 风险登记 / DoD / 测试方案
-│   └── coopanion-integration.md    # ★ Coopanion 桌宠集成说明（安装 / 踩坑记录 / 使用要点）
+│   ├── coopanion-integration.md    # ★ Coopanion 桌宠集成说明（安装 / 踩坑记录 / 使用要点）
+│   └── dualboot-boot-safety.md     # ★ 双系统引导安全：事故取证 / 结论 / 两端口径与保障
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
 ├── dsh-whale-shell-extension/      # ★ GNOME Shell 扩展版（Wayland 悬浮首选，当前主力迭代）
 │   ├── extension.js                #   扩展主逻辑（ESM / GNOME 45+，含交互/动画/记账/令牌）
@@ -69,7 +73,9 @@ dsh-whale/
 │   ├── coopanion-autostart.ps1     # Coopanion 开机自启 登记/撤销/查看（Windows，自启不弹调试界面）
 │   ├── coopanion-autostart.sh      # Coopanion 开机自启 登记/撤销/查看（Linux，XDG）
 │   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（24 项）
-│   └── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
+│   ├── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
+│   ├── freeze-fix/                 # ★ Ubuntu 侧：GPU 挂死取证与防护（i915 稳定化 / GPU 看门狗 / 修 fstab+引导）
+│   └── boot-safety/                # ★ Windows 侧：双系统引导体检 + 保障（关自动修复 / 复原 bootmgr / ubuntu 置顶）
 ├── patches/
 │   └── coopanion/                  # 对 Coopanion 源码的改造补丁（AGPL 源码不入库，只存 diff）
 │       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗 + 置顶显示开关 + Linux 覆盖层
