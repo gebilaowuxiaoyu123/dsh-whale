@@ -457,10 +457,25 @@ index aa3068e..1d6b4ba 100644
    setInteractive: (on) => ipcRenderer.send('pet:interactive', !!on),
    focus: () => ipcRenderer.send('pet:focus'),
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
-index e5fca42..16286ad 100644
+index e5fca42..3744034 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts
 +++ b/packages/cortico-world-desktop-pet/src/config.ts
-@@ -125,7 +125,7 @@ export const DESKTOP_PET_CONFIG_GROUP: ConfigGroup = {
+@@ -98,8 +98,13 @@ export const DESKTOP_PET_DEFAULTS: DesktopPetConfigSection = {
+   sound: true,
+   theme: 'dark',
+   hoverButtons: 'chat,voice',
++  /**
++   * 默认形象改成鲸鱼娘（DeepSeek whale maid，web/whale）。
++   * 上游默认是 'coo'（内置小人）—— 那是 Coopanion 自己的吉祥物，不是鲸鱼娘。
++   * 这台机器要的是鲸鱼娘，所以默认值改成 whale；scheme 用 deepseek 配色。
++   */
+   skin: {
+-    figure: 'coo', scheme: 'deepseek', palette: 'mint', head: 'none', side: 'none', glasses: 'none', neck: 'none',
++    figure: 'whale', scheme: 'deepseek', palette: 'mint', head: 'none', side: 'none', glasses: 'none', neck: 'none',
+     colors: { head: { main: 'body', acc: 'eye' }, side: { main: 'eye', acc: 'eye' }, glasses: { main: 'body', acc: 'eye' }, neck: { main: 'eye', acc: 'eye' } },
+   },
+   touch: { enabled: true, wakeOn: 'poke' },
+@@ -125,7 +130,7 @@ export const DESKTOP_PET_CONFIG_GROUP: ConfigGroup = {
      title: '桌宠',
      properties: {
        [`${K}.user`]: { type: 'string', title: '怎么称呼你', description: '语音、打字和互动事件里用这个名字指代你。', 'x-hot': true },
@@ -470,7 +485,7 @@ index e5fca42..16286ad 100644
        [`${K}.theme`]: { type: 'string', title: '黑白模式', enum: ['dark', 'light'], description: 'dark 夜间:浅色身体、深色气泡;light 白天:深色身体、浅色气泡。', 'x-hot': true },
        [`${K}.hoverButtons`]: { type: 'string', title: '悬停按钮', description: `鼠标停在桌宠身上时旁边出现的按钮,最多 ${MAX_HOVER_BUTTONS} 个,逗号分隔:${PET_ACTIONS.join(', ')}。`, 'x-hot': true },
 diff --git a/packages/cortico-world-desktop-pet/web/pet-app.js b/packages/cortico-world-desktop-pet/web/pet-app.js
-index 8535d2f..cb79b69 100644
+index 8535d2f..c6e8a96 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-app.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-app.js
 @@ -521,14 +521,28 @@ function stepTalkMotion() {
@@ -527,11 +542,141 @@ index 8535d2f..cb79b69 100644
      },
      run: () => cycleRoam(),
    },
+@@ -894,7 +910,10 @@ function stepTools() {
+   // shown while the cursor is on the pet or on the buttons, and a moment after it leaves; decided
+   // from where the cursor is now, not from the last move event, which may be stale
+   const p = cursor.at;
+-  if (p && (ctl.hitPet(p) || overTools(p))) toolsUntil = ctl.time + TOOLS_LINGER;
++  // 用 Math.max：触屏轻点设的是更长的 TOUCH_TOOLS_LINGER，而触屏上窗口报回来的
++  // “光标位置”可能仍停在宠物身上（并没有真的移开），若直接赋值会被鼠标的短
++  // linger 覆盖掉，触屏按钮又变回不可点。
++  if (p && (ctl.hitPet(p) || overTools(p))) toolsUntil = Math.max(toolsUntil, ctl.time + TOOLS_LINGER);
+   tools.hidden = !(ctl.time < toolsUntil && !ctl.pressing && !ctl.busy() && menu.hidden && toolIds !== '');
+   if (tools.hidden) endHold();
+   tools.querySelector('[data-action="voice"]')?.classList.toggle('live', listen.phase === 'hearing');
+@@ -989,11 +1008,65 @@ host?.onCursor?.((p) => {
+   diag.poll = { at: performance.now(), x: p.x, y: p.y, hit, ui };
+   setInteractive(ctl.pressing || hit || ui, 'poll');
+ });
++/* ---------- 触屏支持 -------------------------------------------------------------
++ * Pointer Events 本身鼠标/触摸/笔都收，但上游只按鼠标调过，触屏上还有三个真实缺口：
++ *   1. 触屏没有悬停 → 靠 cursor.at 显现的 .tools 悬停按钮永远不出现，等于点不到；
++ *   2. 右键菜单靠浏览器合成的 contextmenu，touch-action:none 下不保证触发；
++ *   3. 双击开输入框靠 dblclick，轻点/双击不会合成出 dblclick。
++ * 下面用 pointerType==='touch'|'pen' 显式补齐 1/2/3；鼠标路径完全不变。
++ */
++const TOUCH_LONG_PRESS_MS = 550;   // 与 dsh-whale-shell-extension 的长按阈值保持一致
++const TOUCH_SLOP_PX = 12;          // 超过这个位移就不再算「长按/轻点」，而是拖拽
++const TOUCH_DOUBLE_TAP_MS = 340;
++const TOUCH_TOOLS_LINGER = .8 * 3; // 触屏按钮多留一会（手指遮挡，需要时间看清再加点）
++const isTouch = (e) => e.pointerType === 'touch' || e.pointerType === 'pen';
++const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
++let lpAt = null, lpTimer = 0, lpFired = false;
++let tapAt = 0, tapFrom = null, tapMoved = false;
++const lpClear = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = 0; } };
++
+ stage.addEventListener('pointerdown', (e) => {
+   if (e.button !== 0) return;
+   closeMenu();
++  if (isTouch(e)) {
++    const p = { x: e.clientX, y: e.clientY };
++    lpAt = p; lpFired = false;
++    tapFrom = p; tapMoved = false;
++    lpClear();
++    // 轻点一下就把悬停按钮露出来：触屏没有 hover，否则这些按钮永远不可达
++    if (ctl.hitPet(p)) toolsUntil = ctl.time + TOUCH_TOOLS_LINGER;
++    lpTimer = setTimeout(() => {
++      lpTimer = 0;
++      if (!lpAt || !ctl.hitPet(lpAt)) return;
++      if (tapMoved) return;                 // 手指已经滑过 → 当拖拽，不弹菜单
++      lpFired = true;
++      try { sfx.tick(); } catch (_e) { /* 音效失败不影响菜单 */ }
++      openMenu(lpAt.x, lpAt.y);
++    }, TOUCH_LONG_PRESS_MS);
++  }
+   if (ctl.pointerDown({ x: e.clientX, y: e.clientY })) { stage.setPointerCapture(e.pointerId); e.preventDefault(); }
+ });
++// 触摸移动：超过阈值就取消长按/轻点判定
++stage.addEventListener('pointermove', (e) => {
++  if (!isTouch(e)) return;
++  const p = { x: e.clientX, y: e.clientY };
++  if (tapFrom && dist(tapFrom, p) > TOUCH_SLOP_PX) { tapMoved = true; lpClear(); }
++  lpAt = p;
++});
++// 触摸抬起：轻点/双击（鼠标由 dblclick 处理，触摸必须自己算）
++stage.addEventListener('pointerup', (e) => {
++  if (!isTouch(e)) return;
++  lpClear();
++  if (lpFired) { lpFired = false; return; }        // 刚才是长按弹菜单
++  if (tapMoved || !tapFrom) return;                 // 拖动过 → 不是轻点
++  const p = { x: e.clientX, y: e.clientY };
++  if (!ctl.hitPet(p)) return;
++  const now = performance.now();
++  if (now - tapAt < TOUCH_DOUBLE_TAP_MS) { tapAt = 0; openInput(); }   // 双击 → 打字聊天
++  else tapAt = now;
++});
++stage.addEventListener('pointercancel', () => { lpClear(); lpFired = false; });
++
+ const up = () => { ctl.pointerUp(); stage.style.cursor = ''; };
+ /**
+  * Most milliseconds a drop on another display waits for the page to take the window's new size
+@@ -1178,8 +1251,26 @@ function stepBackdrop(dt) {
+ }
+ 
+ /* ---------- loop ---------- */
++/**
++ * 帧率上限（桌面端）。
++ *
++ * 桌宠不需要 60fps 满帧重绘。本机是 3120x2080@2x，桌宠窗口是全屏 3120x1874，
++ * 满帧时合成器要持续处理上千万像素的透明混合 —— 实测这段高负载期间 i915 连续报
++ * 「GUC: TLB invalidation response timed out」并在 44 秒后 GPU HANG，
++ * 症状正是「画面冻死、只剩鼠标能动、点什么都没反应」。
++ * 降到交互 30fps / 静止 15fps，砍掉 50%~75% 的合成工作量，视觉上几乎无差别。
++ */
++const ACTIVE_FPS = 30, IDLE_FPS = 15;
+ let last = performance.now();
++function busyNow() {
++  return !!(ctl.pressing || !menu.hidden || (bubble && !bubble.hidden)
++    || ctl.busy() || listen.phase !== 'idle');
++}
+ function frame(now) {
++  // 先排下一帧：下面提前 return 时也不能把循环断掉
++  requestAnimationFrame(frame);
++  const interval = 1000 / (busyNow() ? ACTIVE_FPS : IDLE_FPS);
++  if (now - last < interval - 1.5) return;   // 未到时间片：丢弃这次 rAF
+   const dt = Math.min(.05, (now - last) / 1000); last = now;
+   stepActs();
+   stepDialog(dt);
+@@ -1191,7 +1282,7 @@ function frame(now) {
+   stepBackdrop(dt);
+   stepTools();
+   layout();
+-  requestAnimationFrame(frame);
+ }
+ ctl.render();
+ requestAnimationFrame(frame);
++
 diff --git a/packages/cortico-world-desktop-pet/web/pet-core.js b/packages/cortico-world-desktop-pet/web/pet-core.js
-index 487bebe..792dba6 100644
+index 487bebe..cdde2f5 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-core.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-core.js
-@@ -370,6 +370,8 @@ export const ICONS = {
+@@ -294,8 +294,14 @@ export function mini(face, acc, t = 0, extra = {}) {
+ /* ---------- skin ---------- */
+ /** Bodies the pet can wear: Coo (drawn here) or the DeepSeek whale maid (web/whale, with its colour schemes). */
+ export const FIGURES = [['coo', 'Coo'], ['whale', 'DeepSeek 大肥鱼']];
++/**
++ * 页面侧的形象默认值。
++ * 上游默认是 'coo'（Coopanion 自己的内置小人）；这台机器要的是鲸鱼娘
++ * （'whale'，即 DeepSeek 大肥鱼）。核心下发的 skin 是权威值，这里只是
++ * 「核心没下发时」的兜底，所以两边都要改，否则兜底会把形象拉回 coo。
++ */
+ export function defaultSkin() {
+-  return { figure: 'coo', scheme: 'deepseek', palette: 'mint', head: 'none', side: 'none', glasses: 'none', neck: 'none', colors: JSON.parse(JSON.stringify(CHANNEL_DEFAULT)) };
++  return { figure: 'whale', scheme: 'deepseek', palette: 'mint', head: 'none', side: 'none', glasses: 'none', neck: 'none', colors: JSON.parse(JSON.stringify(CHANNEL_DEFAULT)) };
+ }
+ const validColor = (slot, v) => (v === 'eye' || (v === 'body' && !NO_BODY[slot]) || ACC_COLORS.some(c => c.id === v));
+ /** Keeps what is valid in `raw`, defaults the rest. */
+@@ -370,6 +376,8 @@ export const ICONS = {
    roam_off: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16 7 13.2"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
    roam_calm: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16V10"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
    roam_free: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l5-2.8"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M19.5 6.5l1.5-1.5M21 10h1.5"/>'),
@@ -540,7 +685,7 @@ index 487bebe..792dba6 100644
  };
  /** Sets `theme` ('dark' | 'light') on the page; `button`, when given, shows the mode a click switches to. */
  export function applyTheme(theme, button) {
-@@ -496,6 +498,21 @@ export const EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surprise
+@@ -496,6 +504,21 @@ export const EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surprise
  /** Motions: things the body does. `sit` and `sleep` last until something else happens. */
  export const MOTIONS = ['stand', 'jump', 'hop', 'look', 'turn', 'nod', 'shake', 'spin', 'sit', 'sleep', 'dizzy', 'walk', 'run'];
  
@@ -562,7 +707,7 @@ index 487bebe..792dba6 100644
  /* ---------- the live pet: simulation, rendering, pointer ---------- */
  /**
   * `els`: { svg, petG, shadowEl, fxG } inside a stage element that receives pointer events.
-@@ -518,6 +535,9 @@ export function createPet(els, opts) {
+@@ -518,6 +541,9 @@ export function createPet(els, opts) {
    let roam = opts.roam ?? 'free';
    let skin = opts.skin || defaultSkin();
    let hold = 0; // until T: an order from outside is in progress, free roaming waits
@@ -572,7 +717,7 @@ index 487bebe..792dba6 100644
    const pet = {
      x: 260, fy: 0, vx: 0, vy: 0, facing: 1, faceVis: 1, mode: 'idle', modeT: 0, dur: 0, target: 0,
      speed: 0, stride: 0, lift: 0, bob: 0, phase: 0, lastHalf: 0, lean: 0, tilt: 0, tiltV: 0,
-@@ -674,8 +694,35 @@ export function createPet(els, opts) {
+@@ -674,8 +700,35 @@ export function createPet(els, opts) {
      }
    }
  
@@ -608,7 +753,7 @@ index 487bebe..792dba6 100644
      const m = pet.mode, mt = pet.modeT;
      let sqT = 0, strideT = 0, liftT = 0, leanT = 0, sitT = 0, bobT = 0, rate = 0, lookT = [0, 0], tiltT = 0;
      let tk = 160, tc = 12, drowseT = 0;
-@@ -709,9 +756,13 @@ export function createPet(els, opts) {
+@@ -709,9 +762,13 @@ export function createPet(els, opts) {
        case 'walk': case 'run': {
          const run = m === 'run', d = pet.target - pet.x, dist = Math.abs(d), dir = Math.sign(d) || pet.facing;
          pet.facing = dir;
@@ -625,7 +770,7 @@ index 487bebe..792dba6 100644
          leanT = run ? (dist < 50 && pet.speed > 120 ? -6 : 11) : 4;
          if (leanT < 0 && !pet.skid) { pet.skid = true; sfx.skid(); }
          const ramp = Math.min(1, mt / (run ? .35 : .25));
-@@ -1090,6 +1141,8 @@ export function createPet(els, opts) {
+@@ -1090,6 +1147,8 @@ export function createPet(els, opts) {
      get skin() { return skin; },
      setRoam(r) { roam = r; if (r !== 'off') pet.nextAt = T + 1; },
      get roam() { return roam; },
@@ -635,10 +780,19 @@ index 487bebe..792dba6 100644
      holdRoam(seconds) { hold = Math.max(hold, T + seconds); },
      talk() { pet.talkK = 1; },
 diff --git a/packages/cortico-world-desktop-pet/web/pet.css b/packages/cortico-world-desktop-pet/web/pet.css
-index 2bbe367..80f2701 100644
+index 2bbe367..21e42f3 100644
 --- a/packages/cortico-world-desktop-pet/web/pet.css
 +++ b/packages/cortico-world-desktop-pet/web/pet.css
-@@ -95,6 +95,10 @@ body.desk .floor{display:none}
+@@ -29,6 +29,8 @@ body{
+   font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+   font-size:15px; line-height:1.55; color:var(--text);
+   user-select:none; -webkit-user-select:none;
++  /* 触屏：去掉点击高亮块，否则点桌宠会闪一下灰方块 */
++  -webkit-tap-highlight-color:transparent;
+ }
+ /* in a browser tab the page draws its own wall and floor; in the pet window it is transparent */
+ body.tab{
+@@ -95,6 +97,10 @@ body.desk .floor{display:none}
  .b-own:focus-within, .b-own.chosen{border-style:solid; border-color:var(--skin-eye)}
  .b-own input{flex:1; min-width:0; border:0; background:transparent; font:inherit; font-size:14px; color:var(--text); outline:none; padding:4px 0}
  .b-own button{flex:none; font:inherit; font-size:12.5px; padding:4px 10px; border-radius:8px; border:0; background:var(--text); color:var(--surface); cursor:pointer}
@@ -649,3 +803,18 @@ index 2bbe367..80f2701 100644
  .b-opt.dim, .b-own.dim{opacity:.35}
  /* an app's conversation: one step per bubble, with the answer's controls under Coo's line */
  .d-mark{color:var(--skin-eye); font-weight:700}
+@@ -266,3 +272,14 @@ body.desk .floor{display:none}
+ .tool.sent{animation:tool-sent .36s cubic-bezier(.3,1.5,.5,1)}
+ @keyframes tool-sent{45%{transform:scale(1.2)}}
+ @media (prefers-reduced-motion: reduce){.bubble.pop, .b-opt, .b-own, .d-body > *, .d-card, .d-key, .d-key.taps, .d-bar.wait i, .d-card.on .d-cardic, .d-field.shake, .d-pill.chosen, .trail i, .caret, .menu, .tools, .tool.holding::after, .tool.sent, .m-tile, .m-tile::before, .m-tile::after, .m-tile .ic, .m-tile .ic::before{animation:none}}
++
++/* 触摸设备（笔记本一体触屏、平板）：手指比鼠标粗得多，
++   把可点区域放大到接近 44px（人机工程学的最小可点尺寸），并同步放大图标与菜单行高。 */
++@media (pointer: coarse){
++  .tool{width:46px; height:46px; border-width:2px}
++  .tool svg{width:22px; height:22px}
++  .menu button, .menu li{min-height:44px}
++  .b-close{min-width:34px; min-height:34px; font-size:17px}
++  .b-opt{min-height:44px}
++  .caret{width:3px}
++}
