@@ -103,12 +103,31 @@ start_live2d() {
     echo "live2d=error:electron-not-installed（先跑 tools/setup-coopanion.sh）" >&2
     return 1
   fi
-  # 环境变量让子 Electron（--pet-host）也走 XWayland；主进程另行补命令行参数
+  # --no-sandbox 是必须的，不是可选优化：
+  #   本机 electron 自带的 chrome-sandbox 不是 setuid root（-rwxr-xr-x wukai），
+  #   而 Ubuntu 24.04 默认 apparmor_restrict_unprivileged_userns=1 封掉了
+  #   非特权 userns 回退，于是 Electron 直接 FATAL 退出：
+  #     FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166]
+  #     The SUID sandbox helper binary was found, but is not configured correctly.
+  #   症状就是「开机自启过了、但 Live2D 没出来」。DSH 那条一直带着，这条之前漏了。
+  # 环境变量让子 Electron（--pet-host）也走 XWayland；主进程另行补命令行参数。
   setsid nohup env ELECTRON_OZONE_PLATFORM_HINT=x11 \
-    "$ELECTRON_BIN" "$COOP_DIR" \
+    "$ELECTRON_BIN" "$COOP_DIR" --no-sandbox --disable-setuid-sandbox \
     >>"$L2D_LOG" 2>&1 &
-  echo $! > "$L2D_PID"
-  echo "live2d=starting pid=$!"
+  local pid=$!
+  echo $pid > "$L2D_PID"
+  # 启动后验：开机时最容易在这里静静地死掉，所以必须查一次而不是盲报 starting。
+  # 注意不能用 `kill -0 $pid` 判定：setsid 会 fork 后自己退出，$! 拿到的是包装进程的
+  # PID，它立即就没了 → 会把“启动成功”误报成失败（并打出一堆无关的旧日志）。
+  # 所以用真实的进程特征去判（l2d_running 就是干这个的）。
+  sleep 7
+  if l2d_running; then
+    echo "live2d=starting pid=$pid"
+  else
+    echo "live2d=error:启动后立即退出（看 $L2D_LOG）" >&2
+    tail -4 "$L2D_LOG" 2>/dev/null | sed 's/^/    /' >&2
+    return 1
+  fi
 }
 
 stop_dsh() {
@@ -154,7 +173,7 @@ write_autostart() {
     icon="$REPO_ROOT/dsh-whale-desktop-linux/assets/whale.png"
   else
     name="Live2D 鲸鱼娘（开机自启）"
-    exec="$REPO_ROOT/tools/petctl.sh live2d start"
+    exec="$REPO_ROOT/tools/autostart-pet.sh live2d"
     comment="Coopanion Live2D 鲸鱼娘桌宠"
     icon="$REPO_ROOT/third-party/Coopanion/console/assets/icon.png"
   fi
@@ -170,8 +189,12 @@ Icon=$icon
 Terminal=false
 X-GNOME-Autostart-enabled=true
 StartupNotify=false
-# 延迟启动：等 GNOME Shell / 合成器就绪，避免开机时抢资源导致 GPU 异常
-X-GNOME-Autostart-Delay=$([ "$which" = dsh ] && echo 8 || echo 15)
+# Live2D 走 tools/autostart-pet.sh：它自己等 mutter 就绪、失败退避重试、
+# 并把过程写进 state 目录下的 dsh-whale/logs/autostart.log。
+# （以前自启失败是**静默**的 —— GNOME 不重试也不提示，外观上就是「没生效」）
+# 注意：这是未加引号的 heredoc，注释里绝对不能出现美元符号加变量名，
+# 否则会被展开，未设置时直接报「未绑定的变量」并把整个文件写空（连踩两次）。
+X-GNOME-Autostart-Delay=$([ "$which" = dsh ] && echo 8 || echo 10)
 EOF
   echo "$which-autostart=on（$f）"
 }
@@ -190,14 +213,20 @@ autostart_state() {
 # ============================================================================
 gpu_hang_count() {
   # 本 boot 内 GPU HANG / hangcheck 次数
-  # 注意：grep -c 无匹配时会同时「输出 0」并「退出码 1」，写成 `|| echo 0` 会多打一行 0
+  #
+  # 两个坑都踩过：
+  #  1) grep -c 无匹配时会同时「输出 0」并「退出码 1」，写成 `|| echo 0` 会多打一行 0
+  #  2) **必须加 -k（只看内核日志）**：不加的话，gpu-watchdog 服务自己的启动日志
+  #     会被算进来 —— 它的文案里就写着「检测 i915 GPU HANG + ...」，于是自匹配，
+  #     导致“没有挂死也报 degraded”的假阳性（真踩过：开机后计数 2，实际 0 次）。
   local n
-  n="$(journalctl -b --no-pager 2>/dev/null \
+  n="$(journalctl -b -k --no-pager 2>/dev/null \
     | grep -icE 'GPU HANG|stopped heartbeat|TLB invalidation response timed out')"
   echo "${n:-0}"
 }
 gpu_last_hang() {
-  journalctl -b --no-pager 2>/dev/null \
+  # 同样只看内核日志，避免把看门狗自己的文案当成挂死记录
+  journalctl -b -k --no-pager 2>/dev/null \
     | grep -E 'GPU HANG|stopped heartbeat' | tail -1 \
     | sed -E 's/^([A-Za-z0-9]+ [0-9]+ [0-9:]+).*/\1/' || true
 }

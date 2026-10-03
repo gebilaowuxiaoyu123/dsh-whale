@@ -32,8 +32,8 @@ echo "  sysrq     : $(cat /proc/sys/kernel/sysrq 2>/dev/null) ${D}(1=全开，�
 
 hdr "2. GPU 挂死事件统计"
 if ! command -v journalctl >/dev/null; then bad "没有 journalctl"; exit 1; fi
-cnt_all=$(journalctl --no-pager 2>/dev/null | grep -cE 'GPU HANG|Resetting chip for stopped heartbeat|GUC: TLB invalidation response timed out' || true)
-echo "  全部记录（journal 范围内）: ${R}${cnt_all}${N} 次"
+cnt_all=$(journalctl -k --no-pager 2>/dev/null | grep -cE 'GPU HANG|Resetting chip for stopped heartbeat|GUC: TLB invalidation response timed out' || true)
+echo "  全部记录（内核日志范围内）: ${R}${cnt_all}${N} 次"
 for b in 0 -1 -2 -3 -4; do
   c=$(journalctl -b $b -k --no-pager 2>/dev/null | grep -cE 'GPU HANG|Resetting chip|TLB invalidation response timed out' || true)
   [[ "$c" != "0" ]] && echo "  boot $b : $c 次"

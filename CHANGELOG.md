@@ -474,3 +474,26 @@
 - `node tools/coopanion-linux-test.mjs` → 26/26 通过
 - `node tools/coopanion-feature-test.mjs` → 15/15 通过
 
+## [自启修复 + GPU 稳定性复核] - 2026-10-03
+
+### 修复：Live2D 鲸鱼娘开机自启静默失败
+- 根因：`petctl.sh` 启动 Live2D 时**漏了 `--no-sandbox`**（DSH 那条一直带着）。
+  本机 electron 的 `chrome-sandbox` 不是 setuid root，而 Ubuntu 24.04 默认
+  `apparmor_restrict_unprivileged_userns=1` 封掉了非特权 userns 回退 →
+  Electron 直接 `FATAL:setuid_sandbox_host.cc:166` 退出，外观上就是「自启没生效」。
+- 主进程与 `--pet-host` 子进程（独立 Electron 进程，不继承 appendSwitch）都补上参数。
+- 新增 `tools/autostart-pet.sh`：等 mutter 就绪 → 启动 → 失败退避重试 4 次 → 全程写日志。
+  自启项改由它调用，把过去的「静默失败」变成「等一等、重试、留痕」。
+
+### 修复：GPU 健康度误报
+- `petctl.sh status` 的 `gpu_hang_count` 未限定内核日志，把 gpu-watchdog 服务
+  **自己的启动文案**（"检测 i915 GPU HANG ..."）当成挂死记录 → 假阳性 degraded。
+  改用 `journalctl -k`（只看内核），`diagnose.sh` 同步修正。
+
+### 复核结论（重启后，i915 参数已生效）
+- 内核参数 `i915.enable_psr=0 enable_dc=0 enable_fbc=0 i915.reset=1` 已生效
+- 本次开机 **真实 GPU 挂死 0 次**（此前两天 59 次）→ PSR/DC/FBC 修复有效
+- `gpu-watchdog.service` 已安装并运行
+- 剩余上游修复：内核提示 `GuC firmware 70.53.0 is recommended, but only 70.36.0 found`
+  → 建议 `sudo apt install --only-upgrade linux-firmware`（能真正修掉 GuC TLB 失效超时）
+

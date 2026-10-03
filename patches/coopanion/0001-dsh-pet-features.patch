@@ -1,5 +1,5 @@
 diff --git a/app/main.cjs b/app/main.cjs
-index b6bbec3..599091b 100644
+index b6bbec3..097d924 100644
 --- a/app/main.cjs
 +++ b/app/main.cjs
 @@ -30,9 +30,22 @@ const LINUX = process.platform === 'linux';
@@ -76,14 +76,19 @@ index b6bbec3..599091b 100644
  /* ---------- app mode ---------- */
  if (!app.requestSingleInstanceLock()) {
    app.quit();
-@@ -63,9 +120,19 @@ if (!app.requestSingleInstanceLock()) {
+@@ -63,9 +120,24 @@ if (!app.requestSingleInstanceLock()) {
  
  const { CoreHost } = require('./core-host.cjs');
  
 +// Linux：桌宠窗口跑在子进程里，必须**显式**把 X11 开关写进它的命令行，
 +// 否则子进程退回原生 Wayland，桌宠窗口不能自定位/置顶 → 看不见也用不了。
++// 桌宠窗口是另一份 Electron 进程，**不会继承主进程的 appendSwitch**，所以这些参数必须显式传。
++// --no-sandbox 同样是必需的：本机 chrome-sandbox 不是 setuid root，而 Ubuntu 24.04 默认
++// apparmor_restrict_unprivileged_userns=1 封掉了非特权 userns 回退 → 子进程会直接
++// FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166 然后退出，外观上就是
++// 「开机自启跑过了、但桌宠窗口没出来」。
 +const PET_PLATFORM_ARGS = LINUX
-+  ? ['--ozone-platform=x11', '--enable-unsafe-swiftshader', ...GPU_FLAGS] : [];
++  ? ['--ozone-platform=x11', '--enable-unsafe-swiftshader', '--no-sandbox', '--disable-setuid-sandbox', ...GPU_FLAGS] : [];
 +// 排查/自动化用：设了 COOPANION_DEBUG_PORT 就给桌宠窗口开远程调试端口（CDP）
 +if (process.env.COOPANION_DEBUG_PORT)
 +  PET_PLATFORM_ARGS.push(`--remote-debugging-port=${process.env.COOPANION_DEBUG_PORT}`);
@@ -97,7 +102,7 @@ index b6bbec3..599091b 100644
  
  const core = new CoreHost({
    appRoot: APP_ROOT,
-@@ -76,6 +143,8 @@ const core = new CoreHost({
+@@ -76,6 +148,8 @@ const core = new CoreHost({
      CORTICO_EXTENSIONS_DIR: join(userData, 'extensions'),
      CORTICO_SUPERVISED: '1',
      CORTICO_START_PAUSED: '0',
@@ -106,7 +111,7 @@ index b6bbec3..599091b 100644
      CORTICO_DESKTOP_PET_HOST: JSON.stringify(petHost),
      // pnpm keeps its store and caches in LOCALAPPDATA unless told otherwise; pnpm 11 reads the pnpm_config_ prefix
      pnpm_config_store_dir: join(DATA, 'pnpm', 'store'),
-@@ -158,25 +227,9 @@ async function ensurePet() {
+@@ -158,25 +232,9 @@ async function ensurePet() {
    if (!state?.connected) await showPet();
  }
  
@@ -133,7 +138,7 @@ index b6bbec3..599091b 100644
  }
  
  function buildTray() {
-@@ -188,12 +241,12 @@ function buildTray() {
+@@ -188,12 +246,12 @@ function buildTray() {
    tray = new Tray(icon);
    tray.setToolTip('Coopanion');
    const refresh = () => {
