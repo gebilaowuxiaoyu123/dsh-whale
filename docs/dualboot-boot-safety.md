@@ -67,6 +67,19 @@ Kernel-Boot 20：每一次都写着「上一次关机的成功状态为 true。�
 | `HiberbootEnabled` | `0` | 快速启动已关 |
 | `AutoReboot` | 曾是 `1` | 蓝屏会自动重启 → 已改为 `0` |
 
+> ⏰ **读 ESP 时间戳要留意时区（本机踩过）**：FAT 的时间戳由写文件的系统按**它自己的本地时间**写入，
+> 而 Windows 按本地时间读。如果 Ubuntu 的时区是 `UTC`、Windows 是 `UTC+8`，同一个文件会**相差 8 小时**。
+> 例：Ubuntu 侧在北京时间 **13:55** 修复 GRUB，ESP 上读出来是 **05:55**（看起来像清晨）。
+> 所以「时间戳 05:55」= 北京时间下午 13:55 的可能性很大。核对：
+> `timedatectl`（Ubuntu 上；`Time zone` 应为 `Asia/Shanghai`，若是 `UTC` 就会错位），
+> 或直接比较 `date` 与 Windows 的时间。
+>
+> 📌 **Windows/Ubuntu 各自的写入范围**（避免相互甩锅）：
+> - Windows 侧脚本**只写**：Windows 自己的 BCD（`\EFI\Microsoft\Boot\BCD` 里的 `{bootmgr}.path`）、
+>   注册表 `AutoReboot`、以及 `%USERPROFILE%\dsh-whale-backups\` 里的备份文件。
+> - **不碰**：`\EFI\ubuntu\*`、`\EFI\BOOT\BOOTX64.EFI`、`\EFI\Microsoft\Boot\bootmgfw.efi`、Ubuntu 分区、UEFI 启动顺序。
+> - 验证方法就是本节这张表：跑完脚本后对照 `\EFI\ubuntu\*` 的**时间戳与哈希**有没有变。
+
 ### 2.4 硬件（顺带确认「优化适配性」）
 
 | 项 | 值 |

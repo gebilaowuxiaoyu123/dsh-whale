@@ -57,6 +57,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\boot-safety\fix-window
 5. 把固件启动项里 `description = ubuntu` 的那一项顶到最前
    - 跳过：`-SkipFirmwareOrder`；也可以 `-UbuntuGuid '{...}'` 手动指定
 
+> **它不碰 GRUB**：`\EFI\ubuntu\*`、`\EFI\BOOT\BOOTX64.EFI`、`\EFI\Microsoft\Boot\bootmgfw.efi`、
+> Ubuntu 分区全部**只读**（只 `Test-Path` / `Get-FileHash`）。唯一写到的引导相关文件是
+> **Windows 自己的 BCD**（`\EFI\Microsoft\Boot\BCD`），而改之前会先 `bcdedit /export` 备份。
+> 想自证：跑完脚本再跑一次 `check-boot-health.ps1`，对照第 2 节 `\EFI\ubuntu\*` 的时间戳与哈希有没有变。
+> 另外它在 `-Check` 模式下完全不写任何东西。
+
 ## 两个坑（写给以后的自己）
 
 - **`bcdedit` 的键名会跟着控制台代码页变**：中文控制台下 `identifier` 显示成 `标识符`，
