@@ -335,10 +335,10 @@ index cb3ebb9..5951ed7 100644
      if (!win) return;
      // Explicit text input activates this menu-bar process as well as its window.
 diff --git a/packages/cortico-world-desktop-pet/host/preload.cjs b/packages/cortico-world-desktop-pet/host/preload.cjs
-index aa3068e..1d6b4ba 100644
+index aa3068e..3b8e8d5 100644
 --- a/packages/cortico-world-desktop-pet/host/preload.cjs
 +++ b/packages/cortico-world-desktop-pet/host/preload.cjs
-@@ -1,7 +1,122 @@
+@@ -1,7 +1,134 @@
  // The only surface the pet page gets from the window process.
  const { contextBridge, ipcRenderer } = require('electron');
  
@@ -439,14 +439,26 @@ index aa3068e..1d6b4ba 100644
 +      try {
 +        const rects = collectShapeRects();
 +        const key = rects.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join(';');
-+        if (key === lastKey) return;
++        if (key === lastKey) return false;
 +        lastKey = key;
 +        ipcRenderer.send('pet:shape', rects);
-+      } catch (_e) { /* 忽略 */ }
++        return true;
++      } catch (_e) { return false; }
 +    };
-+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick);
-+    else tick();
-+    setInterval(tick, SHAPE_EVERY_MS);
++    // 自适应频率：原来固定 60ms（≈16 次/秒）一直在跑「遍历整个 DOM → 算矩形 →
++    // 拼字符串 → 发 IPC → 主进程 setShape」。桌宠长时间挂着时这部分开销会持续
++    // 压着 CPU / X server / 合成器 —— 本机 GPU 挂死正是被这类持续负载放大的。
++    // 现在：形状刚变过 → 50ms 快速跟随动画；连续稳定一段 → 降到 320ms 巡检。
++    const SHAPE_ACTIVE_MS = 50;
++    const SHAPE_IDLE_MS = 320;
++    const SHAPE_SETTLE_TICKS = 8;
++    let quiet = 0;
++    const loop = () => {
++      quiet = tick() ? 0 : quiet + 1;
++      setTimeout(loop, quiet >= SHAPE_SETTLE_TICKS ? SHAPE_IDLE_MS : SHAPE_ACTIVE_MS);
++    };
++    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loop);
++    else loop();
 +  } catch (e) {
 +    // 形状上报挂掉不能让整个 preload 挂掉 —— 否则 petHost 都不会被暴露，桌宠整个 UI 报废。
 +    SHAPE_ERROR = String((e && e.message) || e);

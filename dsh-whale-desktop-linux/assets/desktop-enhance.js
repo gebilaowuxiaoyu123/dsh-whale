@@ -1188,6 +1188,14 @@
             if (cfg.matteOn) resetMatte();
             else runMatte();
         });
+        // 顺带把另一个桌宠（Live2D 鲸鱼娘）的开关放在手边：平时不用去翻托盘菜单。
+        // 走 preload 的 dshwBridge → 主进程 → tools/petctl.sh，与桌面图标/自启同一套入口。
+        mk('🐋', 'Live2D 鲸鱼娘桌宠：开 / 关', async () => {
+            const r = await (window.dshwBridge && window.dshwBridge.petToggle
+                ? window.dshwBridge.petToggle('live2d')
+                : Promise.resolve({ ok: false, error: 'dshwBridge 不可用' }));
+            toast(r && r.ok ? '已切换 Live2D 鲸鱼娘' : ('切换失败：' + ((r && r.error) || '未知')));
+        });
         mount(ctlEl);
         return ctlEl;
     }

@@ -519,3 +519,37 @@
 - 拖拽后只等 250ms 就测量（宠物放手后会 `walkTo(home)` 往回走，等 900ms 只能测到残值）
 - 每节开头断言「窗口仍可见」，让失败归因清晰
 
+## [剩余待办全部完成] - 2026-10-03
+
+### 新增：DSH 小鲸鱼里的 Live2D 开关（两个入口）
+- **迷你控制条**：🎨 📊 ✂️ 之后新增 **🐋**，点一下开关 Live2D 鲸鱼娘。
+  走 preload 的 `dshwBridge.petToggle` → 主进程 → `tools/petctl.sh`。
+- **托盘菜单**：新增「Live2D 鲸鱼娘（开 / 关）」，失败时弹通知而不是静默。
+- 启动统一走 `petctl.sh`（AppImage 里没有仓库路径，故用候选路径 + `DSHW_PETCTL` 覆盖）。
+- ⚠️ 这两个入口在 **AppImage 里**，改完源码必须重建：`bash dsh-whale-desktop-linux/build-linux.sh`
+  并把新产物复制到 `~/Applications/`（已实际重建并部署验证）。
+
+### 新增：GNOME 顶栏控制图标 `dsh-whale-pets-tray/`
+- 顶栏 🐋 按钮 → 菜单显示两个桌宠状态（● 运行 / ○ 已停），点条目即开/关。
+- 动作全部转发 `petctl.sh`：桌面图标 / 开机自启 / DSH 控制条 / 顶栏，四个入口同一套实现。
+- 状态读取用 `Gio.Subprocess` 异步，不阻塞 Shell 主循环；只在开菜单时刷新，不做轮询。
+- 安装：`bash dsh-whale-pets-tray/install.sh`，**之后必须注销重新登录**
+  （GNOME Shell 只在启动时扫描扩展目录）。
+
+### 新增：降低 GPU/CPU 持续负载（针对 GPU 挂死的诱因）
+- **Coopanion**：shape 上报从「固定 60ms 一直跑」改为自适应 —— 形状变化中 50ms
+  快速跟随，连续稳定 8 次后降到 320ms 巡检。
+- **DSH 挂件**：主循环从「每帧全量重算」（60 次/秒的 DOM 遍历 + 数组构造 + 序列化）
+  改为形状稳定约 0.7s 后降到 250ms 巡检；任何指针活动/拖动立刻拉回逐帧。
+- 实测空闲 CPU：DSH 渲染进程 ≈5.9%，Coopanion 渲染进程 ≈16.9%。
+
+### 清理
+- 卸载旧 GNOME 扩展 `dsh-whale@local`（悬浮鲸鱼本体），源码仍保留在
+  `dsh-whale-shell-extension/`；旧脚本 `~/.local/bin/dsh-whale-widget` 已改名为
+  `.legacy-disabled`。
+
+### 验证
+- Coopanion 端到端 **26/26**、触屏 **21/21**、功能与补丁一致性 **15/15**，补丁无漂移
+- 端到端实测 🐋 开关：`petToggle('live2d')` → `live2d=stopped` → 再点 → `live2d=running`
+- DSH 新构建已验证：`{"hasBridge":true,"ctlButtons":["🎨","📊","✂️","🐋"],"hasWhaleBtn":true}`
+

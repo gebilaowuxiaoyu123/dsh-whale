@@ -1,0 +1,10 @@
+{
+  "uuid": "dsh-whale-pets@local",
+  "name": "DSH 桌宠控制",
+  "description": "在 GNOME 顶栏放一个图标，一眼看到两个桌宠（DSH 小鲸鱼 / Live2D 鲸鱼娘）的运行状态，并能直接开关。底层统一调用仓库里的 tools/petctl.sh，和桌面图标、开机自启用的是同一套入口。",
+  "shell-version": ["45", "46", "47", "48"],
+  "settings-schema": null,
+  "url": "https://github.com/gebilaowuxiaoyu123/dsh-whale",
+  "version-name": "1.0.0",
+  "session-modes": ["user"]
+}

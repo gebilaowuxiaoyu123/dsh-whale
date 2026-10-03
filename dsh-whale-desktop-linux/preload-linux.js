@@ -27,10 +27,13 @@
 const { ipcRenderer, contextBridge } = require('electron');
 
 // 给增强层用的桥：它跑在渲染进程且开启了 contextIsolation，自己 require 不到 electron，
-// 所以由 preload 暴露一个最小接口（目前只有「保存抠图结果」）。
+// 所以由 preload 暴露一个最小接口（保存抠图结果 + 控制另一个桌宠）。
 try {
     contextBridge.exposeInMainWorld('dshwBridge', {
         saveMatte: (dataUrl) => ipcRenderer.invoke('dshw-save-matte', dataUrl),
+        // 控制 Live2D 鲸鱼娘桌宠（开关/重启/查状态），由主进程调 tools/petctl.sh
+        petToggle: (which) => ipcRenderer.invoke('dshw-pet-toggle', String(which || 'live2d')),
+        petStatus: (which) => ipcRenderer.invoke('dshw-pet-status', String(which || 'live2d')),
     });
 } catch (_e) { /* 忽略 */ }
 
@@ -283,6 +286,12 @@ let lastSentKey = '';
 let lastPad = 0;
 let lastWhaleRect = null;
 let lastDragState = false;
+// 自适应降频（省 CPU / 合成器）：形状连续稳定 IDLE_QUIET_FRAMES 帧后，
+// 不再逐帧全量重算，而是每 IDLE_SCAN_MS 巡检一次；任何变化/指针活动都会拉回逐帧。
+let quietFrames = 0;
+let lastCollectAt = 0;
+const IDLE_QUIET_FRAMES = 40;   // ≈0.7s 无变化
+const IDLE_SCAN_MS = 250;
 let pointerDown = false;      // 是否真有鼠标按住（拖动形状的安全网）
 
 function collect() {
@@ -334,6 +343,16 @@ function collect() {
 
 function loop() {
     requestAnimationFrame(loop);
+    const now = performance.now();
+    // 自适应降频：形状稳定一段时间后，把「每帧全量重算」降为低频巡检。
+    // collect() 里有一堆 DOM 查询 + 数组构造 + 字符串序列化，原来每帧都跑
+    // （60 次/秒）；桌宠长时间挂着时这是持续的 CPU/合成器压力（本机 GPU 挂死
+    // 就是被这类持续负载放大的）。任何指针活动 / 拖动 / 形状变化都会把它
+    // 重新拉回逐帧。
+    const draggingProbe = pointerDown && !!document.querySelector('.dshwv-root.dshwv-dragging');
+    if (!draggingProbe && quietFrames >= IDLE_QUIET_FRAMES && now - lastCollectAt < IDLE_SCAN_MS)
+        return;
+    lastCollectAt = now;
     let rects;
     try {
         rects = collect();
@@ -343,10 +362,10 @@ function loop() {
     }
     if (!rects.length) return;
 
-    const now = performance.now();
     const key = rects.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join(';');
-    if (key === lastSentKey) return;
+    if (key === lastSentKey) { quietFrames++; return; }
     if (now - lastSendAt < SEND_INTERVAL) return;
+    quietFrames = 0;
     lastSentKey = key;
     lastSendAt = now;
 
@@ -391,8 +410,10 @@ window.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('pointerdown', (e) => {
         if (e.button === 0 || e.pointerType !== 'mouse')
             pointerDown = true;
+        quietFrames = 0;              // 一有交互就回到逐帧跟随
     }, true);
-    const clearDown = () => { pointerDown = false; };
+    window.addEventListener('pointermove', () => { quietFrames = 0; }, true);
+    const clearDown = () => { pointerDown = false; quietFrames = 0; };
     window.addEventListener('pointerup', clearDown, true);
     window.addEventListener('pointercancel', clearDown, true);
     window.addEventListener('blur', clearDown, true);

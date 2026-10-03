@@ -326,37 +326,40 @@ async function main() {
        注意：绝不能随便点第一个 —— 菜单/HOVER 里包含「隐藏桌宠」，点下去窗口会被
        unmap，后续 xwd 抓屏全部报 X_GetImage BadMatch，会把测试带进坑里。
        所以只挑无副作用的按钮（聊天/语音/装扮/音效/夜间/走动）。 */
-    if (tools?.clickable && toolsPoint) {
-        const picked = await evaluate(`(() => {
-            const SAFE = /聊天|说话|chat|语音|voice|装扮|dress|音效|sound|夜间|theme|走动|roam/i;
-            const DANGER = /隐藏|hide|退出|quit|close|关闭/i;
-            const t = document.querySelector('.tools');
-            if (!t) return null;
-            const btns = Array.from(t.querySelectorAll('button'));
-            const pickInfo = (b) => {
+    if (tools?.clickable) {
+        // 关键：**露按钮和点按钮必须贴在一起**。
+        // 悬停按钮只靠「轻点后 2.4s linger」维持显示；中间夹太多步骤（量位置、
+        // 取按钮坐标、再等一等）就会过期 → 按钮已经 hidden，那一下点在宠物身上，
+        // 断言拿到 pointerType=null（实测踩过）。所以每轮都重新轻点露出 + 立刻点。
+        let hit = null, pickedLabel = '', why = '';
+        for (let i = 0; i < 4 && hit !== 'touch'; i++) {
+            const p = freshPetPoint();
+            if (p) { await tap(send, p.x, p.y); await sleep(150); }
+            const picked = await evaluate(`(() => {
+                const SAFE = /聊天|说话|chat|语音|voice|装扮|dress|音效|sound|夜间|theme|走动|roam/i;
+                const DANGER = /隐藏|hide|退出|quit|close|关闭/i;
+                const t = document.querySelector('.tools');
+                if (!t || t.hidden) return { ok: false, why: 'tools-hidden' };
+                const label = (b) => ((b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '') + ' '
+                    + (b.getAttribute('title') || '')).trim();
+                const btns = Array.from(t.querySelectorAll('button'));
+                const b = btns.find((el) => !DANGER.test(label(el)) && SAFE.test(label(el)))
+                    || btns.find((el) => !DANGER.test(label(el)));
+                if (!b) return { ok: false, why: 'no-safe-button', labels: btns.map(label).slice(0, 8) };
                 const r = b.getBoundingClientRect();
-                return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
-            };
-            const label = (b) => ((b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '') + ' '
-                + (b.getAttribute('title') || '')).trim();
-            const all = btns.map(label).slice(0, 8);
-            const b = btns.find((el) => !DANGER.test(label(el)) && SAFE.test(label(el)))
-                || btns.find((el) => !DANGER.test(label(el)));
-            if (!b) return { ok: false, labels: all, why: '只有危险按钮' };
-            window.__btnHit = null;
-            b.addEventListener('pointerdown', (e) => { window.__btnHit = e.pointerType; }, { once: true, capture: true });
-            return { ok: true, pos: pickInfo(b), label: label(b).slice(0, 20), labels: all };
-        })()`);
-        if (picked?.ok) {
+                if (r.width < 4 || r.height < 4) return { ok: false, why: 'button-collapsed' };
+                window.__btnHit = null;
+                b.addEventListener('pointerdown', (e) => { window.__btnHit = e.pointerType; }, { once: true, capture: true });
+                return { ok: true, pos: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }, label: label(b).slice(0, 20) };
+            })()`);
+            if (!picked?.ok) { why = JSON.stringify(picked).slice(0, 120); continue; }
+            pickedLabel = picked.label;
             await tap(send, picked.pos.x, picked.pos.y);
-            await sleep(500);
-            const hit = await evaluate('window.__btnHit');
-            check('触摸能真的点到悬停按钮（按钮收到 pointerType=touch 的事件）',
-                hit === 'touch', `点了「${picked.label}」, 收到的 pointerType = ${JSON.stringify(hit)}`);
-        } else {
-            check('触摸能真的点到悬停按钮（按钮收到 pointerType=touch 的事件）', false,
-                JSON.stringify(picked).slice(0, 160));
+            await sleep(400);
+            hit = await evaluate('window.__btnHit');
         }
+        check('触摸能真的点到悬停按钮（按钮收到 pointerType=touch 的事件）',
+            hit === 'touch', `点了「${pickedLabel || '—'}」, 收到的 pointerType = ${JSON.stringify(hit)}${why ? ' / ' + why : ''}`);
     } else {
         check('触摸能真的点到悬停按钮（按钮收到 pointerType=touch 的事件）', false, '按钮不可见，无法点击');
     }
@@ -370,24 +373,31 @@ async function main() {
     /* ---------------------------------------------------------------- [6] 双击打字 */
     console.log('\n[6] 双击 → 打开输入框（触屏不合成 dblclick）');
     await closeMenus();
-    if (petPoint) {
-        const before = await evaluate(`!!document.querySelector('.d-input input, .d-input textarea, .bubble input, #ask input')`);
-        await tap(send, petPoint.x, petPoint.y, 70);
-        await sleep(90);
-        await tap(send, petPoint.x, petPoint.y, 70);
-        await sleep(700);
-        const after = await evaluate(`(() => {
+    {
+        // 和 [5] 同样的道理：宠物会走动，用 [3] 里那次量到的位置去点很可能落空。
+        // 每轮重新量一次位置，最多试 3 轮。
+        const probeInput = () => evaluate(`(() => {
             const el = document.querySelector('input[type=text], textarea');
             if (!el) return { open: false };
             const r = el.getBoundingClientRect();
             return { open: r.width > 20 && r.height > 8, w: Math.round(r.width), h: Math.round(r.height) };
         })()`);
-        check('双击后出现输入框', after?.open === true, `之前=${before} 之后=${JSON.stringify(after)}`);
+        const before = await probeInput();
+        let after = null;
+        for (let i = 0; i < 3 && !after?.open; i++) {
+            const p = freshPetPoint() || petPoint;
+            if (!p) break;
+            await tap(send, p.x, p.y, 70);
+            await sleep(90);
+            await tap(send, p.x, p.y, 70);
+            await sleep(650);
+            after = await probeInput();
+        }
+        check('双击后出现输入框', after?.open === true,
+            `之前=${before.open} 之后=${JSON.stringify(after)}`);
         await shot('T3-touch-doubletap-input.png');
         await evaluate(`(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()`);
         await sleep(250);
-    } else {
-        check('双击后出现输入框', false, '未定位到宠物');
     }
 
     /* ---------------------------------------------------------------- [7] 触摸拖拽 */

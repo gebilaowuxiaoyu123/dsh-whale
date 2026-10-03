@@ -10,7 +10,7 @@
  *  - 支持打包成单个 exe（electron-builder portable）；首次运行且未配置 API Key 时自动弹出
  *    配置窗口补齐配置，之后直接显示挂件。
  */
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, Notification } = require('electron');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -285,6 +285,42 @@ let tray = null;
 let quitting = false;
 
 /** 系统托盘图标：提供「显示/隐藏、退出」入口（挂件窗口无边框且不进任务栏）。 */
+/**
+ * 控制「另一个桌宠」（Live2D 鲸鱼娘）—— 统一走 tools/petctl.sh，不重复实现一套启停逻辑。
+ * 为什么用绝对路径候选而不是 __dirname：DSH 挂件以 AppImage 运行，解包目录是
+ * /tmp/appimage_extracted_xxx，在那个目录里找不到仓库的 tools/。
+ */
+function resolvePetctl() {
+  const cands = [
+    process.env.DSHW_PETCTL,
+    path.join(os.homedir(), 'dsh-whale', 'tools', 'petctl.sh'),
+    '/home/wukai/dsh-whale/tools/petctl.sh',
+  ].filter(Boolean);
+  for (const c of cands) {
+    try { if (fs.existsSync(c)) return c; } catch (_e) { /* 忽略 */ }
+  }
+  return '';
+}
+
+function petctlRun(args) {
+  const bin = resolvePetctl();
+  if (!bin) return Promise.resolve({ ok: false, error: 'petctl.sh 未找到（可用 DSHW_PETCTL 指定路径）' });
+  return new Promise((resolve) => {
+    const { execFile } = require('child_process');
+    execFile('bash', [bin, ...args], { timeout: 90000 }, (err, stdout, stderr) => {
+      const out = String(stdout || '').trim();
+      if (err) resolve({ ok: false, error: String(stderr || err.message).slice(0, 200), out });
+      else resolve({ ok: true, out });
+    });
+  });
+}
+
+// 渲染进程（增强层）通过 preload 的 dshwBridge 调这两个。
+// 注意：petctl 的 status 是**全局**子命令（petctl status），单目标分支只认
+// start/stop/restart/toggle —— 传 ['live2d','status'] 会被当成用法错误。
+ipcMain.handle('dshw-pet-toggle', async (_e, which) => petctlRun([String(which || 'live2d'), 'toggle']));
+ipcMain.handle('dshw-pet-status', async () => petctlRun(['status']));
+
 function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'whale.png');
   try {
@@ -301,6 +337,18 @@ function createTray() {
         if (!win || win.isDestroyed()) createWidgetWindow();
         else if (win.isVisible()) win.hide();
         else win.show();
+      },
+    },
+    { type: 'separator' },
+    { type: 'separator' },
+    {
+      // 与 L2 桌宠（Coopanion 鲸鱼娘）是同一个仓库里的两个独立应用，这里只做“开关”这一个动作
+      label: 'Live2D 鲸鱼娘（开 / 关）',
+      click: async () => {
+        const r = await petctlRun(['live2d', 'toggle']);
+        if (!r.ok && Notification.isSupported()) {
+          new Notification({ title: '切换 Live2D 桌宠失败', body: r.error || '' }).show();
+        }
       },
     },
     { type: 'separator' },
