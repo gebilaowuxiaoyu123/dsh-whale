@@ -183,7 +183,7 @@ Coopanion 上游本身已按平台分好了分支，补丁也是平台无关的�
 改完代码、交付之前跑这两个：
 
 ```bash
-node tools/coopanion-feature-test.mjs    # 补丁是否打上 + 构建产物是否跟上（24 项）
+node tools/coopanion-feature-test.mjs    # 补丁是否打上 + 构建产物是否跟上（28 项）
 node tools/coopanion-sync-roam-test.mjs  # 「随刷新率」的数学：读数 / 速度 / 不滑步（19 项）
 ```
 
