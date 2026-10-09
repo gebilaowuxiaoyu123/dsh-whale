@@ -223,6 +223,67 @@ const FIRST_RUN_PAGE = `<!doctype html>
 </body>
 </html>`;
 
+// 「更换 API Key」小窗口。为什么单独做一个：挂件菜单里的「密钥/接口」面板对**内置 DeepSeek
+// 模型**是死路 —— 插件前端的厂商下拉把内置项排除掉了（`if (apiTemplates[ti].builtin) continue`），
+// 而保存时提交的 provider 取自那个下拉，于是必然拿不到 'deepseek' → 保存失败。
+// 插件是 vendored 上游原样副本（不改），所以换 key 的入口做在桌面版自己的托盘里。
+const KEY_PAGE = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>DSH 小鲸鱼 · 更换 API Key</title>
+<style>
+  body { font-family: "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif; background:#f5f7ff; margin:0; padding:20px 24px; color:#203170; }
+  h1 { font-size:18px; margin:0 0 6px; }
+  p { font-size:12px; color:#536ba9; margin:6px 0 12px; line-height:1.6; }
+  .cur { font-size:12px; background:#e8edff; border-radius:8px; padding:7px 10px; margin:0 0 12px; }
+  .cur b { font-family: monospace; }
+  label { display:block; font-size:13px; margin:8px 0 4px; font-weight:600; }
+  input[type=text], input[type=password] { width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid rgba(32,49,112,.4); border-radius:8px; font-size:13px; font-family: monospace; }
+  .row { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:#536ba9; }
+  .btn { width:100%; margin-top:14px; padding:10px; background:#203170; color:#fff; border:none; border-radius:8px; font-size:14px; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .status { min-height:18px; font-size:12px; margin-top:8px; }
+  .ok { color:#1e7d32; } .err { color:#c0392b; }
+  .hint { font-size:11px; color:#9fb0d9; margin-top:10px; line-height:1.5; }
+</style>
+</head>
+<body>
+  <h1>🐋 更换 DeepSeek API Key</h1>
+  <p>保存后立即生效；小鲸鱼最晚在下一次刷新（≤ 60 秒，或点一下鲸鱼）用上新令牌。</p>
+  <div class="cur" id="cur">当前：读取中…</div>
+  <label>新的 API Key（sk-…）</label>
+  <input id="key" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
+  <div class="row"><input id="show" type="checkbox"> <span>显示明文</span></div>
+  <button id="go" class="btn">保存并关闭</button>
+  <div id="status" class="status"></div>
+  <div class="hint">保存位置：用户目录 ~/.dsh/.credentials.yaml 里的 DEEPSEEK_API_KEY（只在本机，不会上传）。</div>
+  <script>
+    var el = function (id) { return document.getElementById(id) };
+    fetch('/dsh-whale/apikey', { cache: 'no-store' }).then(function (r) { return r.json() }).then(function (j) {
+      el('cur').innerHTML = '当前：<b>' + ((j && j.masked) || '（未配置）') + '</b>' + ((j && j.configured) ? '' : ' <span style="color:#c0392b">还没配过</span>');
+    }).catch(function () { el('cur').textContent = '当前：（读取失败）' });
+    el('show').addEventListener('change', function () { el('key').type = el('show').checked ? 'text' : 'password' });
+    function setStatus(s, cls) { el('status').textContent = s; el('status').className = 'status ' + (cls || '') }
+    el('go').addEventListener('click', function () {
+      var v = el('key').value.trim();
+      if (!v) { setStatus('请先粘贴新的 API Key', 'err'); return }
+      if (v.indexOf('sk-') !== 0) { setStatus('格式看起来不对（应以 sk- 开头）', 'err'); return }
+      el('go').disabled = true; setStatus('保存中…');
+      fetch('/dsh-whale/apikey', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: v }) })
+        .then(function (r) { return r.json() })
+        .then(function (j) {
+          if (!j || !j.ok) { setStatus('保存失败：' + ((j && j.error) || '未知错误'), 'err'); el('go').disabled = false; return }
+          setStatus('已保存 ✓', 'ok');
+          return fetch('/dsh-whale/key-window-done', { method: 'POST' });
+        })
+        .catch(function () { setStatus('网络错误，请重试', 'err'); el('go').disabled = false });
+    });
+    el('key').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); el('go').click() } });
+  </script>
+</body>
+</html>`;
+
 // ---------- 小工具 ----------
 function readFileIfExists(p) {
   try { return fs.readFileSync(p); } catch (_e) { return null; }
@@ -299,6 +360,7 @@ function saveApiKey(value) {
 
 let win = null;
 let firstRunWin = null;
+let keyWin = null;
 let tray = null;
 let quitting = false;
 
@@ -377,6 +439,8 @@ function createTray() {
       },
     },
     { type: 'separator' },
+    { type: 'separator' },
+    { label: '改 API Key…', click: () => openKeyWindow() },
     { label: '退出', click: () => { quitting = true; app.quit(); } },
   ]);
   tray.setContextMenu(menu);
@@ -675,7 +739,25 @@ function startServer() {
         return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ok: true, configured: !!readApiKey() }));
+      res.end(JSON.stringify({ ok: true, configured: !!readApiKey(), masked: maskKey(readApiKey()) }));
+      return;
+    }
+    if (p === '/key') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(KEY_PAGE);
+      return;
+    }
+    if (p === '/dsh-whale/open-key-window' || p === '/dsh-whale/key-window-done') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: 'method not allowed' }));
+        return;
+      }
+      // 一个开窗、一个关窗：都是桌面版自己的入口，给自动化和截图用
+      if (p === '/dsh-whale/open-key-window') openKeyWindow();
+      else doneKeyWindow();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
     if (p === '/setup') {
@@ -787,6 +869,46 @@ function doneFirstRun() {
   if (firstRunWin && !firstRunWin.isDestroyed()) firstRunWin.close();
   firstRunWin = null;
   createWidgetWindow();
+}
+
+/** API Key 打码显示（只留前缀与后 4 位，用于让用户确认当前用的是哪把）。 */
+function maskKey(k) {
+  const s = String(k || '');
+  if (!s) return '';
+  return s.length > 12 ? s.slice(0, 7) + '******' + s.slice(-4) : '******';
+}
+
+/** 换 API Key 的小窗口（托盘入口）；关掉不退出程序。 */
+function raiseKeyWindow() {
+  if (!keyWin || keyWin.isDestroyed()) return;
+  try {
+    // 焦点被别的窗口占着时（X11/Wayland），把窗口提到最前，别让用户以为按钮没反应
+    keyWin.setAlwaysOnTop(true);
+    keyWin.show();
+    keyWin.focus();
+    keyWin.setAlwaysOnTop(false);
+  } catch (_e) { /* 提不上来也不影响保存 */ }
+}
+
+function openKeyWindow() {
+  if (keyWin && !keyWin.isDestroyed()) { raiseKeyWindow(); return; }
+  keyWin = new BrowserWindow({
+    width: 470,
+    height: 390,
+    resizable: false,
+    autoHideMenuBar: true,
+    title: 'DSH 小鲸鱼 · 更换 API Key',
+    show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  keyWin.once('ready-to-show', () => raiseKeyWindow());
+  keyWin.on('closed', () => { keyWin = null; });
+  keyWin.loadURL(`http://127.0.0.1:${WIDGET_PORT}/key`);
+}
+
+function doneKeyWindow() {
+  if (keyWin && !keyWin.isDestroyed()) keyWin.close();
+  keyWin = null;
 }
 
 /** 把「置顶显示」应用到当前挂件窗口（托盘开关、HTTP 路由都会调它）。 */

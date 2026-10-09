@@ -37,7 +37,10 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
 - 📊 **今日已用**：默认「小鲸鱼记账」模式（余额差值本地记账，跨天自动归零），无需令牌
 - 💬 **每轮消耗统计**：监听对话回合，弹出本轮消耗金额（依赖 DSH 会话事件，桌面版独立运行时此项自动跳过）
 - 🎚️ **汉堡菜单**：大小(0.6–2.5×)、音效、音量、用量模式、峰谷提示、气泡开关等
-- 🔑 **菜单内改 API Key**：随时粘贴新 `sk-...` 保存即生效，无需改文件
+- 🔑 **托盘内改 API Key**：托盘菜单 →「改 API Key…」→ 小窗口里粘贴新 `sk-...`，保存即生效（写 `~/.dsh/.credentials.yaml`），无需改文件；窗口会显示当前令牌的**打码值**便于确认
+  > 为什么不走挂件自己的「密钥 / 接口」面板：那面对**内置 DeepSeek 模型**是死路 —— 插件前端的厂商下拉把内置项排除了
+  > （`if (apiTemplates[ti].builtin) continue`），而保存提交的 `provider` 取自那个下拉，于是永远拿不到 `deepseek`。
+  > 插件是 vendored 原样副本（本仓库不改它），所以换 key 的入口做在桌面版自己的托盘里
 - 🖱️ **点击穿透**：只有鲸鱼不透明像素/菜单可交互，其余区域不挡桌面操作（桌面版）
 - ⚙️ **首次运行自动配置**：无配置时自动弹出设置窗口，填 API Key + 可选开机自启（桌面版）
 - 🚀 **CI/CD**：GitHub Actions 自动构建 Windows exe 与 Linux AppImage/deb
@@ -68,6 +71,7 @@ dsh-whale/
 │   ├── desktop-ui-smoke-test.mjs   # UI 冒烟测试（用 CDP 查真实 DOM，需调试模式启动挂件）
 │   ├── desktop-button-audit.mjs    # 按钮全覆盖检查（逐面板验证可见按钮可命中/可交互）
 │   ├── desktop-always-on-top-test.mjs # 「置顶显示」开关自检（读写 + 落盘 + 恢复原值）
+│   ├── desktop-apikey-window-test.mjs # 「改 API Key」入口自检（页面/打码/保存/开窗关窗，17 项）
 │   ├── setup-coopanion.ps1         # Coopanion 桌宠一键安装/更新（Windows；源码放 third-party/，不入库）
 │   ├── setup-coopanion.sh          # Coopanion 桌宠一键安装/更新（Linux）
 │   ├── coopanion-autostart.ps1     # Coopanion 开机自启 登记/撤销/查看（Windows，自启不弹调试界面）

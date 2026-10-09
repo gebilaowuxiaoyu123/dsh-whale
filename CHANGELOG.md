@@ -8,6 +8,39 @@
 
 ---
 
+## [换 Key 入口修复] - 2026-10-09
+
+> 现象：在 DeepSeek 控制台换了新令牌后，**挂件里换不了**（找不到能用的入口）。
+>
+> 定位（有据）：挂件菜单里的「密钥 / 接口」面板，其**「厂商模板」下拉把内置项排除**掉了
+> （`whale-widget.js`：`if (apiTemplates[ti].builtin) continue`），而保存时提交的 `provider`
+> 正是取自那个下拉 —— 内置 DeepSeek 模型因此永远拿不到 `'deepseek'`，保存不可能成功。
+> 插件是 vendored 上游原样副本（本仓库不改它），所以换 key 的入口补在**桌面版自己的托盘**里。
+
+### 新增
+- 托盘菜单 → **「改 API Key…」**：打开小窗口（`/key`），显示当前令牌的**打码值**
+  （形如 `sk-3441******d266`），粘贴新 key → 保存 → 写 `~/.dsh/.credentials.yaml` 并自动关窗。
+- `GET /dsh-whale/apikey` 多返回一个 `masked` 字段（打码值，用于确认当前用的是哪把）。
+- 桌面版路由 `POST /dsh-whale/open-key-window` / `POST /dsh-whale/key-window-done`（给自检与截图用）。
+
+### 修复
+- 新窗口打开后**主动提到最前**（瞬时置顶 + `focus`）。从 HTTP 路由/脚本打开时 Windows 不允许
+  后台进程抢焦点，窗口会停在别的窗口后面 —— 用户看到的效果就是「点了没反应」。
+- Windows / Linux 两个桌面版同步。
+
+### 自检
+- 新增 `tools/desktop-apikey-window-test.mjs`（**17 项**）：页面内容、打码字段（断言不含明文）、
+  保存接口（拿当前 key 原值写回，内容不变）、空值必须被拒、开窗/关窗路由、GET 写路由应 405。
+  设计上**不会改动你的令牌**。
+
+### 现场处置
+- 本机挂件当时用的还是旧令牌（`…8030`，DeepSeek 返回 401 `Authentication Fails`），
+  Coopanion 用的已是新令牌（`…d266`，HTTP 200，余额 53.28 CNY）。已把新令牌写入
+  `~/.dsh/.credentials.yaml`，挂件立即恢复取到余额。
+- 提醒：账本是**按 key 指纹分账**的，换 key 后 `今日已用` 会从那一刻重新起算（历史仍在账本里）。
+
+---
+
 ## [双系统引导安全 v1] - 2026-10-04
 
 > 主题：**Ubuntu 侧 GPU 挂死 → 强制关机 → Windows 自动修复抢走 GRUB** 的取证、结论与保障。

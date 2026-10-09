@@ -82,7 +82,12 @@ dsh-whale-widget                                     # 从应用菜单或命令�
 - 可勾选「开机自启」（写入 `~/.config/autostart/dsh-whale-widget.desktop`）
 - 保存后创建 `~/.dsh/.credentials.yaml` 并启动挂件
 
-之后随时可在挂件菜单里改 key（打开菜单 → 最下方 API Key 输入框 → 保存）。
+之后随时可以在**托盘菜单 →「改 API Key…」**里换 key：小窗口会显示当前令牌的打码值
+（`sk-1234******abcd`），粘贴新的 `sk-...` 保存即写入 `~/.dsh/.credentials.yaml`，最晚 60 秒生效。
+
+> 注：不要走挂件菜单里的「密钥 / 接口」面板 —— 那面对**内置 DeepSeek 模型**是死路
+> （插件前端的厂商模板下拉把内置项排除了，保存时提交的 `provider` 拿不到 `deepseek`）。
+> 插件是 vendored 上游原样副本，本仓库不改它，所以换 key 的入口做在桌面版自己的托盘里。
 
 ## 开机自启（手动）
 
