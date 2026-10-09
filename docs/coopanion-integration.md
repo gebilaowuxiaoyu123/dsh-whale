@@ -54,7 +54,7 @@ Coopanion 是别人的 AGPL 代码，所以**改造不直接改在仓库里**，
 patches/coopanion/0001-dsh-pet-features.patch
 ```
 
-安装/更新脚本会自动打上（幂等：已打过就跳过；打不上只报警不硬来）。补丁共六件事：
+安装/更新脚本会自动打上（幂等：已打过就跳过；打不上只报警不硬来）。补丁共七件事：
 
 | 改造 | 落在哪 | 说明 |
 |---|---|---|
@@ -64,6 +64,7 @@ patches/coopanion/0001-dsh-pet-features.patch
 | **开机自启（未打包也能用）** | `app/main.cjs` | 托盘里的「开机自动启动」原来被 `app.isPackaged` 挡着；现在把启动命令行显式写成 `<electron> <应用目录> --background`，另加命令行开关 `--set-autostart=on|off` |
 | **自启时不弹调试界面** | `app/main.cjs`、`core/companion.ts` | `--background` 会传成 `CORTICO_START_BACKGROUND=1`，引导流程里那句「桌宠没连上就打开设置窗」被跳过 |
 | **「与 DSH 挂件同步」按钮（两个桌宠共用一把 Key）** | `console/features/home/index.ts` | 「开始」页的 key 输入框旁多一个按钮：**不按不同步，按一下两边都同步** —— 填了就先把这把存进 Coopanion（走它自己的保存+测试，测不过就不推）再推给挂件，留空就以已保存的那把为准拉过去。跨源调挂件的 `127.0.0.1:3090/dsh-whale/key-sync/*`（挂件那头放行了 CORS 预检；挂件没在跑时只提示，不动本地）|
+| **悬停按钮「测试刷新率」** | `web/pet-core.js`、`web/pet-app.js`、`src/config.ts`、`console/features/pet/index.ts` | 「一帧一步」横穿桌面来回跑两趟来量屏幕：先跑到最左，再以 1 px/屏幕帧从左到右、右到左共 4 段，跑完冒气泡报读数（`屏幕约 120 Hz · 实测 115.9 Hz · 4 段 1767 px 用时 15.4 秒`），说完慢悠悠走回原位。测速探针临时不设帧率上限地数 0.9 s 真实帧（页面帧循环被压到 15/30 fps，量不出屏幕），读数写回并钉住 `ctl.hz` —— 顺带修好「随刷新率」读数被压偏、走动只剩 0.5× 的老问题 |
 
 > 改动要**手工改源码**时：改完用 `git -C third-party/Coopanion diff --no-color --output=patches/coopanion/0001-dsh-pet-features.patch`
 > 重新生成补丁，否则下次更新会把你的改动冲掉。`tools\coopanion-feature-test.mjs` 会检查这一致性。
@@ -183,8 +184,9 @@ Coopanion 上游本身已按平台分好了分支，补丁也是平台无关的�
 改完代码、交付之前跑这两个：
 
 ```bash
-node tools/coopanion-feature-test.mjs    # 补丁是否打上 + 构建产物是否跟上（28 项）
+node tools/coopanion-feature-test.mjs    # 补丁是否打上 + 构建产物是否跟上（34 项）
 node tools/coopanion-sync-roam-test.mjs  # 「随刷新率」的数学：读数 / 速度 / 不滑步（19 项）
+node tools/coopanion-hzscan-test.mjs     # 「测试刷新率」：一帧一步 / 段序 / 读数 / 用时（20 项）
 ```
 
 第二个用受控时钟按固定帧间隔推进 `pet-core` 的模拟，直接量出巡航速度与每步幅周期的位移，

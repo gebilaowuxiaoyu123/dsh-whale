@@ -105,7 +105,25 @@ check(join(ROOT, 'console', 'features', 'home', 'index.ts'), '按钮一按两边
   '${SYNC_API}/push', '${SYNC_API}/pull', 'JSON.stringify(typed ? { value: typed } : {})', 'connectVendor(call, vendor, typed',
 ]);
 
-/* ---------- 6. 构建产物跟上没有 ---------- */
+/* ---------- 6. 悬停按钮「测试刷新率」 ---------- */
+check(join(ROOT, 'packages', 'cortico-world-desktop-pet', 'src', 'config.ts'), '配置里认这个动作', [
+  "'chat', 'voice', 'roam', 'hz', 'theme', 'sound', 'dress', 'hide'",
+]);
+check(join(PET, 'web', 'pet-app.js'), '悬停按钮里有它，点一下就跑', [
+  'icon: () => ICONS.hz', '横穿桌面来回跑两趟，量出屏幕的刷新率', 'void runHzTest()', 'ctl.hzScan({ legs: 4 })',
+]);
+check(join(PET, 'web', 'pet-app.js'), '跑完冒气泡说完成，再慢悠悠回原位', [
+  '测试完成 · 屏幕约', '实测 ${r.raw.toFixed(1)} Hz', 'await sayOnce(', "ctl.walkTo(r.x0, false)", 'ctl.holdRoam(30)',
+]);
+check(join(PET, 'web', 'pet-core.js'), '测速探针 + 一帧一步 + 段序', [
+  'HZ_SCAN_LEGS = 4, HZ_SCAN_PX = 1', 'function probeHz()', 'function snapHz(', 'function hzScan(',
+  'function scanLeg()', 'function tickScan()', 'function stopHzScan()', 'get scanning()', 'hzPinned',
+]);
+check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「悬停按钮」里能勾它', [
+  "['hz', 'hz']", "hz: '测试刷新率'",
+]);
+
+/* ---------- 7. 构建产物跟上没有 ---------- */
 {
   const webRoot = join(ROOT, 'build', 'cortico', 'dist', 'web');
   const main = existsSync(webRoot) ? readdirSync(webRoot).find((f) => /^main-.*\.js$/.test(f)) : null;
@@ -121,11 +139,13 @@ check(join(ROOT, 'console', 'features', 'home', 'index.ts'), '按钮一按两边
       '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
     ok('构建产物里有挂件同步接口地址', text.includes('127.0.0.1:3090'),
       '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
+    ok('构建产物里有「测试刷新率」', text.includes('\\u6D4B\\u8BD5\\u5237\\u65B0\\u7387') || text.includes('测试刷新率'),
+      '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
   }
 }
 ok('桌宠面板 bundle 已构建', existsSync(join(PET, 'dist', 'console.js')));
 
-/* ---------- 7. 补丁文件与工作区一致 ---------- */
+/* ---------- 8. 补丁文件与工作区一致 ---------- */
 {
   ok('补丁文件存在', existsSync(PATCH), PATCH);
   if (existsSync(PATCH)) {
@@ -148,7 +168,7 @@ ok('桌宠面板 bundle 已构建', existsSync(join(PET, 'dist', 'console.js')))
   }
 }
 
-/* ---------- 8. 没漏调试插桩 ---------- */
+/* ---------- 9. 没漏调试插桩 ---------- */
 {
   const roots = ['app', 'core', 'console', join('packages', 'cortico-world-desktop-pet', 'src'), join('packages', 'cortico-world-desktop-pet', 'web')];
   const hits = [];

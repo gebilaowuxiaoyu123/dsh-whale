@@ -250,10 +250,10 @@ index a581bfa..86b54d0 100644
    /* pet */
    let petState: PetState | null = null;
 diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
-index fca746d..761a673 100644
+index fca746d..abcedab 100644
 --- a/console/features/pet/index.ts
 +++ b/console/features/pet/index.ts
-@@ -21,6 +21,7 @@ const KEYS = {
+@@ -21,13 +21,14 @@ const KEYS = {
    roam: `${K}.roam`,
    theme: `${K}.theme`,
    scale: `${K}.window.scale`,
@@ -261,7 +261,15 @@ index fca746d..761a673 100644
    sound: `${K}.sound`,
    hover: `${K}.hoverButtons`,
  } as const;
-@@ -42,10 +43,13 @@ const S = pick({
+ 
+ /** The pet menu's actions in its order (the World's PET_ACTIONS), with the icon each shows. */
+ const ACTIONS: ReadonlyArray<[id: string, icon: string]> = [
+-  ['chat', 'chat'], ['voice', 'mic'], ['roam', 'roam_calm'], ['theme', 'moon'], ['sound', 'sound'], ['dress', 'shirt'], ['hide', 'eyeOff'],
++  ['chat', 'chat'], ['voice', 'mic'], ['roam', 'roam_calm'], ['hz', 'hz'], ['theme', 'moon'], ['sound', 'sound'], ['dress', 'shirt'], ['hide', 'eyeOff'],
+ ];
+ /** Most hover buttons (the World's MAX_HOVER_BUTTONS). */
+ const MAX_HOVER = 6;
+@@ -42,14 +43,17 @@ const S = pick({
      roamFree: '常走动',
      roamCalm: '多待着',
      roamOff: '不乱动',
@@ -275,7 +283,12 @@ index fca746d..761a673 100644
      sound: '音效',
      hover: '悬停按钮',
      hoverHint: (n: number) => `鼠标停在 Coo 身上时旁边出现的按钮,最多 ${n} 个。`,
-@@ -65,10 +69,13 @@ const S = pick({
+-    actions: { chat: '打字', voice: '语音输入', roam: '行为模式', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
++    actions: { chat: '打字', voice: '语音输入', roam: '行为模式', hz: '测试刷新率', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
+     saved: '已保存',
+     saveFailed: (why: string) => `没保存上:${why}`,
+     stats: '匿名使用统计',
+@@ -65,14 +69,17 @@ const S = pick({
      roamFree: 'Often',
      roamCalm: 'Now and then',
      roamOff: 'Stay put',
@@ -289,6 +302,11 @@ index fca746d..761a673 100644
      sound: 'Sounds',
      hover: 'Hover buttons',
      hoverHint: (n: number) => `Buttons beside Coo while the pointer rests on it, up to ${n}.`,
+-    actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
++    actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', hz: 'Refresh rate', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
+     saved: 'Saved',
+     saveFailed: (why: string) => `Not saved: ${why}`,
+     stats: 'Anonymous usage statistics',
 @@ -99,7 +106,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
  
    const user = ui.input({ placeholder: '伙伴' });
@@ -700,9 +718,18 @@ index aa3068e..c35baa1 100644
    /** Takes the keyboard from whatever window has it (a question's number keys), and gives it back. */
    grabFocus: () => ipcRenderer.send('pet:grabFocus'),
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
-index e5fca42..2b218eb 100644
+index e5fca42..331ead9 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts
 +++ b/packages/cortico-world-desktop-pet/src/config.ts
+@@ -7,7 +7,7 @@ import { DEFAULT_HOTKEY } from './asr/hotkey.ts';
+ export const DESKTOP_PET_ID = 'desktop-pet';
+ 
+ /** What the pet's menu offers, in its order; any of them can also show as a button beside the pet on hover. */
+-export const PET_ACTIONS = ['chat', 'voice', 'roam', 'theme', 'sound', 'dress', 'hide'] as const;
++export const PET_ACTIONS = ['chat', 'voice', 'roam', 'hz', 'theme', 'sound', 'dress', 'hide'] as const;
+ export type PetAction = typeof PET_ACTIONS[number];
+ /** Most hover buttons. */
+ export const MAX_HOVER_BUTTONS = 6;
 @@ -57,6 +57,8 @@ export interface DesktopPetConfigSection extends WorldSection {
      electronFile: string;
      /** Figure size on screen, 1 = 256 logo units drawn at 107 px. */
@@ -819,7 +846,7 @@ index 8c40e79..184c21e 100644
        mic: this.micWanted(),
        voice: this.voiceBrief(),
 diff --git a/packages/cortico-world-desktop-pet/web/pet-app.js b/packages/cortico-world-desktop-pet/web/pet-app.js
-index 8535d2f..0250190 100644
+index 8535d2f..b04b6f9 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-app.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-app.js
 @@ -88,6 +88,8 @@ function applyPrefs(p) {
@@ -831,7 +858,28 @@ index 8535d2f..0250190 100644
    if (typeof p.user === 'string') prefs.user = p.user;
    if (typeof p.micDevice === 'string' && p.micDevice !== prefs.micDevice) { prefs.micDevice = p.micDevice; stopMic(); }
    if (typeof p.mic === 'boolean') { prefs.mic = p.mic; p.mic && !watching ? startMic() : stopMic(); }
-@@ -521,14 +523,28 @@ function stepTalkMotion() {
+@@ -191,6 +193,20 @@ function closeBubble() {
+   item = null;
+ }
+ 
++/** 冒一句话（和 World 让 Coo 说话走的是同一套气泡），等它说完再 resolve。 */
++function sayOnce(text) {
++  // `i: -1` 是必须的：stepDialog 靠它判断「这一轮还没开始」（World 发来的 say 也是这么组的）
++  const it = { kind: 'say', id: 'own' + Math.random().toString(36).slice(2), beats: [{ text }], i: -1 };
++  queue.push(it);
++  return new Promise((res) => {
++    const id = setInterval(() => {
++      if (queue.includes(it) || item === it) return;   // 还没轮到/正在说
++      clearInterval(id);
++      res();
++    }, 200);
++  });
++}
++
+ /**
+  * While a question's options are up, the pet window takes the keyboard so 1–9 pick one right
+  * away, and gives it back to the window that had it once the question is answered or gone.
+@@ -521,14 +537,28 @@ function stepTalkMotion() {
  }
  
  /* ---------- typed input: the hover button, or double-click ---------- */
@@ -861,7 +909,7 @@ index 8535d2f..0250190 100644
    form.addEventListener('submit', (e) => {
      e.preventDefault();
      const v = input.value.trim();
-@@ -636,9 +652,9 @@ function stopMic() {
+@@ -636,9 +666,9 @@ function stopMic() {
  }
  
  /* ---------- actions: the menu's lower zone and the hover buttons draw from one list ---------- */
@@ -874,7 +922,7 @@ index 8535d2f..0250190 100644
  /** The voice button's badge: listening all the time, or only on the talk key. */
  const MIC_BADGE = { always: 'auto', hold: 'key', toggle: 'key' };
  /** Most hover buttons shown beside the pet. */
-@@ -671,7 +687,9 @@ const ACTIONS = {
+@@ -671,10 +701,19 @@ const ACTIONS = {
      icon: () => ICONS[`roam_${prefs.roam}`] ?? ICONS.roam_calm,
      state: () => {
        const next = ROAM_ORDER[(ROAM_ORDER.indexOf(prefs.roam) + 1) % ROAM_ORDER.length];
@@ -885,7 +933,46 @@ index 8535d2f..0250190 100644
      },
      run: () => cycleRoam(),
    },
-@@ -894,7 +912,10 @@ function stepTools() {
++  /** 「测试刷新率」：先跑到最左，再以「一帧一步」横穿桌面来回跑两趟，量屏幕的刷新率。 */
++  hz: {
++    icon: () => ICONS.hz,
++    on: () => ctl.scanning,
++    state: () => (ctl.scanning ? '正在测刷新率…再点一下停下' : '横穿桌面来回跑两趟，量出屏幕的刷新率'),
++    run: () => { void runHzTest(); },
++  },
+   theme: {
+     keep: true,
+     icon: () => (prefs.theme === 'dark' ? ICONS.moon : ICONS.sun),
+@@ -817,6 +856,28 @@ function refreshButtons() {
+   renderTools();
+ }
+ 
++/**
++ * 刷新率测试（悬停按钮「测试刷新率」）：先跑到最左，再以「一帧一步」从左到右、右到左
++ * 共 4 段（两趟来回）横穿桌面；屏幕的刷新率在开跑前量（和跑往左边同时开始），量完就按
++ * 「一帧一步」算出速度。说完读数再慢悠悠走回测试前站着的地方。跑的过程中再点一下 = 停下。
++ */
++async function runHzTest() {
++  if (ctl.scanning) { ctl.stopHzScan(); return; }
++  const r = await ctl.hzScan({ legs: 4 });
++  refreshButtons();
++  if (!r.ok) {
++    if (r.reason === 'cancelled') return;
++    sfx.pop();
++    await sayOnce(r.reason === 'busy' ? '我现在腾不开身：先把我放下、关上对话框再点我。' : '刷新率测试被打断了。');
++    return;
++  }
++  sfx.pop();
++  await sayOnce(`测试完成 · 屏幕约 ${r.hz} Hz（实测 ${r.raw.toFixed(1)} Hz · ${r.legs} 段 ${r.px} px 用时 ${(r.ms / 1000).toFixed(1)} 秒）`);
++  // 说完再慢慢走回测试前的位置：用平常的走，不用跑
++  ctl.holdRoam(30);
++  ctl.walkTo(r.x0, false);
++}
++
+ /* ---------- hover buttons: the actions chosen in settings (chat and voice by default), beside the pet ---------- */
+ /** Seconds the buttons stay after the pointer leaves both the pet and them. */
+ const TOOLS_LINGER = .8;
+@@ -894,7 +955,10 @@ function stepTools() {
    // shown while the cursor is on the pet or on the buttons, and a moment after it leaves; decided
    // from where the cursor is now, not from the last move event, which may be stale
    const p = cursor.at;
@@ -897,7 +984,7 @@ index 8535d2f..0250190 100644
    tools.hidden = !(ctl.time < toolsUntil && !ctl.pressing && !ctl.busy() && menu.hidden && toolIds !== '');
    if (tools.hidden) endHold();
    tools.querySelector('[data-action="voice"]')?.classList.toggle('live', listen.phase === 'hearing');
-@@ -989,11 +1010,65 @@ host?.onCursor?.((p) => {
+@@ -989,11 +1053,65 @@ host?.onCursor?.((p) => {
    diag.poll = { at: performance.now(), x: p.x, y: p.y, hit, ui };
    setInteractive(ctl.pressing || hit || ui, 'poll');
  });
@@ -963,7 +1050,7 @@ index 8535d2f..0250190 100644
  const up = () => { ctl.pointerUp(); stage.style.cursor = ''; };
  /**
   * Most milliseconds a drop on another display waits for the page to take the window's new size
-@@ -1178,8 +1253,26 @@ function stepBackdrop(dt) {
+@@ -1178,8 +1296,26 @@ function stepBackdrop(dt) {
  }
  
  /* ---------- loop ---------- */
@@ -980,7 +1067,7 @@ index 8535d2f..0250190 100644
  let last = performance.now();
 +function busyNow() {
 +  return !!(ctl.pressing || !menu.hidden || (bubble && !bubble.hidden)
-+    || ctl.busy() || listen.phase !== 'idle');
++    || ctl.busy() || ctl.scanning || listen.phase !== 'idle');
 +}
  function frame(now) {
 +  // 先排下一帧：下面提前 return 时也不能把循环断掉
@@ -990,7 +1077,7 @@ index 8535d2f..0250190 100644
    const dt = Math.min(.05, (now - last) / 1000); last = now;
    stepActs();
    stepDialog(dt);
-@@ -1191,7 +1284,7 @@ function frame(now) {
+@@ -1191,7 +1327,7 @@ function frame(now) {
    stepBackdrop(dt);
    stepTools();
    layout();
@@ -1000,7 +1087,7 @@ index 8535d2f..0250190 100644
  requestAnimationFrame(frame);
 +
 diff --git a/packages/cortico-world-desktop-pet/web/pet-core.js b/packages/cortico-world-desktop-pet/web/pet-core.js
-index 487bebe..cdde2f5 100644
+index 487bebe..7ee4bd1 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-core.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-core.js
 @@ -294,8 +294,14 @@ export function mini(face, acc, t = 0, extra = {}) {
@@ -1019,16 +1106,18 @@ index 487bebe..cdde2f5 100644
  }
  const validColor = (slot, v) => (v === 'eye' || (v === 'body' && !NO_BODY[slot]) || ACC_COLORS.some(c => c.id === v));
  /** Keeps what is valid in `raw`, defaults the rest. */
-@@ -370,6 +376,8 @@ export const ICONS = {
+@@ -370,6 +376,10 @@ export const ICONS = {
    roam_off: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16 7 13.2"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
    roam_calm: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16V10"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
    roam_free: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l5-2.8"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M19.5 6.5l1.5-1.5M21 10h1.5"/>'),
 +  // the gauge again, with readings flying out of it: the pace is the screen's
 +  roam_sync: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4.4-3.4"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M3.6 11.6 5.4 10.2M20.4 11.6 18.6 10.2M12 5.4V3.6"/>'),
++  /** 「测试刷新率」：一道脉冲。 */
++  hz: icon('<path d="M3 12.5h3.6l2.4-6.5 3.4 12.5 2.5-6h4.1"/>'),
  };
  /** Sets `theme` ('dark' | 'light') on the page; `button`, when given, shows the mode a click switches to. */
  export function applyTheme(theme, button) {
-@@ -496,6 +504,21 @@ export const EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surprise
+@@ -496,6 +506,29 @@ export const EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surprise
  /** Motions: things the body does. `sit` and `sleep` last until something else happens. */
  export const MOTIONS = ['stand', 'jump', 'hop', 'look', 'turn', 'nod', 'shake', 'spin', 'sit', 'sleep', 'dizzy', 'walk', 'run'];
  
@@ -1047,10 +1136,18 @@ index 487bebe..cdde2f5 100644
 + */
 +export const SYNC_MIN = .5, SYNC_MAX = 3;
 +
++/* ---------- 刷新率测试 ---------- */
++/**
++ * 「测试刷新率」怎么跑：共几段（左→右算一段，右→左再算一段），一段跑完每帧走几个像素，
++ * 以及量屏幕时数多久的帧。一帧走 1 px 的「帧」是指屏幕真实刷新的一帧：1 px 乘刷新率就是
++ * 这段路的速度，所以跑完的耗时（连同量到的帧数）直接说出屏幕到底多快。
++ */
++const HZ_SCAN_LEGS = 4, HZ_SCAN_PX = 1, HZ_PROBE_MS = 900, HZ_PROBE_MIN = 40;
++
  /* ---------- the live pet: simulation, rendering, pointer ---------- */
  /**
   * `els`: { svg, petG, shadowEl, fxG } inside a stage element that receives pointer events.
-@@ -518,6 +541,9 @@ export function createPet(els, opts) {
+@@ -518,6 +551,9 @@ export function createPet(els, opts) {
    let roam = opts.roam ?? 'free';
    let skin = opts.skin || defaultSkin();
    let hold = 0; // until T: an order from outside is in progress, free roaming waits
@@ -1060,7 +1157,143 @@ index 487bebe..cdde2f5 100644
    const pet = {
      x: 260, fy: 0, vx: 0, vy: 0, facing: 1, faceVis: 1, mode: 'idle', modeT: 0, dur: 0, target: 0,
      speed: 0, stride: 0, lift: 0, bob: 0, phase: 0, lastHalf: 0, lean: 0, tilt: 0, tiltV: 0,
-@@ -674,8 +700,35 @@ export function createPet(els, opts) {
+@@ -528,6 +564,8 @@ export function createPet(els, opts) {
+     eyeSig: '', eyeCur: null, eyePrev: null, eyeDims: [[16, 16, 0, 0], [16, 16, 0, 0]], swapAge: 9,
+     glance: [0, 0], glanceAt: 0, swing: 0, swingV: 0, prevA: null, velX: 0, talkK: 0, sfxAt: 0, skid: false, cue: 0,
+     pulse: null, walkId: 0, listening: false, thinking: false, placed: false,
++    /** 刷新率测试用：这几段的固定速度(px/s)，0 = 平常那套加減速。 */
++    pace: 0,
+   };
+   const pointer = { x: -1e4, y: -1e4, inside: false, vx: 0, samples: [] };
+   let press = null, strokeAcc = 0, petCool = 0;
+@@ -541,6 +579,7 @@ export function createPet(els, opts) {
+   function resize() {
+     const b = opts.bounds();
+     W = b.W; H = b.H; floorY = b.floorY; S = b.S;
++    hzPinned = false;   // 换屏幕/改缩放就重新量：刚钉住的读数未必还是这块屏
+     if (!pet.placed && W > 0) {
+       pet.x = opts.startX != null ? opts.startX : W * .7; pet.placed = true;
+       if (opts.enter === 'drop') { pet.fy = -8; pet.vy = 0; pet.vx = 0; pet.airKind = 'drop'; setMode('air'); }
+@@ -634,6 +673,118 @@ export function createPet(els, opts) {
+     return true;
+   }
+ 
++  /* ---------- 刷新率测试：量屏幕，再以「一帧一步」横穿桌面来回跑 ---------- */
++  /**
++   * 正在跑的测试：段数/已跑段数/这一段的方向、起点 x、量到的读数，以及结束时回话的 resolve。
++   * `hold0` 记住测试前的「自家乱动」截止时间（跑完照原样放回去），`x0` 是测试前站的位。
++   */
++  let scan = null;
++  /** 刚量过屏幕就钉住读数：页面帧循环被压到 15/30 fps，那不是屏幕的帧率，别让它把读数拉回去。 */
++  let hzPinned = false;
++
++  /** 读数落到真实的刷新率上（24/30/…/360），离得都远的就按原值四舍五入。 */
++  function snapHz(raw) {
++    const near = HZ_STEPS.find((s) => Math.abs(s - raw) <= s * HZ_TOLERANCE);
++    return near ?? Math.round(raw);
++  }
++
++  /**
++   * 数一小会儿真实帧：单开一条 rAF 只数字、不画东西，所以不受页面帧率上限影响，开销可以忽略。
++   * 第一帧只用来定起点（去掉那次 rAF 请求自己的延迟），后面的帧数除以耗时就是屏幕的刷新率。
++   */
++  function probeHz() {
++    return new Promise((resolve) => {
++      let frames = 0, t0 = 0;
++      const tick = () => {
++        const now = performance.now();
++        if (!frames) t0 = now;
++        frames++;
++        const ms = now - t0;
++        if (ms < HZ_PROBE_MS || frames <= HZ_PROBE_MIN) { requestAnimationFrame(tick); return; }
++        const n = frames - 1;
++        resolve({ frames: n, ms, raw: n / (ms / 1000) });
++      };
++      requestAnimationFrame(tick);
++    });
++  }
++
++  /** 一段跑完、被打断或被叫停：把自家乱动放回去、读数钉住，然后回话。 */
++  function scanEnd(ok, why) {
++    const s = scan;
++    if (!s) return null;
++    scan = null;
++    pet.pace = 0;
++    hold = s.hold0;
++    if (ok) { hzPinned = true; hz = s.hz; hzReady = true; }
++    const out = {
++      ok, reason: why, hz: s.hz, raw: s.raw, frames: s.frames, probeMs: s.probeMs,
++      legs: s.done, ms: s.ms, px: Math.round(s.px), x0: s.x0,
++    };
++    s.resolve(out);
++    return out;
++  }
++
++  /** 这一段到头了：转身跑下一段（这一段的方向翻过来），最后一段走完就收工。 */
++  function scanLeg() {
++    const s = scan;
++    if (!s) return;
++    s.done++;
++    if (s.done >= s.legs) {
++      s.ms = performance.now() - s.t0;
++      scanEnd(true);
++      return;
++    }
++    s.dir = -s.dir;
++    pet.pace = s.pace;
++    setMode('run', { target: s.dir > 0 ? maxX() : minX() });
++  }
++
++  /** 每帧看一眼测试：被拎起来/抛出去就中断，跑动中把实际走过的路记下来（用时按真实时钟算）。 */
++  function tickScan() {
++    const s = scan;
++    if (busy()) { scanEnd(false, 'interrupted'); return; }
++    if (s.phase !== 'legs') return;
++    s.px += Math.abs(pet.x - s.lastX);
++    s.lastX = pet.x;
++  }
++
++  /** 叫停（再点一下那个按钮）。 */
++  function stopHzScan() { scanEnd(false, 'cancelled'); }
++
++  /**
++   * 刷新率测试：先按常速（它的跑）跑到最左，再以「一帧一步」(1 px) 从左到右、右到左共 `legs` 段
++   * 横穿桌面。屏幕的刷新率在开跑前量（和跑往左边同时开始），量完就按「一帧一步」算出速度。
++   * 跑完 resolve 出读数、段数、实走路程与用时；被拎起来/抛出去/被叫停则 ok:false。
++   * 全程不动行为模式（只是不让它自家乱走），跑完接着按原来的模式过。
++   */
++  function hzScan({ legs = HZ_SCAN_LEGS } = {}) {
++    if (scan || busy()) return Promise.resolve({ ok: false, reason: 'busy' });
++    const s = {
++      legs: Math.max(2, legs | 0), done: 0, dir: 1, pace: 0, hz: 0, raw: 0, frames: 0, probeMs: 0,
++      px: 0, ms: 0, phase: 'approach', x0: pet.x, hold0: hold, lastX: pet.x, t0: 0, resolve: null,
++    };
++    scan = s;
++    hold = Infinity;                       // 测试期间它自己別乱走
++    const done = new Promise((res) => { s.resolve = res; });
++    const reading = probeHz();             // 量屏幕：和跑往左边同时开始
++    const going = walkTo(minX(), true, 0);
++    const settle = new Promise((res) => {
++      if (!going) { res(); return; }
++      const check = () => { if (!scan || busy() || pet.mode === 'idle') res(); else requestAnimationFrame(check); };
++      requestAnimationFrame(check);
++    });
++    Promise.all([reading, settle]).then(([p]) => {
++      if (!scan) return;                   // 已经被打断或叫停
++      if (busy()) { scanEnd(false, 'interrupted'); return; }
++      s.raw = p.raw; s.frames = p.frames; s.probeMs = p.ms; s.hz = snapHz(p.raw);
++      s.pace = HZ_SCAN_PX * p.raw;         // 一帧一步 → 每秒就走「屏幕每秒刷多少帧」个像素
++      s.phase = 'legs'; s.dir = 1; s.lastX = pet.x; s.px = 0; s.t0 = performance.now();
++      pet.pace = s.pace;
++      setMode('run', { target: maxX() });
++    }).catch(() => { if (scan) scanEnd(false, 'error'); });
++    return done;
++  }
++
+   function faceName() {
+     const m = pet.mode;
+     if (m === 'drag') return 'dragged';
+@@ -674,8 +825,38 @@ export function createPet(els, opts) {
      }
    }
  
@@ -1072,6 +1305,8 @@ index 487bebe..cdde2f5 100644
 +   * forever once taken, so the pace holds while the window is away.
 +   */
 +  function readHz() {
++    // 刚量过屏幕就别再听了：平时的帧循环被压到 15/30 fps，量出来的不是屏幕的刷新率
++    if (hzPinned) return;
 +    const now = performance.now();
 +    if (hzAt) {
 +      const gap = now - hzAt;
@@ -1093,10 +1328,11 @@ index 487bebe..cdde2f5 100644
    function step(dt) {
      T += dt; pet.modeT += dt;
 +    readHz();
++    if (scan) tickScan();
      const m = pet.mode, mt = pet.modeT;
      let sqT = 0, strideT = 0, liftT = 0, leanT = 0, sitT = 0, bobT = 0, rate = 0, lookT = [0, 0], tiltT = 0;
      let tk = 160, tc = 12, drowseT = 0;
-@@ -709,9 +762,13 @@ export function createPet(els, opts) {
+@@ -709,15 +890,28 @@ export function createPet(els, opts) {
        case 'walk': case 'run': {
          const run = m === 'run', d = pet.target - pet.x, dist = Math.abs(d), dir = Math.sign(d) || pet.facing;
          pet.facing = dir;
@@ -1107,13 +1343,51 @@ index 487bebe..cdde2f5 100644
 +        // the body covers the same ground per stride and the feet never slide; every other mode
 +        // keeps the one pace.
 +        const sync = syncK();
-+        const vMax = (run ? 250 : 78) * sync;
-+        const vT = Math.min(vMax, (run ? dist * 4 + 20 : dist * 3 + 14) * sync);
-+        strideT = run ? 17 : 10; liftT = run ? 15 : 8; bobT = run ? 7 : 3; rate = (run ? 4.4 : 2.1) * sync;
++        // 「随刷新率」 walks the screen's speed: the steps keep pace with it (same `rate` factor), so
++        // the body covers the same ground per stride and the feet never slide; every other mode
++        // keeps the one pace. 刷新率测试的那几段例外：速度是「一帧一步」折算出的固定 px/s
++        // (`pet.pace`)，步频按同样比例缩放（一步的位移与常速一致），也不乘「随刷新率」的倍数。
++        const base = run ? 250 : 78;
++        const pace = pet.pace > 0 ? pet.pace : 0;
++        const vMax = pace ? base : base * sync;
++        // 测试那几段不减速：速度就是「一帧一步」，到了边上一帧也不多不少 —— 这样「4 段用时」
++        // 除以路程就正好是屏幕的刷新率（拿秒表反推也准）。
++        const vT = pace || Math.min(vMax, (run ? dist * 4 + 20 : dist * 3 + 14) * sync);
++        strideT = run ? 17 : 10; liftT = run ? 15 : 8; bobT = run ? 7 : 3;
++        rate = (run ? 4.4 : 2.1) * (pace ? Math.max(.15, pace / base) : sync);
          leanT = run ? (dist < 50 && pet.speed > 120 ? -6 : 11) : 4;
          if (leanT < 0 && !pet.skid) { pet.skid = true; sfx.skid(); }
          const ramp = Math.min(1, mt / (run ? .35 : .25));
-@@ -1090,6 +1147,8 @@ export function createPet(els, opts) {
+-        pet.speed = lerp(pet.speed, vT * smooth(ramp), ease(run ? 6 : 9, dt));
++        pet.speed = pace ? vT : lerp(pet.speed, vT * smooth(ramp), ease(run ? 6 : 9, dt));
+         pet.x += dir * Math.min(dist, pet.speed * dt);
+-        const k = clamp(pet.speed / vMax, 0, 1);
++        const k = pace ? 1 : clamp(pet.speed / vMax, 0, 1);
+         strideT *= .4 + .6 * k; liftT *= .4 + .6 * k;
+         pet.phase += Math.PI * 2 * rate * dt * Math.max(.35, k);
+         lookT = [run ? 4 : 3, run ? 1 : 0];
+@@ -732,6 +926,8 @@ export function createPet(els, opts) {
+           const id = pet.walkId; pet.walkId = 0;
+           setMode('idle'); pet.nextAt = T + rnd(1.2, 3.2);
+           if (id) onEvent('arrived', { walkId: id, x: Math.round(pet.x) });
++          // 刷新率测试：这一段到头了 → 转身跑下一段（或者收工）
++          if (scan && scan.phase === 'legs') scanLeg();
+         }
+         break;
+       }
+@@ -1073,8 +1269,11 @@ export function createPet(els, opts) {
+   resize();
+   return {
+     pet, step, render, resize, act, setExpr, walkTo, toStage, hitPet, busy,
++    hzScan, stopHzScan,
+     pointerDown, pointerMove, pointerUp, pointerLeave, dropAt,
+     get pressing() { return !!press; },
++    /** 刷新率测试在跑：这时页面的帧循环不该再降频。 */
++    get scanning() { return !!scan; },
+     get time() { return T; },
+     get bounds() { return { W, H, floorY, S, minX: minX(), maxX: maxX() }; },
+     setSkin(s) { skin = s; },
+@@ -1090,6 +1289,8 @@ export function createPet(els, opts) {
      get skin() { return skin; },
      setRoam(r) { roam = r; if (r !== 'off') pet.nextAt = T + 1; },
      get roam() { return roam; },

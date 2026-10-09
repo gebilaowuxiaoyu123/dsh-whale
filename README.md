@@ -46,6 +46,10 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
   同时写进挂件（`~/.dsh/.credentials.yaml`）与 Coopanion（当前 provider 的 `.env`）；
   Coopanion 那边的「与 DSH 挂件同步」填了就推、留空就以已保存的那把拉过来
   （最后一次同步结果记在 `~/.dsh/.dshw-key-sync.json`，状态接口可查）
+- ⏱️ **桌面刷新率测试（Coopanion 桌宠）**：悬停按钮里勾上「测试刷新率」→ 点一下，它会先跑到最左，
+  再以「一帧一步」横穿桌面来回跑两趟（4 段），跑完冒气泡报读数（`屏幕约 120 Hz · 实测 115.9 Hz`），
+  然后慢悠悠走回原来站着的位置。一帧一步 = 1 px/屏幕帧，所以 4 段用时 ÷ 路程就是屏幕的刷新率
+  （量到的读数会写回并钉住，「随刷新率」走动模式立刻按真实屏幕走）
 - �🖱️ **点击穿透**：只有鲸鱼不透明像素/菜单可交互，其余区域不挡桌面操作（桌面版）
 - ⚙️ **首次运行自动配置**：无配置时自动弹出设置窗口，填 API Key + 可选开机自启（桌面版）
 - 🚀 **CI/CD**：GitHub Actions 自动构建 Windows exe 与 Linux AppImage/deb
@@ -81,13 +85,14 @@ dsh-whale/
 │   ├── setup-coopanion.sh          # Coopanion 桌宠一键安装/更新（Linux）
 │   ├── coopanion-autostart.ps1     # Coopanion 开机自启 登记/撤销/查看（Windows，自启不弹调试界面）
 │   ├── coopanion-autostart.sh      # Coopanion 开机自启 登记/撤销/查看（Linux，XDG）
-│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（28 项）
+│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（34 项）
 │   ├── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
+│   ├── coopanion-hzscan-test.mjs   # 「测试刷新率」自检：一帧一步/段序/读数/用时（20 项）
 │   ├── freeze-fix/                 # ★ Ubuntu 侧：GPU 挂死取证与防护（i915 稳定化 / GPU 看门狗 / 修 fstab+引导）
 │   └── boot-safety/                # ★ Windows 侧：双系统引导体检 + 保障（关自动修复 / 复原 bootmgr / ubuntu 置顶）
 ├── patches/
 │   └── coopanion/                  # 对 Coopanion 源码的改造补丁（AGPL 源码不入库，只存 diff）
-│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗 + 置顶显示开关 + Linux 覆盖层 + 控制台一键同步 Key
+│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗 + 置顶显示开关 + Linux 覆盖层 + 控制台一键同步 Key + 测试刷新率
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.17）
 │                                   #   ← 同时是桌面版的**唯一功能实现来源**
 ├── third-party/                    # 第三方项目源码，**不入库**（已被根 .gitignore 忽略）
