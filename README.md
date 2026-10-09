@@ -41,7 +41,12 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
   > 为什么不走挂件自己的「密钥 / 接口」面板：那面对**内置 DeepSeek 模型**是死路 —— 插件前端的厂商下拉把内置项排除了
   > （`if (apiTemplates[ti].builtin) continue`），而保存提交的 `provider` 取自那个下拉，于是永远拿不到 `deepseek`。
   > 插件是 vendored 原样副本（本仓库不改它），所以换 key 的入口做在桌面版自己的托盘里
-- 🖱️ **点击穿透**：只有鲸鱼不透明像素/菜单可交互，其余区域不挡桌面操作（桌面版）
+- � **两个桌宠共用一把 Key（一键同步）**：挂件托盘「改 API Key…」窗口和 Coopanion 控制台「开始」页
+  各有一个同步键 —— **不按不同步，按一下两边都同步**：挂件窗口里的「保存并同步到两个桌宠」把同一把
+  同时写进挂件（`~/.dsh/.credentials.yaml`）与 Coopanion（当前 provider 的 `.env`）；
+  Coopanion 那边的「与 DSH 挂件同步」填了就推、留空就以已保存的那把拉过来
+  （最后一次同步结果记在 `~/.dsh/.dshw-key-sync.json`，状态接口可查）
+- �🖱️ **点击穿透**：只有鲸鱼不透明像素/菜单可交互，其余区域不挡桌面操作（桌面版）
 - ⚙️ **首次运行自动配置**：无配置时自动弹出设置窗口，填 API Key + 可选开机自启（桌面版）
 - 🚀 **CI/CD**：GitHub Actions 自动构建 Windows exe 与 Linux AppImage/deb
 - 🛡️ **双系统（Windows + Ubuntu）引导安全**：Ubuntu 侧 i915 稳定化 + GPU 看门狗（挂死自动救回会话，
@@ -71,18 +76,18 @@ dsh-whale/
 │   ├── desktop-ui-smoke-test.mjs   # UI 冒烟测试（用 CDP 查真实 DOM，需调试模式启动挂件）
 │   ├── desktop-button-audit.mjs    # 按钮全覆盖检查（逐面板验证可见按钮可命中/可交互）
 │   ├── desktop-always-on-top-test.mjs # 「置顶显示」开关自检（读写 + 落盘 + 恢复原值）
-│   ├── desktop-apikey-window-test.mjs # 「改 API Key」入口自检（页面/打码/保存/开窗关窗，17 项）
+│   ├── desktop-apikey-window-test.mjs # 「改 API Key」入口 + 一键同步自检（页面/打码/保存/同步往返，33 项）
 │   ├── setup-coopanion.ps1         # Coopanion 桌宠一键安装/更新（Windows；源码放 third-party/，不入库）
 │   ├── setup-coopanion.sh          # Coopanion 桌宠一键安装/更新（Linux）
 │   ├── coopanion-autostart.ps1     # Coopanion 开机自启 登记/撤销/查看（Windows，自启不弹调试界面）
 │   ├── coopanion-autostart.sh      # Coopanion 开机自启 登记/撤销/查看（Linux，XDG）
-│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（24 项）
+│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（28 项）
 │   ├── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
 │   ├── freeze-fix/                 # ★ Ubuntu 侧：GPU 挂死取证与防护（i915 稳定化 / GPU 看门狗 / 修 fstab+引导）
 │   └── boot-safety/                # ★ Windows 侧：双系统引导体检 + 保障（关自动修复 / 复原 bootmgr / ubuntu 置顶）
 ├── patches/
 │   └── coopanion/                  # 对 Coopanion 源码的改造补丁（AGPL 源码不入库，只存 diff）
-│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗 + 置顶显示开关 + Linux 覆盖层
+│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗 + 置顶显示开关 + Linux 覆盖层 + 控制台一键同步 Key
 ├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.17）
 │                                   #   ← 同时是桌面版的**唯一功能实现来源**
 ├── third-party/                    # 第三方项目源码，**不入库**（已被根 .gitignore 忽略）

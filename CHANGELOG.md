@@ -8,6 +8,41 @@
 
 ---
 
+## [双桌宠 API Key 一键同步] - 2026-10-09
+
+> 需求（用户原话）：把两个桌宠插件的 api_key **打通**，「在 api_key 输入窗口旁边加一个同步 key」。
+> 澄清后的口径是关键：**「不按不同步，按一下两个都同步」**—— 不是后台自动轮询，也不是
+> 「我这边刷新了、你还得去另一个插件点一下同步」，而是**任一处的 key 窗口上按一下，两边立刻都用上同一把**。
+
+### 新增
+- **挂件侧**（Windows / Linux 两个桌面版同步）：托盘「改 API Key…」小窗口（`/key`）改成三个键 ——
+  - **「保存并同步到两个桌宠」**（主键）：写两边 + 自动关窗；
+  - 「只保存到挂件」：只写 `~/.dsh/.credentials.yaml`；
+  - 「以 Coopanion 为准（拉过来）」：把 Coopanion 已存的那把写进挂件。
+  窗口顶部常显两边的**打码值**与结论：`两边一致 ✓` / `两边不一致` / `没找到 Coopanion 的 .env`。窗口高度 390 → 480。
+- **Coopanion 侧**：控制台「开始」页的 key 输入框旁多一个 **「与 DSH 挂件同步」**。填了 key 就先走它自己的
+  保存 + 测试（**测不过就不往下推**，不会把错的令牌同步出去），成功了再推给挂件；输入框留空就以已保存的那把
+  为准拉过去。改动落在 `patches/coopanion/0001-dsh-pet-features.patch`（补丁 11 → 12 个文件）。
+- 桌面版路由：`GET /dsh-whale/key-sync`（状态）、`POST /dsh-whale/key-sync/push`、`POST /dsh-whale/key-sync/pull`；
+  `/key-sync` 只收 `GET`，push/pull 只收 `POST`（其余 405），对方是 Coopanion 控制台自己的源
+  （`127.0.0.1:17788`）→ 放行 `OPTIONS` 预检（204 + `Access-Control-Allow-Origin: *`）。
+- 最后一次同步结果记在 `~/.dsh/.dshw-key-sync.json`（`lastSyncAt` / `lastSource` / `lastError`），状态接口带出来。
+
+### 边界（为什么这样做）
+- **不做后台自动轮询**：除了按按钮，不改你任何一个令牌文件 —— 同步是个显式动作。
+- 写的位置只有两处：挂件 `~/.dsh/.credentials.yaml`、Coopanion 当前 provider 的
+  `build/data/home/providers/<厂商>/.env`（`<厂商>` 取自 `companion/config.json` 的 `activeProvider`）。
+- 只做 DeepSeek 这一把的同步（两个桌宠都只认 `DEEPSEEK_API_KEY`）。
+
+### 自检
+- `tools/desktop-apikey-window-test.mjs` **17 → 33 项**：新页面三键、`/key-sync` 状态形状、OPTIONS 预检（204 + `*`）、
+  push/pull 的**原值往返**（用完还是同一把；两边本来就不一致时自动跳过，免得改掉真实令牌）、GET 写路由 405。
+- `tools/coopanion-feature-test.mjs` **24 → 28 项**：控制台新按钮的源码片段 + 构建产物是否跟上。
+- 实测：`push` 用假令牌 → 两边文件同时变成那把（`inSync: true`）；`pull` → 一致；还原后两边都是真令牌
+  `sk-3441******d266`；并在**真实控制台源**上跑通跨源 push（浏览器里 `fetch` → 200 + 两边一致）。
+
+---
+
 ## [换 Key 入口修复] - 2026-10-09
 
 > 现象：在 DeepSeek 控制台换了新令牌后，**挂件里换不了**（找不到能用的入口）。

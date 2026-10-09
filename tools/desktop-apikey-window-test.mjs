@@ -12,6 +12,11 @@
  *
  *   托盘 → 「改 API Key…」 → 小窗口（`/key`）→ `PUT /dsh-whale/apikey` → 写 ~/.dsh/.credentials.yaml
  *
+ * 随后又加了「一键同步」（用户要求：不按不同步，按一下两边都同步）：`/key` 页上的
+ * 「保存并同步到两个桌宠」把同一把 key 同时写进挂件的 ~/.dsh/.credentials.yaml 和
+ * Coopanion 当前 provider 的 .env（`POST /dsh-whale/key-sync/push`）；Coopanion 控制台「开始」页
+ * 也有同一个按钮（那边填了就推、留空就以自己为准拉过去）。
+ *
  * 这个脚本只走 HTTP，**不会改动你的令牌**：
  *   · 拿当前 key 原值写回去（写路径真实跑一遍，但内容不变）
  *   · 只对空值做「应当被拒」的负向断言
@@ -63,6 +68,14 @@ const readKeyOnDisk = () => {
     return m ? m[1] : null;
   } catch { return null; }
 };
+/** 读 Coopanion 当前 provider 的 .env 里的 DEEPSEEK_API_KEY（同样只用于比对，不打印）。 */
+const readEnvKey = (file) => {
+  if (!file) return null;
+  try {
+    const m = fs.readFileSync(file, 'utf8').match(/^\s*DEEPSEEK_API_KEY\s*=\s*"?([^"\s#]+)"?\s*$/m);
+    return m ? m[1] : null;
+  } catch { return null; }
+};
 
 console.log('===== DSH 桌面挂件 · 更换 API Key 入口自检 =====\n');
 let alive = false;
@@ -80,7 +93,9 @@ console.log('[1] 换 key 小窗口的页面');
   const html = await r.text();
   ok('GET /key 返回 200', r.status === 200, String(r.status));
   ok('页面标题正确', html.includes('更换 DeepSeek API Key'));
-  ok('页面会写回 /dsh-whale/apikey', html.includes('/dsh-whale/apikey'));
+  ok('页面有「保存并同步到两个桌宠」', html.includes('保存并同步到两个桌宠'));
+  ok('页面会调一键同步接口', html.includes('/dsh-whale/key-sync/push') && html.includes('/dsh-whale/key-sync/pull'));
+  ok('页面保留「只保存到挂件」这条路', html.includes('/dsh-whale/apikey') && html.includes('只保存到挂件'));
   ok('页面保存后自动关窗', html.includes('/dsh-whale/key-window-done'));
 }
 
@@ -139,9 +154,47 @@ console.log('\n[5] 开窗 / 关窗路由');
   ok('GET 这些写路由被拒（405）', c.status === 405, String(c.status));
 }
 
+/* ---------- 6. 一键同步两个桌宠的 key ---------- */
+console.log('\n[6] 一键同步（两个桌宠用同一把 key）');
+{
+  const s = await getJson('/dsh-whale/key-sync');
+  ok('GET key-sync 返回 ok:true', s && s.ok === true);
+  ok('状态里说得出挂件那把（打码）', typeof s?.widget?.masked === 'string', typeof s?.widget?.masked);
+  ok('状态里说得出 Coopanion 那把（打码）', typeof s?.copanion?.masked === 'string', typeof s?.copanion?.masked);
+  ok('两边是否一致的标志是布尔值', typeof s?.inSync === 'boolean', String(s?.inSync));
+  const envFile = typeof s?.copanion?.env === 'string' ? s.copanion.env : null;
+  ok('状态里带 Coopanion 的 .env 路径', !!envFile, envFile ?? '(没有)');
+
+  // Coopanion 控制台是自己的源（127.0.0.1:17788），所以这两个接口必须放行跨源预检
+  const pre = await fetch(`${BASE}/dsh-whale/key-sync/push`, { method: 'OPTIONS', signal: AbortSignal.timeout(6000) });
+  ok('OPTIONS 预检返回 204', pre.status === 204, String(pre.status));
+  ok('预检放行任意来源（Coopanion 控制台要调它）', pre.headers.get('access-control-allow-origin') === '*',
+    String(pre.headers.get('access-control-allow-origin')));
+  const g = await fetch(`${BASE}/dsh-whale/key-sync/push`, { signal: AbortSignal.timeout(6000) });
+  ok('GET 写路由被拒（405）', g.status === 405, String(g.status));
+
+  const before = readKeyOnDisk();
+  if (!before) {
+    console.log('  (跳过) 本机没读到 DEEPSEEK_API_KEY，不做往返');
+  } else if (s?.inSync !== true) {
+    console.log(`  (跳过) 两边现在不是同一把（挂件 ${s?.widget?.masked} / Coopanion ${s?.copanion?.masked}），`);
+    console.log('         往返会把其中一边改掉，所以只报告不动作。');
+  } else {
+    const r = await post('/dsh-whale/key-sync/push', { value: before });
+    ok('push 原值：两边都是同一把', r.body?.ok === true && r.body?.inSync === true, JSON.stringify(r.body));
+    ok('push 之后挂件令牌没变', readKeyOnDisk() === before);
+    ok('push 之后 Coopanion 的 .env 是同一把', readEnvKey(envFile) === before, String(readEnvKey(envFile)?.slice(0, 9)));
+    const p = await post('/dsh-whale/key-sync/pull', {});
+    ok('pull 返回 ok:true', p.body?.ok === true, JSON.stringify(p.body));
+    ok('pull 之后挂件令牌仍是同一把', readKeyOnDisk() === before);
+    const s2 = await getJson('/dsh-whale/key-sync');
+    ok('状态里记下了最后一次同步', typeof s2?.lastSyncAt === 'number' || typeof s2?.lastSyncAt === 'string', String(s2?.lastSyncAt));
+  }
+}
+
 if (fails.length) {
   console.log(`\n\u2717 ${fails.length} 项没通过（共 ${pass + fails.length} 项）：`);
   for (const f of fails) console.log('  - ' + f);
   process.exit(1);
 }
-console.log(`\n\u2713 全部 ${pass} 项断言通过 —— 换 key 入口（页面 / 保存 / 开窗关窗）都正常`);
+console.log(`\n\u2713 全部 ${pass} 项断言通过 —— 换 key 入口（页面 / 保存 / 一键同步 / 开窗关窗）都正常`);

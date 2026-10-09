@@ -155,6 +155,100 @@ index b6bbec3..4c91d94 100644
        { label: '重新启动', click: () => void core.restart() },
        { label: '退出', click: () => app.quit() },
      ]));
+diff --git a/console/features/home/index.ts b/console/features/home/index.ts
+index a581bfa..86b54d0 100644
+--- a/console/features/home/index.ts
++++ b/console/features/home/index.ts
+@@ -19,6 +19,12 @@ import { readMode, requestMode } from '../mode.ts';
+ import { connectVendor, consoleCall, readStatus, testEndpoint, VENDOR_ICONS, VENDORS, vendorOf, type ConnectResult, type Status, type Vendor } from './model.ts';
+ 
+ const PET_PAGE = 'world:desktop-pet';
++/**
++ * DSH 小鲨鱼挂件自己开的本地接口(127.0.0.1:3090)。挂件那头写/读的是同一对文件:
++ * 挂件的 ~/.dsh/.credentials.yaml 和 Coopanion 当前 provider 的 .env,
++ * 所以点一下就能让两个桌宠用上同一把 Key。
++ */
++const SYNC_API = 'http://127.0.0.1:3090/dsh-whale/key-sync';
+ 
+ const S = pick({
+   zh: {
+@@ -34,6 +40,10 @@ const S = pick({
+     keepKey: '留空沿用已保存的 Key',
+     getKey: (name: string) => `去${name}申请 Key`,
+     saveStart: '保存并开始',
++    syncKey: '与 DSH 挂件同步',
++    syncing: '正在同步…',
++    syncOk: '两边的 Key 已经一样了,再不用各改一次。',
++    syncOff: 'DSH 小鲨鱼挂件没在运行。先打开它,再点这里。',
+     connected: (model: string, title: string) => `已连接 ${title} · ${model}`,
+     test: '测试连接',
+     changeKey: '换一家、换模型或换 Key',
+@@ -66,6 +76,10 @@ const S = pick({
+     keepKey: 'Leave empty to keep the saved key',
+     getKey: (name: string) => `Get a ${name} key`,
+     saveStart: 'Save and start',
++    syncKey: 'Sync with DSH widget',
++    syncing: 'Syncing…',
++    syncOk: 'Both sides use the same key now.',
++    syncOff: 'The DSH whale widget is not running. Open it, then click again.',
+     connected: (model: string, title: string) => `Connected to ${title} · ${model}`,
+     test: 'Test',
+     changeKey: 'Change service, model or key',
+@@ -136,10 +150,11 @@ async function mount(ctx: FeatureContext): Promise<void> {
+   modelInput.setAttribute('list', modelList.id);
+   const keyRow = ui.rowbar();
+   const save = ui.button(S.saveStart, { variant: 'primary' });
++  const syncKey = ui.button(S.syncKey, { size: 'sm' });
+   const keyField = ui.field(S.keyLabel(vendor.name), keyInput);
+   const modelField = ui.field(S.modelLabel, modelInput);
+   modelField.classList.add('home-modelfield');
+-  keyRow.append(modelField, keyField, modelList, save);
++  keyRow.append(modelField, keyField, modelList, save, syncKey);
+   /** The active endpoint's service and model, once the status is read. */
+   let active: { vendor: Vendor | null; model: string } = { vendor: null, model: '' };
+   const getKey = ui.h('a', 'home-link', '');
+@@ -255,6 +270,41 @@ async function mount(ctx: FeatureContext): Promise<void> {
+     showTest(await testEndpoint(call, name));
+   });
+   change.addEventListener('click', () => { editingKey = true; void refreshModel(); keyInput.focus(); });
++  /**
++   * 一键与 DSH 挂件对齐 Key:输入框里填了就先当本地那把存盘并启用(验一道),
++   * 然后交给挂件写到两边;输入框空就以已保存的那把为准拉过去。
++   * 挂件没开着时只提示,不动本地。
++   */
++  syncKey.addEventListener('click', async () => {
++    const typed = keyInput.value.trim();
++    syncKey.disabled = true;
++    modelMsg.classList.remove('bad');
++    try {
++      if (typed) {
++        testing();
++        const local = await connectVendor(call, vendor, typed, modelInput.value);
++        showTest(local);
++        if (!local.ok) return;
++        keyInput.value = '';
++        editingKey = false;
++      }
++      modelMsg.textContent = S.syncing;
++      const r = await fetch(typed ? `${SYNC_API}/push` : `${SYNC_API}/pull`, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify(typed ? { value: typed } : {}),
++      });
++      const j = await r.json() as { ok?: boolean; error?: string };
++      if (!j?.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
++      modelMsg.textContent = S.syncOk;
++      await refreshModel();
++    } catch (err) {
++      modelMsg.textContent = `${S.syncOff}(${errText(err)})`;
++      modelMsg.classList.add('bad');
++    } finally {
++      syncKey.disabled = false;
++    }
++  });
+ 
+   /* pet */
+   let petState: PetState | null = null;
 diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
 index fca746d..761a673 100644
 --- a/console/features/pet/index.ts

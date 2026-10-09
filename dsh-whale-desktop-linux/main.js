@@ -243,6 +243,8 @@ const KEY_PAGE = `<!doctype html>
   .row { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:#536ba9; }
   .btn { width:100%; margin-top:14px; padding:10px; background:#203170; color:#fff; border:none; border-radius:8px; font-size:14px; cursor:pointer; }
   .btn:disabled { opacity:.5; cursor:default; }
+  .btn2 { width:100%; margin-top:8px; padding:8px; background:#e8edff; color:#203170; border:1px solid rgba(32,49,112,.25); border-radius:8px; font-size:12.5px; cursor:pointer; }
+  .btn2:disabled { opacity:.5; cursor:default; }
   .status { min-height:18px; font-size:12px; margin-top:8px; }
   .ok { color:#1e7d32; } .err { color:#c0392b; }
   .hint { font-size:11px; color:#9fb0d9; margin-top:10px; line-height:1.5; }
@@ -250,34 +252,62 @@ const KEY_PAGE = `<!doctype html>
 </head>
 <body>
   <h1>🐋 更换 DeepSeek API Key</h1>
-  <p>保存后立即生效；小鲸鱼最晚在下一次刷新（≤ 60 秒，或点一下鲸鱼）用上新令牌。</p>
-  <div class="cur" id="cur">当前：读取中…</div>
+  <p>保存后立即生效；按「保存并同步」可让两个桌宠一起用上它，小鲸鱼最晚在下一次刷新（≤ 60 秒，或点一下鲸鱼）用上新令牌。</p>
+  <div class="cur" id="cur">状态：读取中…</div>
   <label>新的 API Key（sk-…）</label>
   <input id="key" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
   <div class="row"><input id="show" type="checkbox"> <span>显示明文</span></div>
-  <button id="go" class="btn">保存并关闭</button>
+  <button id="go" class="btn">保存并同步到两个桌宠</button>
+  <button id="save" class="btn2">只保存到挂件</button>
+  <button id="pull" class="btn2">以 Coopanion 为准（拉过来）</button>
   <div id="status" class="status"></div>
-  <div class="hint">保存位置：用户目录 ~/.dsh/.credentials.yaml 里的 DEEPSEEK_API_KEY（只在本机，不会上传）。</div>
+  <div class="hint">挂件：用户目录 ~/.dsh/.credentials.yaml　｜　Coopanion：build/data/home/providers/&lt;厂商&gt;/.env（都只在本机）</div>
   <script>
     var el = function (id) { return document.getElementById(id) };
-    fetch('/dsh-whale/apikey', { cache: 'no-store' }).then(function (r) { return r.json() }).then(function (j) {
-      el('cur').innerHTML = '当前：<b>' + ((j && j.masked) || '（未配置）') + '</b>' + ((j && j.configured) ? '' : ' <span style="color:#c0392b">还没配过</span>');
-    }).catch(function () { el('cur').textContent = '当前：（读取失败）' });
-    el('show').addEventListener('change', function () { el('key').type = el('show').checked ? 'text' : 'password' });
     function setStatus(s, cls) { el('status').textContent = s; el('status').className = 'status ' + (cls || '') }
+    function refresh() {
+      return fetch('/dsh-whale/key-sync', { cache: 'no-store' }).then(function (r) { return r.json() }).then(function (j) {
+        var w = (j.widget && j.widget.masked) || '（未配置）';
+        var c = (j.copanion && j.copanion.masked) || '（未配置）';
+        var tag = j.inSync ? '<span style="color:#1e7d32">两边一致 ✓</span>' : '<span style="color:#c0392b">两边不一致</span>';
+        if (!j.available) tag = '<span style="color:#c0392b">没找到 Coopanion 的 .env</span>';
+        el('cur').innerHTML = '挂件：<b>' + w + '</b>　｜　Coopanion：<b>' + c + '</b>　' + tag;
+        if (j.lastError) setStatus(j.lastError, 'err');
+        return j;
+      }).catch(function () { el('cur').textContent = '状态：读取失败' });
+    }
+    refresh();
+    el('show').addEventListener('change', function () { el('key').type = el('show').checked ? 'text' : 'password' });
+    function post(url, body) {
+      return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(function (r) { return r.json() });
+    }
+    function run(btn, label, action) {
+      btn.disabled = true; setStatus(label + '…');
+      return action().then(function (j) {
+        if (!j || !j.ok) { setStatus('失败：' + ((j && (j.lastError || j.error)) || '未知错误'), 'err'); btn.disabled = false; refresh(); return null }
+        return refresh().then(function () { return j });
+      }).catch(function (e) { setStatus('网络错误：' + e, 'err'); btn.disabled = false; return null });
+    }
+    function closeSoon() { setTimeout(function () { fetch('/dsh-whale/key-window-done', { method: 'POST' }) }, 700) }
     el('go').addEventListener('click', function () {
       var v = el('key').value.trim();
       if (!v) { setStatus('请先粘贴新的 API Key', 'err'); return }
       if (v.indexOf('sk-') !== 0) { setStatus('格式看起来不对（应以 sk- 开头）', 'err'); return }
-      el('go').disabled = true; setStatus('保存中…');
-      fetch('/dsh-whale/apikey', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: v }) })
-        .then(function (r) { return r.json() })
-        .then(function (j) {
-          if (!j || !j.ok) { setStatus('保存失败：' + ((j && j.error) || '未知错误'), 'err'); el('go').disabled = false; return }
-          setStatus('已保存 ✓', 'ok');
-          return fetch('/dsh-whale/key-window-done', { method: 'POST' });
-        })
-        .catch(function () { setStatus('网络错误，请重试', 'err'); el('go').disabled = false });
+      run(el('go'), '保存并同步', function () { return post('/dsh-whale/key-sync/push', { value: v }) }).then(function (j) {
+        if (j) { setStatus('两个桌宠都已更新 ✓', 'ok'); closeSoon() }
+      });
+    });
+    el('save').addEventListener('click', function () {
+      var v = el('key').value.trim();
+      if (!v) { setStatus('请先粘贴新的 API Key', 'err'); return }
+      run(el('save'), '保存', function () {
+        return fetch('/dsh-whale/apikey', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: v }) }).then(function (r) { return r.json() });
+      }).then(function (j) { if (j) { setStatus('已保存到挂件（未同步）', 'ok'); closeSoon() } });
+    });
+    el('pull').addEventListener('click', function () {
+      run(el('pull'), '从 Coopanion 拉取', function () { return post('/dsh-whale/key-sync/pull', {}) }).then(function (j) {
+        if (j) setStatus('已把 Coopanion 的 Key 拉到挂件 ✓', 'ok');
+      });
     });
     el('key').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); el('go').click() } });
   </script>
@@ -356,6 +386,105 @@ function saveApiKey(value) {
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
   }
+}
+
+// ---------- 「同步 API Key」：挂件 ↔ Coopanion 桌宠（**按一下才同步，不按不动**） ----------
+// 两个桌宠各存各的令牌：挂件在 ~/.dsh/.credentials.yaml，Coopanion 在
+// <Coopanion>/build/data/home/providers/<厂商>/.env（它的 Core 写、我们镜子）。
+// 有意做成**显式动作**而不是后台自动同步：在任一边按一下「同步」，两边就都变成同一把 key。
+const KEY_SYNC_FILE = path.join(DSH_HOME, '.dshw-key-sync.json');
+const COPANION_KEY_NAME = 'DEEPSEEK_API_KEY';
+
+function readKeySync() {
+  const cfg = readJson(KEY_SYNC_FILE) || {};
+  return { lastSyncAt: cfg.lastSyncAt || null, lastSource: cfg.lastSource || null, lastError: cfg.lastError || null };
+}
+function writeKeySync(patch) {
+  const cfg = readJson(KEY_SYNC_FILE) || {};
+  Object.assign(cfg, patch);
+  writeJson(KEY_SYNC_FILE, cfg);
+  return readKeySync();
+}
+
+/** Coopanion 的 provider `.env` 路径：DSHW_COOPANION_ENV 可直接指定，否则按仓库默认布局推断。 */
+function coopanionEnvPath() {
+  if (process.env.DSHW_COOPANION_ENV) return process.env.DSHW_COOPANION_ENV;
+  const root = process.env.DSHW_COOPANION_DIR || path.join(__dirname, '..', 'third-party', 'Coopanion');
+  const home = path.join(root, 'build', 'data', 'home');
+  let provider = 'deepseek';
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(home, 'companion', 'config.json'), 'utf8'));
+    if (cfg && typeof cfg.activeProvider === 'string' && cfg.activeProvider) provider = cfg.activeProvider;
+  } catch (_e) { /* 没装/还没跑过就用默认厂商 */ }
+  return path.join(home, 'providers', provider, '.env');
+}
+
+/** 从 `NAME=VALUE` 文本里取一个键（Coopanion 的 .env 就是这么存的）。 */
+function parseEnvValue(text, name) {
+  const m = String(text || '').match(new RegExp('^\\s*' + name + '\\s*=\\s*"?([^"\\r\\n]*)"?\\s*$', 'm'));
+  return m ? m[1].trim() : null;
+}
+/** 把 `NAME=VALUE` 写回文本（保留其它行；没有就追加）。 */
+function upsertEnvValue(text, name, value) {
+  const re = new RegExp('^\\s*' + name + '\\s*=.*$', 'm');
+  const line = name + '=' + value;
+  if (re.test(text)) return text.replace(re, line);
+  const tail = String(text || '').replace(/\s*$/, '');
+  return (tail ? tail + '\n' : '') + line + '\n';
+}
+
+function readCoopanionKey() {
+  const file = coopanionEnvPath();
+  const buf = readFileIfExists(file);
+  if (!buf) return { file, key: null, exists: false };
+  return { file, key: parseEnvValue(buf.toString('utf8'), COPANION_KEY_NAME), exists: true };
+}
+function writeCoopanionKey(key) {
+  const { file } = readCoopanionKey();
+  const cur = readFileIfExists(file);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, upsertEnvValue(cur ? cur.toString('utf8') : '', COPANION_KEY_NAME, key), 'utf8');
+}
+
+/** 同步状态（给界面与自检看；不含明文令牌）。 */
+function keySyncStatus() {
+  const st = readKeySync();
+  const w = readApiKey();
+  const c = readCoopanionKey();
+  return {
+    ok: true,
+    available: c.exists,
+    widget: { configured: !!w, masked: maskKey(w) },
+    copanion: { configured: !!c.key, masked: maskKey(c.key), env: c.file, exists: c.exists },
+    inSync: !!w && !!c.key && w === c.key,
+    lastSyncAt: st.lastSyncAt,
+    lastSource: st.lastSource,
+    lastError: st.lastError,
+  };
+}
+
+/**
+ * 【按一下两边都同步】把 `value`（没传就用挂件当前存的那把）**同时**写进两边。
+ */
+function syncKeyToBoth(value) {
+  const key = String(value || '').trim() || readApiKey() || '';
+  if (!key) { writeKeySync({ lastError: '两边都没有 key，没东西可同步' }); return keySyncStatus(); }
+  saveApiKey(key);
+  const c = readCoopanionKey();
+  if (!c.exists) { writeKeySync({ lastError: '找不到 Coopanion 的 .env：' + c.file }); return keySyncStatus(); }
+  writeCoopanionKey(key);
+  writeKeySync({ lastSyncAt: Date.now(), lastSource: 'widget', lastError: null });
+  return keySyncStatus();
+}
+
+/** 反方向：把 Coopanion 已存的那把拉到挂件（两边归一）。 */
+function syncKeyFromCoopanion() {
+  const c = readCoopanionKey();
+  if (!c.exists) { writeKeySync({ lastError: '找不到 Coopanion 的 .env：' + c.file }); return keySyncStatus(); }
+  if (!c.key) { writeKeySync({ lastError: 'Coopanion 那边还没配 key' }); return keySyncStatus(); }
+  saveApiKey(c.key);
+  writeKeySync({ lastSyncAt: Date.now(), lastSource: 'copanion', lastError: null });
+  return keySyncStatus();
 }
 
 let win = null;
@@ -725,6 +854,47 @@ function startServer() {
       res.end(JSON.stringify({ ok: true, value: readAlwaysOnTop() }));
       return;
     }
+    // 跨源预检：Coopanion 控制台（127.0.0.1:17788）要调这里的 key-sync 接口
+    if (req.method === 'OPTIONS' && p.indexOf('/dsh-whale/key-sync') === 0) {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Max-Age': '600',
+      });
+      res.end();
+      return;
+    }
+    if (p === '/dsh-whale/key-sync' || p === '/dsh-whale/key-sync/push' || p === '/dsh-whale/key-sync/pull') {
+      // 两个桌宠的 key 同步：GET 看状态；push 把 key 写进两边；pull 以 Coopanion 为准
+      const json = (code, obj) => {
+        res.writeHead(code, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        });
+        res.end(JSON.stringify(obj));
+      };
+      if (p === '/dsh-whale/key-sync') {
+        if (req.method !== 'GET') { json(405, { ok: false, error: 'method not allowed' }); return; }
+        json(200, keySyncStatus());
+        return;
+      }
+      if (req.method !== 'POST') { json(405, { ok: false, error: 'method not allowed' }); return; }
+      let sbody = '';
+      req.on('data', (c) => { sbody += c; if (sbody.length > 65536) req.destroy(); });
+      req.on('end', () => {
+        let value = '';
+        try { value = String((JSON.parse(sbody || '{}') || {}).value || ''); } catch (_e) { /* 空体就是「用现有那把」 */ }
+        try {
+          json(200, p === '/dsh-whale/key-sync/pull' ? syncKeyFromCoopanion() : syncKeyToBoth(value));
+        } catch (e) {
+          json(500, { ok: false, error: String((e && e.message) || e), lastError: String((e && e.message) || e) });
+        }
+      });
+      return;
+    }
     if (p === '/dsh-whale/apikey') {
       if (req.method === 'PUT') {
         let body = '';
@@ -894,7 +1064,7 @@ function openKeyWindow() {
   if (keyWin && !keyWin.isDestroyed()) { raiseKeyWindow(); return; }
   keyWin = new BrowserWindow({
     width: 470,
-    height: 390,
+    height: 480,
     resizable: false,
     autoHideMenuBar: true,
     title: 'DSH 小鲸鱼 · 更换 API Key',

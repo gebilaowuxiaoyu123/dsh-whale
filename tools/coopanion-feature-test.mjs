@@ -93,7 +93,19 @@ check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「习惯�
   'alwaysOnTop', 'alwaysOnTopHint',
 ]);
 
-/* ---------- 5. 构建产物跟上没有 ---------- */
+/* ---------- 5. 「开始」页上与 DSH 挂件一键同步 Key ---------- */
+check(join(ROOT, 'console', 'features', 'home', 'index.ts'), '「开始」页有与挂件同步的按钮', [
+  "const SYNC_API = 'http://127.0.0.1:3090/dsh-whale/key-sync'",
+  'const syncKey = ui.button(S.syncKey',
+  'keyRow.append(modelField, keyField, modelList, save, syncKey)',
+  'syncKey: \'与 DSH 挂件同步\'',
+  'syncOff:',
+]);
+check(join(ROOT, 'console', 'features', 'home', 'index.ts'), '按钮一按两边都同步（填了推、留空拉）', [
+  '${SYNC_API}/push', '${SYNC_API}/pull', 'JSON.stringify(typed ? { value: typed } : {})', 'connectVendor(call, vendor, typed',
+]);
+
+/* ---------- 6. 构建产物跟上没有 ---------- */
 {
   const webRoot = join(ROOT, 'build', 'cortico', 'dist', 'web');
   const main = existsSync(webRoot) ? readdirSync(webRoot).find((f) => /^main-.*\.js$/.test(f)) : null;
@@ -105,11 +117,15 @@ check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「习惯�
       '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
     ok('构建产物里有「置顶显示」', text.includes('\\u7F6E\\u9876\\u663E\\u793A') || text.includes('置顶显示'),
       '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
+    ok('构建产物里有「与 DSH 挂件同步」', text.includes('\\u4E0E DSH \\u6302\\u4EF6\\u540C\\u6B65') || text.includes('与 DSH 挂件同步'),
+      '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
+    ok('构建产物里有挂件同步接口地址', text.includes('127.0.0.1:3090'),
+      '补丁打了但没重新构建：跑 pnpm --dir <Coopanion> run build:cortico');
   }
 }
 ok('桌宠面板 bundle 已构建', existsSync(join(PET, 'dist', 'console.js')));
 
-/* ---------- 6. 补丁文件与工作区一致 ---------- */
+/* ---------- 7. 补丁文件与工作区一致 ---------- */
 {
   ok('补丁文件存在', existsSync(PATCH), PATCH);
   if (existsSync(PATCH)) {
@@ -132,7 +148,7 @@ ok('桌宠面板 bundle 已构建', existsSync(join(PET, 'dist', 'console.js')))
   }
 }
 
-/* ---------- 7. 没漏调试插桩 ---------- */
+/* ---------- 8. 没漏调试插桩 ---------- */
 {
   const roots = ['app', 'core', 'console', join('packages', 'cortico-world-desktop-pet', 'src'), join('packages', 'cortico-world-desktop-pet', 'web')];
   const hits = [];

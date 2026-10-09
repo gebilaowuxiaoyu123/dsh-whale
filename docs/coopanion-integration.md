@@ -54,7 +54,7 @@ Coopanion 是别人的 AGPL 代码，所以**改造不直接改在仓库里**，
 patches/coopanion/0001-dsh-pet-features.patch
 ```
 
-安装/更新脚本会自动打上（幂等：已打过就跳过；打不上只报警不硬来）。补丁共五件事：
+安装/更新脚本会自动打上（幂等：已打过就跳过；打不上只报警不硬来）。补丁共六件事：
 
 | 改造 | 落在哪 | 说明 |
 |---|---|---|
@@ -63,6 +63,7 @@ patches/coopanion/0001-dsh-pet-features.patch
 | **「置顶显示」开关（默认关）** | `src/config.ts`、`src/world.ts`、`src/window-host.ts`、`host/electron-main.cjs`、`host/preload.cjs`、`web/pet-app.js`、`console/features/pet/index.ts` | 上游窗口是 `alwaysOnTop: true` + `screen-saver` 级别 —— 连全屏应用都在它下面。现在默认**关**：桌宠只是普通窗口，**应用窗口盖住它、它仍在桌面图标之上**；控制台「习惯」页勾上就回到浮在所有窗口之上。改动实时生效：配置 → World 快照 → 页面 `prefs` → `petHost.setAlwaysOnTop` → 主进程；启动初值随 `--always-on-top=0\|1` 传给窗口进程 |
 | **开机自启（未打包也能用）** | `app/main.cjs` | 托盘里的「开机自动启动」原来被 `app.isPackaged` 挡着；现在把启动命令行显式写成 `<electron> <应用目录> --background`，另加命令行开关 `--set-autostart=on|off` |
 | **自启时不弹调试界面** | `app/main.cjs`、`core/companion.ts` | `--background` 会传成 `CORTICO_START_BACKGROUND=1`，引导流程里那句「桌宠没连上就打开设置窗」被跳过 |
+| **「与 DSH 挂件同步」按钮（两个桌宠共用一把 Key）** | `console/features/home/index.ts` | 「开始」页的 key 输入框旁多一个按钮：**不按不同步，按一下两边都同步** —— 填了就先把这把存进 Coopanion（走它自己的保存+测试，测不过就不推）再推给挂件，留空就以已保存的那把为准拉过去。跨源调挂件的 `127.0.0.1:3090/dsh-whale/key-sync/*`（挂件那头放行了 CORS 预检；挂件没在跑时只提示，不动本地）|
 
 > 改动要**手工改源码**时：改完用 `git -C third-party/Coopanion diff --no-color --output=patches/coopanion/0001-dsh-pet-features.patch`
 > 重新生成补丁，否则下次更新会把你的改动冲掉。`tools\coopanion-feature-test.mjs` 会检查这一致性。
