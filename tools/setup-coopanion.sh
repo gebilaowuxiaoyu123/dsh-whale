@@ -84,11 +84,24 @@ else
   warn "已存在：$DIR（如需更新请加 -u）"
 fi
 
+# 版本硬校验：源码漂了补丁就整段打不上，宁可早失败也不要在错版本上继续
+WANT_VER="${COOPANION_TAG#v}"
+HAVE_VER="$(node -p "require('$DIR/package.json').version")"
+[ "$HAVE_VER" = "$WANT_VER" ] || {
+  echo "源码版本是 $HAVE_VER，需要 $WANT_VER（补丁是照着那个版本生成的）—— 跑一次 -u 再来" >&2
+  exit 1
+}
+ok "源码版本 = $HAVE_VER"
+
 step '初始化子模块 vendor/cortico（Cortico 框架）'
 git -C "$DIR" submodule update --init --depth 1 vendor/cortico
-git -C "$DIR/vendor/cortico" fetch --depth 1 origin "$CORTICO_COMMIT" \
-  && git -C "$DIR/vendor/cortico" checkout -q --detach "$CORTICO_COMMIT"
-ok '子模块就绪'
+git -C "$DIR/vendor/cortico" fetch --depth 1 origin "$CORTICO_COMMIT"
+git -C "$DIR/vendor/cortico" checkout -q --detach "$CORTICO_COMMIT"
+git -C "$DIR/vendor/cortico" rev-parse HEAD | grep -q "^${CORTICO_COMMIT:0:7}" || {
+  echo "vendor/cortico 现在不在 $CORTICO_COMMIT 上" >&2
+  exit 1
+}
+ok "子模块就绪（${CORTICO_COMMIT:0:7}）"
 
 step '安装依赖（pnpm install）'
 # Electron 二进制上百 MB，默认走国内镜像；要官方源就把 ELECTRON_MIRROR 设成空再跑
@@ -116,10 +129,11 @@ elif git -C "$DIR" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
   ok '补丁已经应用过了'
 elif git -C "$DIR" apply --check "$PATCH" >/dev/null 2>&1; then
   git -C "$DIR" apply "$PATCH"
-  ok '补丁已应用（调试入口按钮 / 随刷新率走动 / 开机自启不弹窗）'
+  ok '补丁已应用（调试入口按钮 / 随刷新率走动 / 开机自启不弹窗 / 置顶开关 / 一键同步 Key / 测试刷新率）'
 else
-  warn '补丁打不上 —— 上游源码可能已经变了'
-  warn "请看 docs/coopanion-integration.md，必要时用 -u 更新后重试，或手动改 ${PATCH} 里的对应文件"
+  # 不在没打上补丁的源码上继续构建：那样会得到一个“看起来装好了、其实没有功能”的产物
+  echo '补丁打不上 —— 上游源码可能已经变了。源码必须与补丁对应的版本一致（见脚本顶部的 COOPANION_TAG），先 -u 再重试' >&2
+  exit 1
 fi
 
 step '构建（pnpm run build:cortico）'

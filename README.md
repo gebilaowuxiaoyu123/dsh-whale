@@ -85,7 +85,7 @@ dsh-whale/
 │   ├── setup-coopanion.sh          # Coopanion 桌宠一键安装/更新（Linux）
 │   ├── coopanion-autostart.ps1     # Coopanion 开机自启 登记/撤销/查看（Windows，自启不弹调试界面）
 │   ├── coopanion-autostart.sh      # Coopanion 开机自启 登记/撤销/查看（Linux，XDG）
-│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（34 项）
+│   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（36 项）
 │   ├── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
 │   ├── coopanion-hzscan-test.mjs   # 「测试刷新率」自检：一帧一步/段序/读数/用时（20 项）
 │   ├── freeze-fix/                 # ★ Ubuntu 侧：GPU 挂死取证与防护（i915 稳定化 / GPU 看门狗 / 修 fstab+引导）

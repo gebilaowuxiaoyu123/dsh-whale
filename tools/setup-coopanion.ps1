@@ -73,23 +73,40 @@ if (-not (Test-Path $pkg)) {
   Step "克隆 Coopanion 到 $Dir"
   New-Item -ItemType Directory -Path (Split-Path -Parent $Dir) -Force | Out-Null
   git clone --depth 1 --branch $CoopanionTag https://github.com/Pal-AI-Lab/Coopanion.git $Dir
+  if ($LASTEXITCODE -ne 0) { throw "git clone $CoopanionTag 失败（网络？先解决网络再重试）" }
   Ok "源码已克隆（$CoopanionTag）"
 }
 elseif ($Update) {
   Step "更新源码到 $CoopanionTag（含子模块）"
   git -C $Dir fetch --depth 1 origin tag $CoopanionTag
+  if ($LASTEXITCODE -ne 0) { throw "git fetch $CoopanionTag 失败（网络？）—— 不要在旧源码上继续打补丁" }
   git -C $Dir checkout -f $CoopanionTag
+  if ($LASTEXITCODE -ne 0) { throw "git checkout $CoopanionTag 失败" }
   Ok "源码已更新到 $CoopanionTag"
 }
 else {
   Warn "已存在：$Dir（如需更新请加 -Update）"
 }
 
+# 版本硬校验：源码漂了补丁就整段打不上，这里宁可早失败也不要在错版本上继续
+$wantVer = $CoopanionTag.TrimStart('v')
+$haveVer = (Get-Content $pkg -Raw | ConvertFrom-Json).version
+if ($haveVer -ne $wantVer) {
+  throw "源码版本是 $haveVer，需要 $wantVer（补丁是照着那个版本生成的）—— 跑一次 -Update 再来"
+}
+Ok "源码版本 = $haveVer"
+
 Step '初始化子模块 vendor/cortico（Cortico 框架）'
 git -C $Dir submodule update --init --depth 1 vendor/cortico
+if ($LASTEXITCODE -ne 0) { throw 'vendor/cortico 子模块拉取失败' }
 $corticoDir = Join-Path $Dir 'vendor\cortico'
 git -C $corticoDir fetch --depth 1 origin $CorticoCommit
-if ($LASTEXITCODE -eq 0) { git -C $corticoDir checkout -q --detach $CorticoCommit }
+if ($LASTEXITCODE -ne 0) { throw "vendor/cortico 的 $CorticoCommit 拉不下来" }
+git -C $corticoDir checkout -q --detach $CorticoCommit
+if ($LASTEXITCODE -ne 0) { throw "vendor/cortico 切不到 $CorticoCommit" }
+if (-not (git -C $corticoDir rev-parse HEAD).Trim().StartsWith($CorticoCommit.Substring(0, 7))) {
+  throw "vendor/cortico 现在不在 $CorticoCommit 上"
+}
 Ok '子模块就绪'
 
 Step '安装依赖（pnpm install）'
@@ -129,10 +146,10 @@ else {
   if (-not $already) { git -C $Dir apply --check $patch 2>$null | Out-Null; $clean = ($LASTEXITCODE -eq 0) }
   else { $clean = $false }
   if ($already) { Ok '补丁已经应用过了' }
-  elseif ($clean) { git -C $Dir apply $patch; Ok '补丁已应用（调试入口按钮 / 随刷新率走动 / 开机自启不弹窗）' }
+  elseif ($clean) { git -C $Dir apply $patch; Ok '补丁已应用（调试入口按钮 / 随刷新率走动 / 开机自启不弹窗 / 置顶开关 / 一键同步 Key / 测试刷新率）' }
   else {
-    Warn '补丁打不上 —— 上游源码可能已经变了'
-    Warn '请看 docs\coopanion-integration.md，必要时先 -Update 再重试，或手动改 patches\coopanion 里的对应文件'
+    # 不在没打上补丁的源码上继续构建：那样会得到一个“看起来装好了、其实没有功能”的产物
+    throw '补丁打不上 —— 上游源码可能已经变了。源码必须与补丁对应的版本一致（见脚本顶部的 $CoopanionTag），先 -Update 再重试'
   }
   $ErrorActionPreference = $eap
 }

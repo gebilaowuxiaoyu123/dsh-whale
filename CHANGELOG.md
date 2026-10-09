@@ -8,6 +8,31 @@
 
 ---
 
+## [Coopanion 升级到上游 v0.1.20（重新移植全部自研功能）] - 2026-10-10
+
+> 上游在 **v0.1.19 / v0.1.20** 重构了前端：原来的 `web/pet-core.js` 被拆成 **`web/kit/body.js`（模拟引擎）**、
+> `web/ui.js`（图标/主题）、`web/coo/*`（形象）、`web/i18n.js`（多语言），控制台文案挪到
+> `console/features/pet/strings.ts`。源码一漂，原来的补丁**整段打不上**，所以本次把源码与子模块都**钉死版本**，
+> 并把六个自研功能**重新移植**到新结构上。
+
+### 变更
+- **版本钉死**：Coopanion `v0.1.20` + 子模块 `vendor/cortico` @ `f944984`（上游 tarball 不含子模块，commit 也一并钉死）。
+- 六个自研功能全部重新移植（对照表见 [`docs/coopanion-integration.md`](docs/coopanion-integration.md)）：
+  气泡左侧调试入口、「随刷新率」走动、置顶显示开关、开机自启（未打包可用）、自启不弹调试界面、
+  「与 DSH 挂件同步」按钮、悬停按钮「测试刷新率」。补丁共 18 个文件。
+- **「置顶显示」默认值回到「开」**（与上游一致）：想要「应用窗口盖住它、它仍在桌面图标之上」，
+  去控制台「习惯」页把「置顶显示」关掉。
+- 自检脚本跟着换路径：`tools/coopanion-hzscan-test.mjs` 改为 import `web/kit/body.js`；
+  `coopanion-feature-test.mjs` / `coopanion-sync-roam-test.mjs` 同步更新。
+
+### 本机适配踩坑（2026-10-10）
+- **`setup-coopanion.ps1 -Update` 不看 `git fetch/checkout` 的退出码**：本机当天 GitHub 直连被掐，
+  `fetch` 失败后脚本照样往下跑 → 结果是「源码还是旧版 v0.1.10 + 补丁打不上（只报警）+ 构建照跑」，
+  外表完全看不出错。已给脚本加上**版本与子模块的硬校验**，并在补丁打不上时**直接中止**（不再往下构建一个没有功能的产物）。
+- 升级前先备份 `third-party/Coopanion/build/data/home/`（`config.json` + `providers/*/.env` 里的令牌）。
+
+---
+
 ## [桌面刷新率测试] - 2026-10-09
 
 > 需求（用户原话）：新加一个功能「测试桌面刷新率」——在侧边小按钮点击后，小鲸鱼会先快速跑到左侧
@@ -21,7 +46,7 @@
   - 跑完冒气泡：`测试完成 · 屏幕约 120 Hz（实测 115.9 Hz · 4 段 1767 px 用时 15.4 秒）`；
   - 说完**慢悠悠走回测试前站着的位置**（用走、不用跑）；全程不动行为模式，跑完接着按原来的模式过。
   - 再点一下 = 停下；中途被拎起来/抛出去 = 中断（会冒一句话说明）。
-- `web/pet-core.js` 新增 `hzScan()` / `stopHzScan()` / `scanning`：测速探针 + 段序状态机 + 一帧一步的固定速度。
+- `web/kit/body.js`（上游 v0.1.20 里由 `web/pet-core.js` 拆分而来）新增 `hzScan()` / `stopHzScan()` / `scanning`：测速探针 + 段序状态机 + 一帧一步的固定速度；图标在 `web/ui.js`，文案在 `console/features/pet/strings.ts`。
 
 ### 为什么这么量
 - 页面平时的帧循环为了省电被压到 **15/30 fps**，所以它数出来的「帧率」不是屏幕的刷新率。
