@@ -79,8 +79,8 @@ check(join(ROOT, 'core', 'companion.ts'), '--background 时不自己打开设置
 ]);
 
 /* ---------- 4. 「置顶显示」开关 ---------- */
-check(join(PET, 'src', 'config.ts'), '配置 schema 有「置顶显示」（默认关）', [
-  'alwaysOnTop', '置顶显示', 'alwaysOnTop: false',
+check(join(PET, 'src', 'config.ts'), '配置 schema 有「置顶显示」（默认开，与上游一致）', [
+  'alwaysOnTop', '置顶显示', 'alwaysOnTop: true',
 ]);
 check(join(PET, 'src', 'window-host.ts'), '窗口进程命令行带上置顶开关', ['--always-on-top=']);
 check(join(PET, 'src', 'world.ts'), '快照把开关广播给页面', ['alwaysOnTop: this.cfg.window.alwaysOnTop === true']);

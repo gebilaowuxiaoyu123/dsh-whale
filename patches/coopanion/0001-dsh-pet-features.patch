@@ -518,7 +518,7 @@ index 3206af1..eef5d72 100644
    /** Takes the keyboard from whatever window has it (a question's number keys), and gives it back. */
    grabFocus: () => ipcRenderer.send('pet:grabFocus'),
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
-index 43e654f..0d06dae 100644
+index 43e654f..a85b820 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts
 +++ b/packages/cortico-world-desktop-pet/src/config.ts
 @@ -7,7 +7,7 @@ import { DEFAULT_HOTKEY } from './asr/hotkey.ts';
@@ -553,7 +553,7 @@ index 43e654f..0d06dae 100644
    port: 7797,
    user: '伙伴',
 -  window: { enabled: true, electronFile: '', scale: 1, frameRate: 60, lockFrameRate: false, hideWhenFullscreen: false },
-+  window: { enabled: true, electronFile: '', scale: 1, frameRate: 60, lockFrameRate: false, hideWhenFullscreen: false, alwaysOnTop: false },
++  window: { enabled: true, electronFile: '', scale: 1, frameRate: 60, lockFrameRate: false, hideWhenFullscreen: false, alwaysOnTop: true },
    roam: 'calm',
    sound: true,
    sounds: { move: true, touch: true, face: true, snore: true, talk: true, ui: true, snoreSeconds: 0 },
