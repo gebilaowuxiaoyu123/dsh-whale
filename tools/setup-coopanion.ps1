@@ -61,17 +61,22 @@ Ok ("git  " + (git --version))
 Ok ("node " + (node --version))
 Ok ("pnpm " + (pnpm --version))
 
+# 上游源码钉在该 tag 上：补丁 patches\coopanion\0001-dsh-pet-features.patch 就是针对它生成的，
+# 源码漂移（上游重构过 web/pet-core.js 的拆分）会让补丁整段打不上，所以这里必须钉死。
+$CoopanionTag = 'v0.1.19'
+
 $pkg = Join-Path $Dir 'package.json'
 if (-not (Test-Path $pkg)) {
   Step "克隆 Coopanion 到 $Dir"
   New-Item -ItemType Directory -Path (Split-Path -Parent $Dir) -Force | Out-Null
-  git clone --depth 1 https://github.com/Pal-AI-Lab/Coopanion.git $Dir
-  Ok '源码已克隆'
+  git clone --depth 1 --branch $CoopanionTag https://github.com/Pal-AI-Lab/Coopanion.git $Dir
+  Ok "源码已克隆（$CoopanionTag）"
 }
 elseif ($Update) {
-  Step '更新源码（含子模块）'
-  git -C $Dir pull --ff-only
-  Ok '源码已更新'
+  Step "更新源码到 $CoopanionTag（含子模块）"
+  git -C $Dir fetch --depth 1 origin tag $CoopanionTag
+  git -C $Dir checkout -f $CoopanionTag
+  Ok "源码已更新到 $CoopanionTag"
 }
 else {
   Warn "已存在：$Dir（如需更新请加 -Update）"

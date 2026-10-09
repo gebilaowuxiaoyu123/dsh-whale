@@ -57,11 +57,12 @@ check(join(PET, 'web', 'pet.css'), '气泡：齿轮按钮的样式', ['.b-own bu
 
 /* ---------- 2. 「随刷新率」走动模式 ---------- */
 check(join(PET, 'web', 'pet-app.js'), '走动模式列表里有 sync', [
-  "ROAM_ORDER = ['off', 'calm', 'free', 'sync']", '随刷新率', 'ctl.hz',
+  "ROAM_ORDER = ['off', 'calm', 'free', 'sync']", '随刷新率', 'body?.hz',
 ]);
-check(join(PET, 'web', 'pet-core.js'), '刷新率读数与速度缩放', [
-  'readHz', 'SYNC_MIN', 'SYNC_MAX', 'roam_sync', 'get hz()', 'syncK',
+check(join(PET, 'web', 'kit', 'body.js'), '刷新率读数与速度缩放', [
+  'readHz', 'SYNC_MIN', 'SYNC_MAX', 'get hz()', 'syncK',
 ]);
+check(join(PET, 'web', 'ui.js'), '刷新率相关图标', ['roam_sync', 'hz: icon(']);
 check(join(PET, 'src', 'config.ts'), '配置 schema 接受 sync', ["enum: ['free', 'calm', 'off', 'sync']"]);
 check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「习惯」页有这一项', ['roamSync']);
 
@@ -110,12 +111,12 @@ check(join(ROOT, 'packages', 'cortico-world-desktop-pet', 'src', 'config.ts'), '
   "'chat', 'voice', 'roam', 'hz', 'theme', 'sound', 'dress', 'hide'",
 ]);
 check(join(PET, 'web', 'pet-app.js'), '悬停按钮里有它，点一下就跑', [
-  'icon: () => ICONS.hz', '横穿桌面来回跑两趟，量出屏幕的刷新率', 'void runHzTest()', 'ctl.hzScan({ legs: 4 })',
+  'icon: () => ICONS.hz', '横穿桌面来回跑两趟，量出屏幕的刷新率', 'void runHzTest()', 'body.hzScan({ legs: 4 })',
 ]);
 check(join(PET, 'web', 'pet-app.js'), '跑完冒气泡说完成，再慢悠悠回原位', [
-  '测试完成 · 屏幕约', '实测 ${r.raw.toFixed(1)} Hz', 'await sayOnce(', "ctl.walkTo(r.x0, false)", 'ctl.holdRoam(30)',
+  '测试完成 · 屏幕约', '实测 ${r.raw.toFixed(1)} Hz', 'await sayOnce(', 'body?.walk(r.x0, false, 0)', 'holdRoam(30)',
 ]);
-check(join(PET, 'web', 'pet-core.js'), '测速探针 + 一帧一步 + 段序', [
+  check(join(PET, 'web', 'kit', 'body.js'), '测速探针 + 一帧一步 + 段序', [
   'HZ_SCAN_LEGS = 4, HZ_SCAN_PX = 1', 'function probeHz()', 'function snapHz(', 'function hzScan(',
   'function scanLeg()', 'function tickScan()', 'function stopHzScan()', 'get scanning()', 'hzPinned',
 ]);

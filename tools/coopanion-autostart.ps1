@@ -59,20 +59,47 @@ function Show-Entry {
   }
 }
 
+# --set-autostart 是 patches\coopanion\0001-dsh-pet-features.patch 加进来的开关。补丁没打上时
+# 上游原版根本不认它，直接调用只会把桌宠再启动一遍（还会把脚本卡住）。所以先探测：
+# 支持就交给它（托盘勾选状态同步），不支持就自己写 HKCU Run 条目。
+$supportsSwitch = [bool](Select-String -Path (Join-Path $Dir 'app\main.cjs') -Pattern 'set-autostart' -Quiet)
+# 条目名**不能**叫 Coopanion：Electron 会清理以自己 App 名命名的登录项，
+# Coopanion 一启动就会把同名 Run 条目删掉（实测：同名条目启动即消失，改名后正常存活）。
+$entryName  = 'CoopanionPet'
+$entryValue = '"' + $exe + '" "' + $Dir + '" --background'
+
+function Set-Autostart([bool]$On) {
+  if ($supportsSwitch) {
+    & $exe $Dir $(if ($On) { '--set-autostart=on' } else { '--set-autostart=off' })
+    return
+  }
+  if ($On) {
+    New-ItemProperty -Path $RunKey -Name $entryName -Value $entryValue -PropertyType String -Force | Out-Null
+  }
+  else {
+    Remove-ItemProperty -Path $RunKey -Name $entryName -ErrorAction SilentlyContinue
+  }
+}
+
 switch ($Action) {
   'status' { Show-Entry }
 
   'install' {
-    # 直接问 Coopanion 自己：同一个开关，托盘的勾选状态也跟着变
-    & $exe $Dir --set-autostart=on
+    Set-Autostart $true
     Write-Host ''
     Write-Host '下次登录会自动起来：只显示桌宠和托盘图标，不会打开调试界面。' -ForegroundColor Cyan
-    Write-Host '（想改主意：右键托盘图标 -> 开机自动启动，或者跑本脚本的 uninstall）'
+    if (-not $supportsSwitch) {
+      Write-Host "（上游源码没有 --set-autostart，已改用注册表 Run 条目「$entryName」；托盘里的勾选框不会跟着变）" -ForegroundColor Yellow
+      Write-Host "（想改主意：跑本脚本的 uninstall，或删掉 HKCU\...\Run 下的 $entryName）"
+    }
+    else {
+      Write-Host '（想改主意：右键托盘图标 -> 开机自动启动，或者跑本脚本的 uninstall）'
+    }
     Show-Entry
   }
 
   'uninstall' {
-    & $exe $Dir --set-autostart=off
+    Set-Autostart $false
     Write-Host ''
     Show-Entry
   }

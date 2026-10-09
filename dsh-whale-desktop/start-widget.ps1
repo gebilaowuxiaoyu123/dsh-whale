@@ -1,8 +1,9 @@
-# DSH Whale Desktop Widget - launcher (standalone, no dsh web required)
+﻿# DSH Whale Desktop Widget - launcher (standalone, no dsh web required)
 # The widget is self-contained: it fetches the balance directly from DeepSeek API.
 $ErrorActionPreference = 'Continue'
 
-$widgetDir   = 'C:\Users\HUAWEI\Desktop\dsh-whale\dsh-whale-desktop'
+# 脚本所在目录即挂件目录（原实现硬编码了作者机器的绝对路径，换机后失效）
+$widgetDir   = $PSScriptRoot
 $electronExe = Join-Path $widgetDir 'node_modules\electron\dist\electron.exe'
 
 # Launch the Electron widget if not already running
