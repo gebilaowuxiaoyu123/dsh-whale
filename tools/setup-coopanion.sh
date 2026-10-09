@@ -52,6 +52,10 @@ mkdir -p "$(dirname "$DIR")"
 DIR="$(cd "$(dirname "$DIR")" && pwd)/$(basename "$DIR")"
 
 PATCH="$REPO_ROOT/patches/coopanion/0001-dsh-pet-features.patch"
+# 补丁是针对这个 tag 生成的，源码漂移会让它整段打不上，所以钉死。
+COOPANION_TAG='v0.1.20'
+# v0.1.20 需要新版 Cortico（Translation / LanguageTable 等新 API），commit 一并钉死。
+CORTICO_COMMIT='f9449842a8ed93cfc0e3fd5a554e00c2aa5973f5'
 
 step() { printf '\n=== %s ===\n' "$1"; }
 ok()   { printf '  [OK] %s\n' "$1"; }
@@ -69,18 +73,21 @@ NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 
 if [ ! -f "$DIR/package.json" ]; then
   step "克隆 Coopanion 到 $DIR"
-  git clone --depth 1 https://github.com/Pal-AI-Lab/Coopanion.git "$DIR"
-  ok '源码已克隆'
+  git clone --depth 1 --branch "$COOPANION_TAG" https://github.com/Pal-AI-Lab/Coopanion.git "$DIR"
+  ok "源码已克隆（$COOPANION_TAG）"
 elif [ "$UPDATE" = 1 ]; then
-  step '更新源码（含子模块）'
-  git -C "$DIR" pull --ff-only
-  ok '源码已更新'
+  step "更新源码到 $COOPANION_TAG（含子模块）"
+  git -C "$DIR" fetch --depth 1 origin tag "$COOPANION_TAG"
+  git -C "$DIR" checkout -f "$COOPANION_TAG"
+  ok "源码已更新到 $COOPANION_TAG"
 else
   warn "已存在：$DIR（如需更新请加 -u）"
 fi
 
 step '初始化子模块 vendor/cortico（Cortico 框架）'
 git -C "$DIR" submodule update --init --depth 1 vendor/cortico
+git -C "$DIR/vendor/cortico" fetch --depth 1 origin "$CORTICO_COMMIT" \
+  && git -C "$DIR/vendor/cortico" checkout -q --detach "$CORTICO_COMMIT"
 ok '子模块就绪'
 
 step '安装依赖（pnpm install）'

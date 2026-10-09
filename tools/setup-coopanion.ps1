@@ -63,7 +63,10 @@ Ok ("pnpm " + (pnpm --version))
 
 # 上游源码钉在该 tag 上：补丁 patches\coopanion\0001-dsh-pet-features.patch 就是针对它生成的，
 # 源码漂移（上游重构过 web/pet-core.js 的拆分）会让补丁整段打不上，所以这里必须钉死。
-$CoopanionTag = 'v0.1.19'
+$CoopanionTag = 'v0.1.20'
+# v0.1.20 需要新版 Cortico（Translation / LanguageTable / LANGUAGE_NAMES 等新 API）。
+# 上游 tarball 不含子模块，而父仓库的 gitlink 未必跟得上，所以这里把 commit 也钉死。
+$CorticoCommit = 'f9449842a8ed93cfc0e3fd5a554e00c2aa5973f5'
 
 $pkg = Join-Path $Dir 'package.json'
 if (-not (Test-Path $pkg)) {
@@ -84,6 +87,9 @@ else {
 
 Step '初始化子模块 vendor/cortico（Cortico 框架）'
 git -C $Dir submodule update --init --depth 1 vendor/cortico
+$corticoDir = Join-Path $Dir 'vendor\cortico'
+git -C $corticoDir fetch --depth 1 origin $CorticoCommit
+if ($LASTEXITCODE -eq 0) { git -C $corticoDir checkout -q --detach $CorticoCommit }
 Ok '子模块就绪'
 
 Step '安装依赖（pnpm install）'

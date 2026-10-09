@@ -64,7 +64,7 @@ check(join(PET, 'web', 'kit', 'body.js'), '刷新率读数与速度缩放', [
 ]);
 check(join(PET, 'web', 'ui.js'), '刷新率相关图标', ['roam_sync', 'hz: icon(']);
 check(join(PET, 'src', 'config.ts'), '配置 schema 接受 sync', ["enum: ['free', 'calm', 'off', 'sync']"]);
-check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「习惯」页有这一项', ['roamSync']);
+check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「习惯」页有这一项（随刷新率）', ["{ value: 'sync', label: '随刷新率' }"]);
 
 /* ---------- 3. 开机自启（不弹调试界面） ---------- */
 check(join(ROOT, 'app', 'main.cjs'), '自启开关与 --background', [
@@ -91,19 +91,18 @@ check(join(PET, 'host', 'preload.cjs'), '页面 preload 暴露 setAlwaysOnTop', 
 check(join(PET, 'web', 'pet-app.js'), '页面收到 prefs 后应用置顶设置', ['host?.setAlwaysOnTop?.(p.alwaysOnTop)']);
 check(join(ROOT, 'app', 'main.cjs'), '桌宠子进程把开关透传给 runPetHost', ["alwaysOnTop: arg('always-on-top') !== '0'"]);
 check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「习惯」页有置顶开关', [
-  'alwaysOnTop', 'alwaysOnTopHint',
+  'alwaysOnTop: `${K}.window.alwaysOnTop`', "ui.checkbox('置顶显示'", 'alwaysOnTopRow,',
 ]);
 
 /* ---------- 5. 「开始」页上与 DSH 挂件一键同步 Key ---------- */
 check(join(ROOT, 'console', 'features', 'home', 'index.ts'), '「开始」页有与挂件同步的按钮', [
-  "const SYNC_API = 'http://127.0.0.1:3090/dsh-whale/key-sync'",
-  'const syncKey = ui.button(S.syncKey',
+  'dsh-whale/key-sync/',
+  "const syncKey = ui.button('与 DSH 挂件同步'",
   'keyRow.append(modelField, keyField, modelList, save, syncKey)',
-  'syncKey: \'与 DSH 挂件同步\'',
-  'syncOff:',
+  'syncKey.addEventListener',
 ]);
 check(join(ROOT, 'console', 'features', 'home', 'index.ts'), '按钮一按两边都同步（填了推、留空拉）', [
-  '${SYNC_API}/push', '${SYNC_API}/pull', 'JSON.stringify(typed ? { value: typed } : {})', 'connectVendor(call, vendor, typed',
+  "'push' : 'pull'", 'JSON.stringify(typed ? { value: typed } : {})', 'connectVendor(call, vendor, typed',
 ]);
 
 /* ---------- 6. 悬停按钮「测试刷新率」 ---------- */
@@ -120,9 +119,8 @@ check(join(PET, 'web', 'pet-app.js'), '跑完冒气泡说完成，再慢悠悠�
   'HZ_SCAN_LEGS = 4, HZ_SCAN_PX = 1', 'function probeHz()', 'function snapHz(', 'function hzScan(',
   'function scanLeg()', 'function tickScan()', 'function stopHzScan()', 'get scanning()', 'hzPinned',
 ]);
-check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「悬停按钮」里能勾它', [
-  "['hz', 'hz']", "hz: '测试刷新率'",
-]);
+check(join(ROOT, 'console', 'features', 'pet', 'index.ts'), '控制台「悬停按钮」里能勾它', ["['hz', 'hz']"]);
+check(join(ROOT, 'console', 'features', 'pet', 'strings.ts'), '「测试刷新率」有标签文案', ["hz: '测试刷新率'"]);
 
 /* ---------- 7. 构建产物跟上没有 ---------- */
 {

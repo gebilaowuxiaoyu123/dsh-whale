@@ -1,8 +1,8 @@
 diff --git a/app/main.cjs b/app/main.cjs
-index a84b15c..c0f61c1 100644
+index 1950bd2..d0600b3 100644
 --- a/app/main.cjs
 +++ b/app/main.cjs
-@@ -26,9 +26,24 @@ const { delimiter, dirname, join } = require('node:path');
+@@ -32,9 +32,24 @@ const { delimiter, dirname, join } = require('node:path');
  
  const MAC = process.platform === 'darwin';
  const LINUX = process.platform === 'linux';
@@ -28,7 +28,7 @@ index a84b15c..c0f61c1 100644
  // Without a usable GPU (virtual machines, blocklisted drivers) Chromium no longer
  // falls back to software WebGL on its own, and the whale figure draws with WebGL: allow SwiftShader. It
  // only renders the app's own pages.
-@@ -91,7 +106,49 @@ if (process.argv.includes('--pet-host')) {
+@@ -97,7 +112,49 @@ if (process.argv.includes('--pet-host')) {
    app.setPath('userData', join(app.getPath('userData'), 'pet-window'));
    if (MAC) app.dock?.hide();
    const { runPetHost } = require(require.resolve('cortico-world-desktop-pet/host/electron-main.cjs'));
@@ -79,8 +79,8 @@ index a84b15c..c0f61c1 100644
    return;
  }
  
-@@ -104,9 +161,24 @@ if (!app.requestSingleInstanceLock()) {
- const { CoreHost } = require('./core-host.cjs');
+@@ -111,9 +168,24 @@ const { CoreHost } = require('./core-host.cjs');
+ const { LANGUAGES, configuredLanguage, systemLanguage, textOf } = require('./i18n/index.cjs');
  const { RELEASES_URL, startUpdater } = require('./updater.cjs');
  
 +// Linux：桌宠窗口跑在子进程里，必须**显式**把 X11 开关写进它的命令行，
@@ -105,7 +105,7 @@ index a84b15c..c0f61c1 100644
  
  const core = new CoreHost({
    appRoot: APP_ROOT,
-@@ -117,6 +189,8 @@ const core = new CoreHost({
+@@ -124,6 +196,8 @@ const core = new CoreHost({
      CORTICO_EXTENSIONS_DIR: join(userData, 'extensions'),
      CORTICO_SUPERVISED: '1',
      CORTICO_START_PAUSED: '0',
@@ -114,7 +114,7 @@ index a84b15c..c0f61c1 100644
      CORTICO_DESKTOP_PET_HOST: JSON.stringify(petHost),
      // pnpm keeps its store and caches in LOCALAPPDATA unless told otherwise; pnpm 11 reads the pnpm_config_ prefix
      pnpm_config_store_dir: join(DATA, 'pnpm', 'store'),
-@@ -202,25 +276,12 @@ async function ensurePet() {
+@@ -214,25 +288,12 @@ async function ensurePet() {
    if (!state?.connected) await showPet();
  }
  
@@ -142,76 +142,42 @@ index a84b15c..c0f61c1 100644
 +  core.opts.env.COOPANION_AUTOSTART = loginItem.get() ? '1' : '0';
  }
  
- function buildTray() {
-@@ -237,7 +298,7 @@ function buildTray() {
-       { label: '打开设置', click: () => openSettings() },
-       { label: '显示桌宠', enabled: core.state === 'running', click: () => void showPet() },
-       { type: 'separator' },
--      { label: '开机自动启动', type: 'checkbox', checked: login, enabled: app.isPackaged, click: (item) => { loginItem.set(item.checked); noteAutostart(); refresh(); } },
-+      { label: '开机自动启动', type: 'checkbox', checked: login, click: (item) => { loginItem.set(item.checked); noteAutostart(); refresh(); } },
-       { label: '重新启动', click: () => void core.restart() },
-       { label: '退出', click: () => app.quit() },
-     ]));
+ function refreshTray() {
+@@ -242,7 +303,7 @@ function refreshTray() {
+     { label: t.trayOpenSettings, click: () => openSettings() },
+     { label: t.trayShowPet, enabled: core.state === 'running', click: () => void showPet() },
+     { type: 'separator' },
+-    { label: t.trayLaunchAtLogin, type: 'checkbox', checked: login, enabled: app.isPackaged, click: (item) => { loginItem.set(item.checked); noteAutostart(); refreshTray(); } },
++      { label: t.trayLaunchAtLogin, type: 'checkbox', checked: login, click: (item) => { loginItem.set(item.checked); noteAutostart(); refreshTray(); } },
+     { label: t.trayRestart, click: () => void core.restart() },
+     { label: t.trayQuit, click: () => app.quit() },
+   ]));
 diff --git a/console/features/home/index.ts b/console/features/home/index.ts
-index f0357c6..2f1bb5b 100644
+index 8695ab7..7c7909b 100644
 --- a/console/features/home/index.ts
 +++ b/console/features/home/index.ts
-@@ -18,6 +18,12 @@ import { readMode, requestMode } from '../mode.ts';
- import { connectVendor, consoleCall, readStatus, testEndpoint, VENDOR_ICONS, VENDORS, vendorOf, type ConnectResult, type Status, type Vendor } from './model.ts';
- 
- const PET_PAGE = 'world:desktop-pet';
-+/**
-+ * DSH 小鲨鱼挂件自己开的本地接口(127.0.0.1:3090)。挂件那头写/读的是同一对文件:
-+ * 挂件的 ~/.dsh/.credentials.yaml 和 Coopanion 当前 provider 的 .env,
-+ * 所以点一下就能让两个桌宠用上同一把 Key。
-+ */
-+const SYNC_API = 'http://127.0.0.1:3090/dsh-whale/key-sync';
- 
- const S = pick({
-   zh: {
-@@ -33,6 +39,10 @@ const S = pick({
-     keepKey: '留空沿用已保存的 Key',
-     getKey: (name: string) => `去${name}申请 Key`,
-     saveStart: '保存并开始',
-+    syncKey: '与 DSH 挂件同步',
-+    syncing: '正在同步…',
-+    syncOk: '两边的 Key 已经一样了,再不用各改一次。',
-+    syncOff: 'DSH 小鲨鱼挂件没在运行。先打开它,再点这里。',
-     connected: (model: string, title: string) => `已连接 ${title} · ${model}`,
-     test: '测试连接',
-     changeKey: '换一家、换模型或换 Key',
-@@ -65,6 +75,10 @@ const S = pick({
-     keepKey: 'Leave empty to keep the saved key',
-     getKey: (name: string) => `Get a ${name} key`,
-     saveStart: 'Save and start',
-+    syncKey: 'Sync with DSH widget',
-+    syncing: 'Syncing…',
-+    syncOk: 'Both sides use the same key now.',
-+    syncOff: 'The DSH whale widget is not running. Open it, then click again.',
-     connected: (model: string, title: string) => `Connected to ${title} · ${model}`,
-     test: 'Test',
-     changeKey: 'Change service, model or key',
-@@ -135,10 +149,11 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -87,10 +87,12 @@ async function mount(ctx: FeatureContext): Promise<void> {
    modelInput.setAttribute('list', modelList.id);
    const keyRow = ui.rowbar();
    const save = ui.button(S.saveStart, { variant: 'primary' });
-+  const syncKey = ui.button(S.syncKey, { size: 'sm' });
-   const keyField = ui.field(S.keyLabel(vendor.name), keyInput);
++  /** 与 DSH 挂件同步 Key（本仓库自研）：挂件在 127.0.0.1:3090 上读写同一对文件。 */
++  const syncKey = ui.button('与 DSH 挂件同步', { size: 'sm' });
+   const keyField = ui.field(S.keyLabel(vendorName(vendor, LANGUAGE)), keyInput);
    const modelField = ui.field(S.modelLabel, modelInput);
    modelField.classList.add('home-modelfield');
 -  keyRow.append(modelField, keyField, modelList, save);
 +  keyRow.append(modelField, keyField, modelList, save, syncKey);
-   /** The active endpoint's service and model, once the status is read. */
-   let active: { vendor: Vendor | null; model: string } = { vendor: null, model: '' };
-   const getKey = ui.h('a', 'home-link', '');
-@@ -254,6 +269,41 @@ async function mount(ctx: FeatureContext): Promise<void> {
-     showTest(await testEndpoint(call, name));
-   });
-   change.addEventListener('click', () => { editingKey = true; void refreshModel(); keyInput.focus(); });
+   /** The active endpoint's service, platform and model, once the status is read. */
+   let active: { vendor: Vendor | null; region: Region | null; model: string } = { vendor: null, region: null, model: '' };
+   /** The key box is for the endpoint in use, whose saved key an empty box keeps. */
+@@ -194,6 +196,42 @@ async function mount(ctx: FeatureContext): Promise<void> {
+     modelMsg.classList.remove('bad');
+   };
+ 
 +  /**
-+   * 一键与 DSH 挂件对齐 Key:输入框里填了就先当本地那把存盘并启用(验一道),
-+   * 然后交给挂件写到两边;输入框空就以已保存的那把为准拉过去。
-+   * 挂件没开着时只提示,不动本地。
++   * 与 DSH 挂件同步 Key（本仓库自研）：两边各改一次很烦，点一下让它们用同一把。
++   * 输入框里有新 Key 就先本地连一次再推给挂件；空着就是拉挂件的 Key 过来。
++   * 挂件没开着时只提示，不动本地。
 +   */
 +  syncKey.addEventListener('click', async () => {
 +    const typed = keyInput.value.trim();
@@ -220,45 +186,46 @@ index f0357c6..2f1bb5b 100644
 +    try {
 +      if (typed) {
 +        testing();
-+        const local = await connectVendor(call, vendor, typed, modelInput.value);
++        const local = await connectVendor(call, vendor, typed, modelInput.value, region);
 +        showTest(local);
 +        if (!local.ok) return;
 +        keyInput.value = '';
 +        editingKey = false;
 +      }
-+      modelMsg.textContent = S.syncing;
-+      const r = await fetch(typed ? `${SYNC_API}/push` : `${SYNC_API}/pull`, {
++      modelMsg.textContent = '正在同步…';
++      const r = await fetch(`http://127.0.0.1:3090/dsh-whale/key-sync/${typed ? 'push' : 'pull'}`, {
 +        method: 'POST',
 +        headers: { 'Content-Type': 'application/json' },
 +        body: JSON.stringify(typed ? { value: typed } : {}),
 +      });
 +      const j = await r.json() as { ok?: boolean; error?: string };
 +      if (!j?.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
-+      modelMsg.textContent = S.syncOk;
++      modelMsg.textContent = '两边的 Key 已经一样了，再不用各改一次。';
 +      await refreshModel();
 +    } catch (err) {
-+      modelMsg.textContent = `${S.syncOff}(${errText(err)})`;
++      modelMsg.textContent = `DSH 小鲨鱼挂件没在运行。先打开它，再点这里。（${errText(err)}）`;
 +      modelMsg.classList.add('bad');
 +    } finally {
 +      syncKey.disabled = false;
 +    }
 +  });
- 
-   /* pet */
-   let petState: PetState | null = null;
++
+   save.addEventListener('click', async () => {
+     const key = keyInput.value.trim();
+     // only the endpoint in use has a key saved to keep
 diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
-index f1a3010..b15f1ef 100644
+index 4c597f3..12993c4 100644
 --- a/console/features/pet/index.ts
 +++ b/console/features/pet/index.ts
-@@ -26,6 +26,7 @@ const KEYS = {
-   scale: `${K}.window.scale`,
+@@ -36,6 +36,7 @@ const KEYS = {
    lockFps: `${K}.window.lockFrameRate`,
    frameRate: `${K}.window.frameRate`,
-+  alwaysOnTop: `${K}.window.alwaysOnTop`,
    hideFullscreen: `${K}.window.hideWhenFullscreen`,
++  alwaysOnTop: `${K}.window.alwaysOnTop`,
    sound: `${K}.sound`,
    snoreSeconds: `${K}.sounds.snoreSeconds`,
-@@ -38,7 +39,7 @@ const KEYS = {
+   remember: `${K}.rememberPosition`,
+@@ -47,7 +48,7 @@ const KEYS = {
  
  /** The pet menu's actions in its order (the World's PET_ACTIONS), with the icon each shows. */
  const ACTIONS: ReadonlyArray<[id: string, icon: string]> = [
@@ -267,104 +234,70 @@ index f1a3010..b15f1ef 100644
  ];
  /** Kinds of sound (the World's SOUND_KINDS), each under `worlds.desktop-pet.sounds.<kind>`. */
  const SOUND_KINDS = ['move', 'touch', 'face', 'snore', 'talk', 'ui'] as const;
-@@ -55,6 +56,7 @@ const S = pick({
-     roamFree: '常走动',
-     roamCalm: '多待着',
-     roamOff: '不乱动',
-+    roamSync: '随刷新率',
-     theme: '颜色',
-     themeDark: '夜间(浅色身体)',
-     themeLight: '白天(深色身体)',
-@@ -64,6 +66,8 @@ const S = pick({
-     frameUnlimited: '不限',
-     lockFps: '一直按这个帧率画',
-     lockFpsHint: '关着时 Coo 站着、坐着、睡着每秒画 30 帧,占用更少;打开后静止时也按上面的帧率画。',
-+    alwaysOnTop: '置顶显示',
-+    alwaysOnTopHint: '开着时 Coo 浮在所有窗口之上(看视频、全屏时也会挡在前面)。关着时普通应用窗口会盖住它,Coo 仍在桌面图标之上。',
-     hideFullscreen: '全屏时自动隐藏',
-     hideFullscreenHint: '玩游戏、看全屏视频、浏览器全屏时 Coo 先躲起来,退出全屏再出来。最大化的窗口不算全屏。',
-     soundTitle: '音效',
-@@ -91,7 +95,7 @@ const S = pick({
-     statusBubbleHint: 'Coo 想事情、翻记忆里的文件、操作电脑时,头顶冒个小泡写着在做什么,会显示文件名。',
-     selfAdjust: '允许 Coo 自己调整',
-     selfAdjustHint: 'Coo 可以自己换形象和装扮、改走动多少;改音效、大小、黑白模式、悬停按钮和对你的称呼前会先问你。关掉后这些它都改不了。',
--    actions: { chat: '打字', voice: '语音输入', roam: '行为模式', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
-+    actions: { chat: '打字', voice: '语音输入', roam: '行为模式', hz: '测试刷新率', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
-     saved: '已保存',
-     saveFailed: (why: string) => `没保存上:${why}`,
-     stats: '匿名使用统计',
-@@ -107,6 +111,7 @@ const S = pick({
-     roamFree: 'Often',
-     roamCalm: 'Now and then',
-     roamOff: 'Stay put',
-+    roamSync: 'Screen rate',
-     theme: 'Colors',
-     themeDark: 'Night (light body)',
-     themeLight: 'Day (dark body)',
-@@ -114,6 +119,8 @@ const S = pick({
-     frameRate: 'Frame rate',
-     frameRateHint: 'Frames a second while Coo walks, is carried or jumps. Above the display\'s refresh rate the display\'s rate applies; Unlimited follows the display. Higher rates use more CPU and GPU.',
-     frameUnlimited: 'Unlimited',
-+    alwaysOnTop: 'Always on top',
-+    alwaysOnTopHint: 'On: Coo floats above every window (it stays in front of videos and full-screen apps). Off: normal app windows cover it; it still sits above the desktop icons.',
-     lockFps: 'Always draw at this rate',
-     lockFpsHint: 'Off: Coo draws 30 frames a second while standing, sitting or asleep, which uses less. On: the rate above at rest too.',
-     hideFullscreen: 'Hide during full screen',
-@@ -143,7 +150,7 @@ const S = pick({
-     statusBubbleHint: 'A small bubble above Coo shows when it is thinking, looking through files in its memory or using the computer. File names are shown.',
-     selfAdjust: 'Let Coo adjust itself',
-     selfAdjustHint: 'Coo may change its own figure, dress and how much it walks; it asks you before changing sounds, size, night or day look, hover buttons or what it calls you. When off, it can change none of these.',
--    actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
-+    actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', hz: 'Refresh rate', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
-     saved: 'Saved',
-     saveFailed: (why: string) => `Not saved: ${why}`,
-     stats: 'Anonymous usage statistics',
-@@ -174,7 +181,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
- 
-   const user = ui.input({ placeholder: '伙伴' });
+@@ -83,7 +84,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+   const user = ui.input();
+   void post<{ defaultUser?: string }>(PET_STATE, { args: [] }, opts).then((s) => { if (s?.defaultUser) user.placeholder = s.defaultUser; }).catch(() => {});
    const roam = ui.segmented([
 -    { value: 'free', label: S.roamFree }, { value: 'calm', label: S.roamCalm }, { value: 'off', label: S.roamOff },
-+    { value: 'free', label: S.roamFree }, { value: 'calm', label: S.roamCalm }, { value: 'off', label: S.roamOff }, { value: 'sync', label: S.roamSync },
++    { value: 'free', label: S.roamFree }, { value: 'calm', label: S.roamCalm }, { value: 'off', label: S.roamOff }, { value: 'sync', label: '随刷新率' },
    ], { size: 'sm', onSelect: (v) => void save(KEYS.roam, v) });
    const theme = ui.segmented([
      { value: 'dark', label: S.themeDark }, { value: 'light', label: S.themeLight },
-@@ -192,6 +199,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
-   const frameRate = ui.segmented(FRAME_RATES.map((n) => ({ value: String(n), label: n ? String(n) : S.frameUnlimited })),
-     { size: 'sm', onSelect: (v) => void save(KEYS.frameRate, Number(v)) });
-   const lockFps = ui.checkbox(S.lockFps, { onChange: (on) => void save(KEYS.lockFps, on) });
-+  const alwaysOnTop = ui.checkbox(S.alwaysOnTop, { onChange: (on) => void save(KEYS.alwaysOnTop, on) });
-   const hideFullscreen = ui.checkbox(S.hideFullscreen, { onChange: (on) => void save(KEYS.hideFullscreen, on) });
-   const remember = ui.checkbox(S.remember, { onChange: (on) => void save(KEYS.remember, on) });
-   const dblclick = ui.checkbox(S.dblclick, { onChange: (on) => void save(KEYS.dblclick, on) });
-@@ -243,6 +251,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -152,6 +153,9 @@ async function mount(ctx: FeatureContext): Promise<void> {
      r.append(l, c);
      return r;
    };
-+  const alwaysOnTopRow = row('', alwaysOnTop.el, S.alwaysOnTopHint);
++  // 本仓库自研的「置顶显示」（文案表里还没加，先用中文）
++  const alwaysOnTop = ui.checkbox('置顶显示', { onChange: (on) => void save(KEYS.alwaysOnTop, on) });
++  const alwaysOnTopRow = row('', alwaysOnTop.el, '开着时 Coo 浮在所有窗口之上(看视频、全屏时也会挡在前面)。关着时普通应用窗口会盖住它,Coo 仍在桌面图标之上。');
    // the World declares this setting on Windows only; elsewhere its value never arrives and the row stays hidden
    const hideFullscreenRow = row('', hideFullscreen.el, S.hideFullscreenHint);
    hideFullscreenRow.hidden = true;
-@@ -252,6 +261,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
-     row(S.theme, theme.el),
+@@ -163,6 +167,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
      row(S.scale, scaleBox),
      row(S.frameRate, frameRate.el, S.frameRateHint),
-+    alwaysOnTopRow,
      row('', lockFps.el, S.lockFpsHint),
++    alwaysOnTopRow,
      hideFullscreenRow,
      row('', remember.el, S.rememberHint),
-@@ -356,6 +366,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+     row(S.hover, hoverBox, S.hoverHint(MAX_HOVER)),
+@@ -271,8 +276,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
        snore.value = String(soundValues[KEYS.snoreSeconds]);
        snore.dataset.saved = snore.value;
      }
-+    if (typeof values[KEYS.alwaysOnTop] === 'boolean') alwaysOnTop.setChecked(values[KEYS.alwaysOnTop] as boolean);
-     if (typeof values[KEYS.lockFps] === 'boolean') lockFps.setChecked(values[KEYS.lockFps] as boolean);
-     if (typeof values[KEYS.hideFullscreen] === 'boolean') { hideFullscreen.setChecked(values[KEYS.hideFullscreen] as boolean); hideFullscreenRow.hidden = false; }
+-    if (typeof values[KEYS.lockFps] === 'boolean') lockFps.setChecked(values[KEYS.lockFps] as boolean);
+-    if (typeof values[KEYS.hideFullscreen] === 'boolean') { hideFullscreen.setChecked(values[KEYS.hideFullscreen] as boolean); hideFullscreenRow.hidden = false; }
++    if (typeof values[KEYS.lockFps] === 'boolean') lockFps.setChecked(values[KEYS.lockFps] as boolean);      if (typeof values[KEYS.alwaysOnTop] === 'boolean') alwaysOnTop.setChecked(values[KEYS.alwaysOnTop] as boolean);    if (typeof values[KEYS.hideFullscreen] === 'boolean') { hideFullscreen.setChecked(values[KEYS.hideFullscreen] as boolean); hideFullscreenRow.hidden = false; }
      if (typeof values[KEYS.remember] === 'boolean') remember.setChecked(values[KEYS.remember] as boolean);
+     if (typeof values[KEYS.dblclick] === 'boolean') dblclick.setChecked(values[KEYS.dblclick] as boolean);
+     if (typeof values[KEYS.statusBubble] === 'boolean') statusBubble.setChecked(values[KEYS.statusBubble] as boolean);
+diff --git a/console/features/pet/strings.ts b/console/features/pet/strings.ts
+index 781a476..ea0ccee 100644
+--- a/console/features/pet/strings.ts
++++ b/console/features/pet/strings.ts
+@@ -56,7 +56,7 @@ const zh = {
+   statusBubbleHint: 'Coo 想事情、翻记忆里的文件、操作电脑时,头顶冒个小泡写着在做什么,会显示文件名。',
+   selfAdjust: '允许 Coo 自己调整',
+   selfAdjustHint: 'Coo 可以自己换形象和装扮、改走动多少;改音效、大小、黑白模式、悬停按钮和对你的称呼前会先问你。关掉后这些它都改不了。',
+-  actions: { chat: '打字', voice: '语音输入', roam: '行为模式', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
++  actions: { chat: '打字', voice: '语音输入', roam: '行为模式', hz: '测试刷新率', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
+   saved: '已保存',
+   saveFailed: (why: string) => `没保存上:${why}`,
+   stats: '匿名使用统计',
+@@ -111,7 +111,7 @@ export const en: typeof zh = {
+   statusBubbleHint: 'A small bubble above Coo shows when it is thinking, looking through files in its memory or using the computer. File names are shown.',
+   selfAdjust: 'Let Coo adjust itself',
+   selfAdjustHint: 'Coo may change its own figure, dress and how much it walks; it asks you before changing sounds, size, night or day look, hover buttons or what it calls you. When off, it can change none of these.',
+-  actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
++  actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', hz: 'Refresh rate', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
+   saved: 'Saved',
+   saveFailed: (why: string) => `Not saved: ${why}`,
+   stats: 'Anonymous usage statistics',
 diff --git a/core/companion.ts b/core/companion.ts
-index 1df26cc..d3717a4 100644
+index b863a56..9bca6f4 100644
 --- a/core/companion.ts
 +++ b/core/companion.ts
-@@ -79,6 +79,8 @@ const TALK_EVENTS = new Set(['desktop-pet.message', 'desktop-pet.speech']);
+@@ -88,6 +88,8 @@ const TALK_EVENTS = new Set(['desktop-pet.message', 'desktop-pet.speech']);
  const ASK_AFTER_GUIDE_MS = 20 * 60_000;
  /** Written in the deployment directory once the introduction has run. */
  const GUIDE_FILE = 'guide.json';
@@ -373,25 +306,23 @@ index 1df26cc..d3717a4 100644
  /** The last version the `coopanion` World told Coo about, in the deployment directory. */
  const NOTICE_FILE = 'notice.json';
  
-@@ -361,7 +363,11 @@ async function introduce(deps: GuideDeps, run: (deps: GuideDeps) => Promise<void
-   if (first) {
-     const deadline = Date.now() + PET_WAIT_MS;
-     while (!deps.pet()?.petState().connected && Date.now() < deadline) await sleep(1000);
--    if (!deps.pet()?.petState().connected) process.send?.({ type: 'companion:open', path: '#/home' });
-+    if (!deps.pet()?.petState().connected) {
+@@ -358,7 +360,9 @@ async function introduce(deps: GuideDeps, run: (deps: GuideDeps) => Promise<void
+     if (deps.pet()?.petState().connected) deps.track?.('pet_shown', { ms: Math.round(process.uptime() * 1000) });
+     else {
+       deps.track?.('pet_missing', {});
+-      process.send?.({ type: 'companion:open', path: '#/home' });
 +      // nothing else would tell the person why Coo stays silent, but not at login, where a window
 +      // opening by itself is exactly what nobody asked for
 +      if (!BACKGROUND) process.send?.({ type: 'companion:open', path: '#/home' });
-+    }
+     }
      await run(deps);
    }
-   if (!talked) return;
 diff --git a/packages/cortico-world-desktop-pet/host/electron-main.cjs b/packages/cortico-world-desktop-pet/host/electron-main.cjs
-index 923dac6..43c8c5f 100644
+index cee3722..c323522 100644
 --- a/packages/cortico-world-desktop-pet/host/electron-main.cjs
 +++ b/packages/cortico-world-desktop-pet/host/electron-main.cjs
-@@ -17,6 +17,70 @@
-  * macOS gives no way to hand it back to the app that had it.
+@@ -20,6 +20,70 @@
+  * tables (web/i18n); the windows' titles are the pages' own.
   */
  const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, session, shell, systemPreferences } = require('electron');
 +/** Linux: the platform the window-type dance below is for. */
@@ -459,9 +390,9 @@ index 923dac6..43c8c5f 100644
 +}
 +
  const { join } = require('node:path');
+ const { pathToFileURL } = require('node:url');
  
- /** Milliseconds between the cursor reports the page gets. */
-@@ -260,7 +324,7 @@ function trayIcon() {
+@@ -273,7 +337,7 @@ function trayIcon() {
    return img;
  }
  
@@ -470,7 +401,7 @@ index 923dac6..43c8c5f 100644
    if (!url) throw new Error('pet host needs --pet-url');
    const origin = new URL(url).origin;
    let win = null, tray = null, dress = null;
-@@ -292,6 +356,15 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+@@ -305,6 +369,15 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
     */
    const releaseAutoHidden = () => { autoHidden = false; };
  
@@ -486,7 +417,7 @@ index 923dac6..43c8c5f 100644
    const create = () => {
      const d = display(), wa = coverArea(d);
      win = new BrowserWindow({
-@@ -309,7 +382,7 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+@@ -322,7 +395,7 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
      });
      cover(d);
      // Native candidate windows and Chromium popups must remain above the pet.
@@ -495,17 +426,17 @@ index 923dac6..43c8c5f 100644
      // on every Space, and over an app in full screen
      if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
      win.setIgnoreMouseEvents(true, { forward: true });
-@@ -379,6 +452,8 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+@@ -392,6 +465,8 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
    });
    ipcMain.on('pet:hide', () => { releaseAutoHidden(); if (win) win.hide(); });
    ipcMain.on('pet:hideWhenFullscreen', (_e, on) => { hideWhenFullscreen = !!on; });
 +  /** The `alwaysOnTop` world setting, changed while the window runs (the console's 置顶显示 switch). */
 +  ipcMain.on('pet:alwaysOnTop', (_e, on) => { alwaysOnTop = !!on; applyOnTop(); });
    ipcMain.on('pet:openDress', () => openDress());
-   ipcMain.handle('pet:sampleBackdrop', (_e, query) => {
-     try { return win ? sampleBackdrop(win, query || {}) : []; } catch { return []; }
+   let language = 'zh';
+   ipcMain.on('pet:language', (_e, code) => {
 diff --git a/packages/cortico-world-desktop-pet/host/preload.cjs b/packages/cortico-world-desktop-pet/host/preload.cjs
-index 3206af1..eef5d72 100644
+index 07da391..a12f5a0 100644
 --- a/packages/cortico-world-desktop-pet/host/preload.cjs
 +++ b/packages/cortico-world-desktop-pet/host/preload.cjs
 @@ -4,6 +4,8 @@ const { contextBridge, ipcRenderer } = require('electron');
@@ -518,11 +449,11 @@ index 3206af1..eef5d72 100644
    /** Takes the keyboard from whatever window has it (a question's number keys), and gives it back. */
    grabFocus: () => ipcRenderer.send('pet:grabFocus'),
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
-index 43e654f..a85b820 100644
+index 80ba17a..1d174e4 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts
 +++ b/packages/cortico-world-desktop-pet/src/config.ts
-@@ -7,7 +7,7 @@ import { DEFAULT_HOTKEY } from './asr/hotkey.ts';
- export const DESKTOP_PET_ID = 'desktop-pet';
+@@ -12,7 +12,7 @@ export const DESKTOP_PET_ID = 'desktop-pet';
+ export const USER_MAX = 20;
  
  /** What the pet's menu offers, in its order; any of them can also show as a button beside the pet on hover. */
 -export const PET_ACTIONS = ['chat', 'voice', 'roam', 'theme', 'sound', 'dress', 'hide'] as const;
@@ -530,7 +461,7 @@ index 43e654f..a85b820 100644
  export type PetAction = typeof PET_ACTIONS[number];
  /** Most hover buttons. */
  export const MAX_HOVER_BUTTONS = 6;
-@@ -47,7 +47,7 @@ export type SoundSettings = Record<SoundKind, boolean> & {
+@@ -52,7 +52,7 @@ export type SoundSettings = Record<SoundKind, boolean> & {
    snoreSeconds: number;
  };
  
@@ -539,7 +470,7 @@ index 43e654f..a85b820 100644
  /** Which side of each palette the pet pages draw: dark = light figure for dark surroundings. */
  export type PetTheme = 'dark' | 'light';
  /** Which touches wake the bot: poke = clicks only, petting and carrying wait for the next wake; all; none = every touch waits. */
-@@ -75,6 +75,8 @@ export interface DesktopPetConfigSection extends WorldSection {
+@@ -97,6 +97,8 @@ export interface DesktopPetConfigSection extends WorldSection {
      lockFrameRate: boolean;
      /** Hide the pet window while a fullscreen window covers the display it is on. */
      hideWhenFullscreen: boolean;
@@ -548,42 +479,70 @@ index 43e654f..a85b820 100644
    };
    roam: RoamMode;
    /** All of the pet's sounds; `sounds` picks among them while this is on. */
-@@ -130,7 +132,7 @@ export const DESKTOP_PET_DEFAULTS: DesktopPetConfigSection = {
+@@ -154,7 +156,7 @@ export const DESKTOP_PET_DEFAULTS: DesktopPetConfigSection = {
    enabled: false,
    port: 7797,
-   user: '伙伴',
+   user: '',
 -  window: { enabled: true, electronFile: '', scale: 1, frameRate: 60, lockFrameRate: false, hideWhenFullscreen: false },
 +  window: { enabled: true, electronFile: '', scale: 1, frameRate: 60, lockFrameRate: false, hideWhenFullscreen: false, alwaysOnTop: true },
    roam: 'calm',
    sound: true,
    sounds: { move: true, touch: true, face: true, snore: true, talk: true, ui: true, snoreSeconds: 0 },
-@@ -168,7 +170,7 @@ export const DESKTOP_PET_CONFIG_GROUP: ConfigGroup = {
-     title: '桌宠',
-     properties: {
-       [`${K}.user`]: { type: 'string', title: '怎么称呼你', description: '语音、打字和互动事件里用这个名字指代你。', 'x-hot': true },
--      [`${K}.roam`]: { type: 'string', title: '行为模式', enum: ['free', 'calm', 'off'], description: 'free 常走动;calm 多待着;off 只做被要求的动作。', 'x-hot': true },
-+      [`${K}.roam`]: { type: 'string', title: '行为模式', enum: ['free', 'calm', 'off', 'sync'], description: 'free 常走动;calm 多待着;off 只做被要求的动作;sync 跟着屏幕刷新率走(屏幕越快它走得越快)。', 'x-hot': true },
-       [`${K}.theme`]: { type: 'string', title: '黑白模式', enum: ['dark', 'light'], description: 'dark 夜间:浅色身体、深色气泡;light 白天:深色身体、浅色气泡。', 'x-hot': true },
-       [`${K}.rememberPosition`]: { type: 'boolean', title: '记住位置', description: '退出时记下桌宠的横向位置,下次启动落回那里;有多块屏幕时总在主屏上启动。', 'x-hot': true },
-       [`${K}.hoverButtons`]: { type: 'string', title: '悬停按钮', description: `鼠标停在桌宠身上时旁边出现的按钮,最多 ${MAX_HOVER_BUTTONS} 个,逗号分隔:${PET_ACTIONS.join(', ')}。`, 'x-hot': true },
-@@ -183,6 +185,7 @@ export const DESKTOP_PET_CONFIG_GROUP: ConfigGroup = {
-       ...(process.platform === 'win32' ? {
-         [`${K}.window.hideWhenFullscreen`]: { type: 'boolean', title: '全屏时自动隐藏', description: '开着时,前台窗口全屏铺满桌宠所在的那块屏(游戏、全屏视频、浏览器全屏)就把它藏起来,退出全屏放回来;最大化的窗口不算。关着时一直浮在上面。', 'x-hot': true },
-       } : {}),
-+      [`${K}.window.alwaysOnTop`]: { type: 'boolean', title: '置顶显示', description: '开着时桌宠浮在所有窗口之上(看视频、全屏时也会挡在前面);关着时普通应用窗口会盖住桌宠,桌宠仍在桌面图标之上。', 'x-hot': true },
-       [`${K}.window.electronFile`]: { type: 'string', title: 'Electron 程序', description: '留空时依次用 CORTICO_DESKTOP_PET_HOST 和面板里安装的运行时。', 'x-path': { kind: 'file' }, 'x-hot': false },
-       [`${K}.port`]: { type: 'integer', title: '页面端口', minimum: 1024, maximum: 65535, description: '被占用时向上顺延。', 'x-hot': false },
-       [`${K}.touch.enabled`]: { type: 'boolean', title: '互动发成事件', description: '戳、摸、拎起来甩出去。', 'x-hot': true },
+@@ -188,6 +190,11 @@ const K = `worlds.${DESKTOP_PET_ID}`;
+ export function desktopPetConfigGroups(language: Language = 'zh'): ConfigGroup[] {
+   const c = petText(language).config;
+   const userMax = capFor(USER_MAX, language);
++  // 本仓库自研的「置顶显示」：11 种语言的文案表里还没加，先回落到中文
++  const alwaysOnTopText = c.alwaysOnTop ?? {
++    title: '置顶显示',
++    description: '开着时桌宠浮在所有窗口之上(看视频、全屏时也会挡在前面);关着时普通应用窗口会盖住桌宠,桌宠仍在桌面图标之上。',
++  };
+   const pet: ConfigGroup = {
+     id: `world:${DESKTOP_PET_ID}`,
+     owner: `world:${DESKTOP_PET_ID}`,
+@@ -196,7 +203,7 @@ export function desktopPetConfigGroups(language: Language = 'zh'): ConfigGroup[]
+       title: c.group,
+       properties: {
+         [`${K}.user`]: { type: 'string', title: c.user.title, description: c.user.description(userMax), 'x-hot': true },
+-        [`${K}.roam`]: { type: 'string', title: c.roam.title, enum: ['free', 'calm', 'off'], description: c.roam.description, 'x-hot': true },
++        [`${K}.roam`]: { type: 'string', title: c.roam.title, enum: ['free', 'calm', 'off', 'sync'], description: `${c.roam.description} sync 跟着屏幕刷新率走(屏幕越快它走得越快)。`, 'x-hot': true },
+         [`${K}.theme`]: { type: 'string', title: c.theme.title, enum: ['dark', 'light'], description: c.theme.description, 'x-hot': true },
+         [`${K}.rememberPosition`]: { type: 'boolean', title: c.rememberPosition.title, description: c.rememberPosition.description, 'x-hot': true },
+         [`${K}.hoverButtons`]: { type: 'string', title: c.hoverButtons.title, description: c.hoverButtons.description(MAX_HOVER_BUTTONS, PET_ACTIONS.join(', ')), 'x-hot': true },
+@@ -211,6 +218,7 @@ export function desktopPetConfigGroups(language: Language = 'zh'): ConfigGroup[]
+         ...(process.platform === 'win32' ? {
+           [`${K}.window.hideWhenFullscreen`]: { type: 'boolean', title: c.hideWhenFullscreen.title, description: c.hideWhenFullscreen.description, 'x-hot': true },
+         } : {}),
++        [`${K}.window.alwaysOnTop`]: { type: 'boolean', title: alwaysOnTopText.title, description: alwaysOnTopText.description, 'x-hot': true },
+         [`${K}.window.electronFile`]: { type: 'string', title: c.electronFile.title, description: c.electronFile.description, 'x-path': { kind: 'file' }, 'x-hot': false },
+         [`${K}.port`]: { type: 'integer', title: c.port.title, minimum: 1024, maximum: 65535, description: c.port.description, 'x-hot': false },
+         [`${K}.touch.enabled`]: { type: 'boolean', title: c.touchEnabled.title, description: c.touchEnabled.description, 'x-hot': true },
+diff --git a/packages/cortico-world-desktop-pet/src/i18n/index.ts b/packages/cortico-world-desktop-pet/src/i18n/index.ts
+index f582097..f44eb60 100644
+--- a/packages/cortico-world-desktop-pet/src/i18n/index.ts
++++ b/packages/cortico-world-desktop-pet/src/i18n/index.ts
+@@ -17,7 +17,10 @@ import ptBR from './pt-BR.ts';
+ import it from './it.ts';
+ import ru from './ru.ts';
+ 
+-export type PetText = typeof zh;
++/** `config.alwaysOnTop` 是本仓库自研新增项，11 种语言的文案表还没补齐，先允许缺省（config.ts 里回落到中文）。 */
++export type PetText = Omit<typeof zh, 'config'> & {
++  config: typeof zh.config & { alwaysOnTop?: { title: string; description: string } };
++};
+ 
+ export const PET_TEXT: LanguageTable<PetText> = { zh, en, 'zh-Hant': zhHant, ja, ko, fr, de, 'es-419': es419, 'pt-BR': ptBR, it, ru };
+ 
 diff --git a/packages/cortico-world-desktop-pet/src/window-host.ts b/packages/cortico-world-desktop-pet/src/window-host.ts
-index 383a00c..77bb380 100644
+index 9f1e0c6..c0350fa 100644
 --- a/packages/cortico-world-desktop-pet/src/window-host.ts
 +++ b/packages/cortico-world-desktop-pet/src/window-host.ts
-@@ -31,25 +31,26 @@ export interface HostState {
+@@ -37,25 +37,26 @@ export interface HostState {
  
  export type HostCommand = { command: string; args: string[]; source: string } | { missing: string };
  
--export function resolveHostCommand(url: string, electronFile: string, managed: string | null): HostCommand {
-+export function resolveHostCommand(url: string, electronFile: string, managed: string | null, alwaysOnTop = true): HostCommand {
+-export function resolveHostCommand(url: string, electronFile: string, managed: string | null, t: WindowText = MODEL_TEXT.zh.window): HostCommand {
++export function resolveHostCommand(url: string, electronFile: string, managed: string | null, t: WindowText = MODEL_TEXT.zh.window, alwaysOnTop = true): HostCommand {
 +  const top = `--always-on-top=${alwaysOnTop ? 1 : 0}`;
    const env = process.env[HOST_ENV];
    if (env) {
@@ -594,10 +553,10 @@ index 383a00c..77bb380 100644
 +        return { command: argv[0], args: [...argv.slice(1), `--pet-url=${url}`, top], source: HOST_ENV };
        }
      } catch { /* fall through to the reason below */ }
-     return { missing: `${HOST_ENV} 不是 JSON 字符串数组` };
+     return { missing: t.badHostEnv(HOST_ENV) };
    }
    if (electronFile) {
-     if (!existsSync(electronFile)) return { missing: `Electron 程序不存在:${electronFile}` };
+     if (!existsSync(electronFile)) return { missing: t.noElectronFile(electronFile) };
 -    return { command: electronFile, args: [HOST_MAIN, `--pet-url=${url}`], source: electronFile };
 +    return { command: electronFile, args: [HOST_MAIN, `--pet-url=${url}`, top], source: electronFile };
    }
@@ -608,34 +567,34 @@ index 383a00c..77bb380 100644
 -    if (typeof bin === 'string' && existsSync(bin)) return { command: bin, args: [HOST_MAIN, `--pet-url=${url}`], source: bin };
 +    if (typeof bin === 'string' && existsSync(bin)) return { command: bin, args: [HOST_MAIN, `--pet-url=${url}`, top], source: bin };
    } catch { /* not installed */ }
-   return { missing: '没有可用的 Electron:在桌宠面板安装窗口运行时,或在配置里指定 Electron 程序' };
+   return { missing: t.noElectron };
  }
 diff --git a/packages/cortico-world-desktop-pet/src/world.ts b/packages/cortico-world-desktop-pet/src/world.ts
-index 5406192..16cc76f 100644
+index 94eee10..b45bce8 100644
 --- a/packages/cortico-world-desktop-pet/src/world.ts
 +++ b/packages/cortico-world-desktop-pet/src/world.ts
-@@ -621,7 +621,7 @@ export class DesktopPetWorld implements World {
+@@ -726,7 +726,7 @@ export class DesktopPetWorld implements World {
    openWindow(): void {
      if (!this.windowHost || !this.server.port) return;
      const managed = this.store.electron.executable();
--    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed));
-+    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed, this.cfg.window.alwaysOnTop));
+-    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed, this.t.window));
++    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed, this.t.window, this.cfg.window.alwaysOnTop));
    }
  
    /* ---------- page protocol ---------- */
-@@ -642,6 +642,7 @@ export class DesktopPetWorld implements World {
-       frameRate: this.cfg.window.frameRate,
+@@ -748,6 +748,7 @@ export class DesktopPetWorld implements World {
        lockFrameRate: this.cfg.window.lockFrameRate,
        hideWhenFullscreen: this.cfg.window.hideWhenFullscreen,
+       language: this.appLanguage,
 +      alwaysOnTop: this.cfg.window.alwaysOnTop === true,
-       user: this.cfg.user,
+       user: this.userName,
        mic: this.micWanted(),
        voice: this.voiceBrief(),
 diff --git a/packages/cortico-world-desktop-pet/web/body-host.js b/packages/cortico-world-desktop-pet/web/body-host.js
-index 8d68054..c07fcec 100644
+index e1cf412..74c7ee6 100644
 --- a/packages/cortico-world-desktop-pet/web/body-host.js
 +++ b/packages/cortico-world-desktop-pet/web/body-host.js
-@@ -50,6 +50,9 @@ export function readLayout(l, size) {
+@@ -51,6 +51,9 @@ export function readLayout(l, size) {
      box,
      hit: (Array.isArray(l.hit) ? l.hit : []).map((c) => ({ x: num(c?.x), y: num(c?.y), r: Math.max(0, num(c?.r)) })),
      bubble: pt(l.bubble), side: { ...pt(l.side), reach: clampTo(num(l.side?.reach), 0, side / 2) },
@@ -645,7 +604,7 @@ index 8d68054..c07fcec 100644
    };
  }
  
-@@ -121,6 +124,17 @@ export function loadBody({ layer, pack, start, theme, bounds, onEvent, onSound,
+@@ -134,6 +137,17 @@ export function loadBody({ layer, pack, start, theme, bounds, onEvent, onSound,
        do: (word) => post({ t: 'do', word }),
        walk: (x, run, id) => post({ t: 'walk', x, run, id }),
        stopWalk: (id) => post({ t: 'stop-walk', id }),
@@ -663,7 +622,7 @@ index 8d68054..c07fcec 100644
        /** `type`: down, move, up, cancel, leave; `p` in stage pixels with `t` (ms). */
        pointer(type, p) { if (type !== 'leave') touches.input(performance.now()); post({ t: 'pointer', type, p }); },
        drop(p) { touches.input(performance.now()); post({ t: 'drop', p }); },
-@@ -177,6 +191,10 @@ export function loadBody({ layer, pack, start, theme, bounds, onEvent, onSound,
+@@ -193,6 +207,10 @@ export function loadBody({ layer, pack, start, theme, bounds, onEvent, onSound,
          z = typeof m.z === 'string' ? m.z : null;
          waits.get(m.seq)?.();
          waits.delete(m.seq);
@@ -675,10 +634,10 @@ index 8d68054..c07fcec 100644
          fail(new Error(m.message));
        }
 diff --git a/packages/cortico-world-desktop-pet/web/coo/coo.js b/packages/cortico-world-desktop-pet/web/coo/coo.js
-index e50c7f1..7da61a0 100644
+index 2a00ff0..3ae6797 100644
 --- a/packages/cortico-world-desktop-pet/web/coo/coo.js
 +++ b/packages/cortico-world-desktop-pet/web/coo/coo.js
-@@ -265,8 +265,14 @@ export function mini(face, acc, t = 0, extra = {}) {
+@@ -266,8 +266,14 @@ export function mini(face, acc, t = 0, extra = {}) {
   * is the pages' to find out: an id that is not falls back to Coo there.
   */
  const FIGURE_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -695,10 +654,10 @@ index e50c7f1..7da61a0 100644
  const validColor = (slot, v) => (v === 'eye' || (v === 'body' && !NO_BODY[slot]) || ACC_COLORS.some(c => c.id === v));
  /** Keeps what is valid in `raw`, defaults the rest. */
 diff --git a/packages/cortico-world-desktop-pet/web/figure-frame.js b/packages/cortico-world-desktop-pet/web/figure-frame.js
-index 8a7bc39..d3e9d38 100644
+index 76c4f23..f78caeb 100644
 --- a/packages/cortico-world-desktop-pet/web/figure-frame.js
 +++ b/packages/cortico-world-desktop-pet/web/figure-frame.js
-@@ -76,7 +76,7 @@ addEventListener('message', async (e) => {
+@@ -80,7 +80,7 @@ addEventListener('message', async (e) => {
        // calls that come before the body is ready have nothing to act on
      } else if (m.t === 'tick') {
        body.step(m.dt);
@@ -707,7 +666,7 @@ index 8a7bc39..d3e9d38 100644
        events = []; sounds = [];
      } else if (m.t === 'scheme') {
        // the fade starts at the body's next frame: the page's clock is not the body's
-@@ -95,6 +95,13 @@ addEventListener('message', async (e) => {
+@@ -99,6 +99,13 @@ addEventListener('message', async (e) => {
      }
      else if (m.t === 'cue') body.cue?.(m.kind);
      else if (m.t === 'talk') body.talk?.();
@@ -722,7 +681,7 @@ index 8a7bc39..d3e9d38 100644
      fail(err);
    }
 diff --git a/packages/cortico-world-desktop-pet/web/kit/body.js b/packages/cortico-world-desktop-pet/web/kit/body.js
-index cb20032..caee06a 100644
+index 5db031e..231298b 100644
 --- a/packages/cortico-world-desktop-pet/web/kit/body.js
 +++ b/packages/cortico-world-desktop-pet/web/kit/body.js
 @@ -85,6 +85,29 @@ export const KIT_EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surp
@@ -1003,7 +962,7 @@ index cb20032..caee06a 100644
      /** Outside orders keep free roaming quiet for `seconds`. */
      holdRoam(seconds) { hold = Math.max(hold, T + seconds); },
      talk() { pet.talkK = 1; },
-@@ -944,6 +1132,13 @@ export function createBody(host, opts) {
+@@ -945,6 +1133,13 @@ export function createBody(host, opts) {
      },
      talk: ctl.talk,
      setScheme: (id, o) => opts.figure.setScheme?.(id, o),
@@ -1018,10 +977,10 @@ index cb20032..caee06a 100644
      dispose() { opts.figure.dispose?.(); svg.remove(); style.remove(); skinStyle.remove(); },
    };
 diff --git a/packages/cortico-world-desktop-pet/web/pet-app.js b/packages/cortico-world-desktop-pet/web/pet-app.js
-index 58a84c9..a9a7aa3 100644
+index 0d9f507..230ff21 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-app.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-app.js
-@@ -177,6 +177,8 @@ function applyPrefs(p) {
+@@ -183,6 +183,8 @@ function applyPrefs(p) {
    if (p.sounds && typeof p.sounds === 'object') sfx.configure({ kinds: p.sounds, snoreSeconds: p.sounds.snoreSeconds });
    if (p.theme === 'dark' || p.theme === 'light') { prefs.theme = p.theme; applyTheme(p.theme); body?.set({ theme: p.theme }); }
    if (typeof p.scale === 'number') { prefs.scale = p.scale; body?.set({ bounds: bounds() }); }
@@ -1030,7 +989,7 @@ index 58a84c9..a9a7aa3 100644
    if (typeof p.rememberPosition === 'boolean') { prefs.rememberPosition = p.rememberPosition; reportPosition(); }
    if (typeof p.user === 'string') prefs.user = p.user;
    if (typeof p.micDevice === 'string' && p.micDevice !== prefs.micDevice) { prefs.micDevice = p.micDevice; stopMic(); }
-@@ -289,6 +291,20 @@ function closeBubble() {
+@@ -306,6 +308,20 @@ function closeBubble() {
    item = null;
  }
  
@@ -1051,7 +1010,7 @@ index 58a84c9..a9a7aa3 100644
  /**
   * While a question's options are up, the pet window takes the keyboard so 1–9 pick one right
   * away, and gives it back to the window that had it once the question is answered or gone.
-@@ -626,6 +642,19 @@ function stepTalkMotion() {
+@@ -643,6 +659,19 @@ function stepTalkMotion() {
  }
  
  /* ---------- typed input: the hover button, or double-click when switched on ---------- */
@@ -1071,39 +1030,40 @@ index 58a84c9..a9a7aa3 100644
  function openInput() {
    closeMenu();
    if (item && item.kind === 'ask' && !item.answered) return;
-@@ -634,9 +663,10 @@ function openInput() {
+@@ -651,9 +680,10 @@ function openInput() {
    const expand = prefs.bot?.buttons?.chat
-     ? '<button class="b-expand" type="button" aria-label="在对话页继续写" title="在对话页继续写"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button>'
+     ? `<button class="b-expand" type="button" aria-label="${esc(t('bubble.expand'))}" title="${esc(t('bubble.expand'))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button>`
      : '';
--  openBubble('ask', `<button class="b-close" type="button" aria-label="关闭">×</button><form class="b-own"><input type="text" maxlength="500" autocomplete="off" placeholder="想说什么…" aria-label="打字说话">${expand}<button type="submit">发送</button></form>`);
-+  openBubble('ask', `<button class="b-close" type="button" aria-label="关闭">×</button><form class="b-own">${consoleKey()}<input type="text" maxlength="500" autocomplete="off" placeholder="想说什么…" aria-label="打字说话">${expand}<button type="submit">发送</button></form>`);
+-  openBubble('ask', `<button class="b-close" type="button" aria-label="${esc(t('bubble.close'))}">×</button><form class="b-own"><input type="text" maxlength="500" autocomplete="off" placeholder="${esc(t('bubble.typePlaceholder'))}" aria-label="${esc(t('bubble.typeLabel'))}">${expand}<button type="submit">${esc(t('bubble.send'))}</button></form>`);
++  openBubble('ask', `<button class="b-close" type="button" aria-label="${esc(t('bubble.close'))}">×</button><form class="b-own">${consoleKey()}<input type="text" maxlength="500" autocomplete="off" placeholder="${esc(t('bubble.typePlaceholder'))}" aria-label="${esc(t('bubble.typeLabel'))}">${expand}<button type="submit">${esc(t('bubble.send'))}</button></form>`);
    const form = bubble.querySelector('form'), input = form.querySelector('input');
    bubble.querySelector('.b-close').addEventListener('click', () => closeBubble());
 +  bubble.querySelector('.b-cfg')?.addEventListener('click', () => { closeBubble(); openConsole(); });
    // the chat page takes longer text and images; the draft goes with it
    bubble.querySelector('.b-expand')?.addEventListener('click', () => {
      send({ t: 'expand', text: input.value });
-@@ -803,9 +833,9 @@ function stopMic() {
+@@ -820,9 +850,10 @@ function stopMic() {
  }
  
  /* ---------- actions: the menu's lower zone and the hover buttons draw from one list ---------- */
 -const ROAM_ORDER = ['off', 'calm', 'free'];
--const ROAM = { off: '不乱动', calm: '多待着', free: '常走动' };
--const ROAM_LEVEL = { off: '低', calm: '中', free: '高' };
+-const roamName = (id) => (ROAM_ORDER.includes(id) ? t(`roam.${id}`) : '');
+-const roamLevel = (id) => (ROAM_ORDER.includes(id) ? t(`roam.level.${id}`) : '');
 +const ROAM_ORDER = ['off', 'calm', 'free', 'sync'];
-+const ROAM = { off: '不乱动', calm: '多待着', free: '常走动', sync: '随刷新率' };
-+const ROAM_LEVEL = { off: '低', calm: '中', free: '高', sync: '跟随屏幕' };
++// 本仓库自研的「随刷新率」：页面文案表里还没加，先写死中文
++const roamName = (id) => (ROAM_ORDER.includes(id) ? (id === 'sync' ? '随刷新率' : t(`roam.${id}`)) : '');
++const roamLevel = (id) => (ROAM_ORDER.includes(id) ? (id === 'sync' ? '跟随屏幕' : t(`roam.level.${id}`)) : '');
  /** The voice button's badge: `auto` when listening all the time, else the talk key (`Alt×2`). */
  const micBadge = () => (prefs.voice.mode === 'always' ? 'auto' : prefs.voice.key || 'key');
  /** Most hover buttons shown beside the pet. */
-@@ -838,10 +868,19 @@ const ACTIONS = {
+@@ -855,10 +886,19 @@ const ACTIONS = {
      icon: () => ICONS[`roam_${prefs.roam}`] ?? ICONS.roam_calm,
      state: () => {
        const next = ROAM_ORDER[(ROAM_ORDER.indexOf(prefs.roam) + 1) % ROAM_ORDER.length];
--      return `行为模式:${ROAM_LEVEL[prefs.roam] ?? ''} · ${ROAM[prefs.roam] ?? ''} · 点一下换成「${ROAM[next]}」`;
+-      return t('action.roam', { level: roamLevel(prefs.roam), name: roamName(prefs.roam), next: roamName(next) });
 +      // 「随刷新率」 says which screen it settled on, so the pace it walks to can be checked
-+      const hz = prefs.roam === 'sync' ? `(屏幕约 ${Math.round(body?.hz ?? 60)}Hz)` : '';
-+      return `行为模式:${ROAM_LEVEL[prefs.roam] ?? ''} · ${ROAM[prefs.roam] ?? ''}${hz} · 点一下换成「${ROAM[next]}」`;
++      const hz = prefs.roam === 'sync' ? `（屏幕约 ${Math.round(body?.hz ?? 60)}Hz）` : '';
++      return t('action.roam', { level: roamLevel(prefs.roam), name: `${roamName(prefs.roam)}${hz}`, next: roamName(next) });
      },
      run: () => cycleRoam(),
    },
@@ -1117,7 +1077,7 @@ index 58a84c9..a9a7aa3 100644
    theme: {
      keep: true,
      icon: () => (prefs.theme === 'dark' ? ICONS.moon : ICONS.sun),
-@@ -984,6 +1023,29 @@ function refreshButtons() {
+@@ -1001,6 +1041,29 @@ function refreshButtons() {
    renderTools();
  }
  
@@ -1147,7 +1107,7 @@ index 58a84c9..a9a7aa3 100644
  /* ---------- hover buttons: the actions chosen in settings (chat and voice by default), beside the pet ---------- */
  /** Seconds the buttons stay after the pointer leaves both the pet and them. */
  const TOOLS_LINGER = .8;
-@@ -1420,9 +1482,10 @@ function frame(now) {
+@@ -1437,9 +1500,10 @@ function frame(now) {
      const msg = err?.message ?? String(err);
      if (msg !== frameErr) { frameErr = msg; console.error(err); }
    }
@@ -1161,10 +1121,10 @@ index 58a84c9..a9a7aa3 100644
    dueAt = now - dueAt > gap ? now + gap : dueAt + gap;
    // moving frames wait on display refreshes: a timer can wake late, which a body at rest hides and a moving one shows as stutter
 diff --git a/packages/cortico-world-desktop-pet/web/pet.css b/packages/cortico-world-desktop-pet/web/pet.css
-index 8a2d5fa..f4ccb8b 100644
+index 54c553c..51cec14 100644
 --- a/packages/cortico-world-desktop-pet/web/pet.css
 +++ b/packages/cortico-world-desktop-pet/web/pet.css
-@@ -137,6 +137,10 @@ body.desk .floor{display:none}
+@@ -142,6 +142,10 @@ body.desk .floor{display:none}
  .b-own:focus-within, .b-own.chosen{border-style:solid; border-color:var(--skin-eye)}
  .b-own input{flex:1; min-width:0; border:0; background:transparent; font:inherit; font-size:14px; color:var(--text); outline:none; padding:4px 0}
  .b-own button[type="submit"]{flex:none; font:inherit; font-size:12.5px; padding:4px 10px; border-radius:8px; border:0; background:var(--text); color:var(--surface); cursor:pointer}
@@ -1176,10 +1136,10 @@ index 8a2d5fa..f4ccb8b 100644
  .b-expand:hover{color:var(--text)}
  .b-expand svg{width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round}
 diff --git a/packages/cortico-world-desktop-pet/web/ui.js b/packages/cortico-world-desktop-pet/web/ui.js
-index c6a2ffb..c8d961e 100644
+index 1a9da24..64c74c3 100644
 --- a/packages/cortico-world-desktop-pet/web/ui.js
 +++ b/packages/cortico-world-desktop-pet/web/ui.js
-@@ -31,6 +31,10 @@ export const ICONS = {
+@@ -33,6 +33,10 @@ export const ICONS = {
    roam_off: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16 7 13.2"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
    roam_calm: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16V10"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
    roam_free: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l5-2.8"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M19.5 6.5l1.5-1.5M21 10h1.5"/>'),
