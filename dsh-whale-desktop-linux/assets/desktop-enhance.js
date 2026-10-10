@@ -1157,6 +1157,128 @@
         };
     }
 
+    // ================= Dock 适配（DSH 小鲸鱼也要和 Dock 相安无事） =================
+    /* 为什么要做：
+     *   鲸鱼默认待在屏幕左下角，Dock 是「底边居中」时两者正好互不打扰（Dock 左边就是空白）。
+     *   但 dash-to-dock 还能切成「底边通栏」和「左/右侧边栏」，那时鲸鱼会压在 Dock 上，
+     *   或者反过来把 Dock 的可点区域盖掉。
+     * 怎么做：
+     *   不改插件本体（它是 vendored 的，而且拖拽时会自己写内联 inset），
+     *   只给 .dshwv-root 叠一个 translate。量位置时先把 transform 清掉得到「自然位置」，
+     *   再算与 Dock 矩形的冲突，最后挪到最近的空闲处 —— 优先原地抬高，其次挪进 freeX 空闲带。
+     *   形状上报用的是 getBoundingClientRect，会自动跟着 transform 走，所以点击穿透依旧精确。
+     */
+    let dockZoneV = null;
+    let dockOffsetV = { x: 0, y: 0 };
+    const DOCK_M = 10;             // 与 Dock 之间留的余量（逻辑像素）
+    // 0 = 完全贴屏幕底。用户明确要求「鲸鱼不要留缝」（原来 6 会空出 12 物理像素，
+    // 在高分屏上看得见一条黑边）。窗口底边本身就等于屏幕底边，所以贴 innerHeight 即可。
+    const BOTTOM_M = 0;
+
+    function dockRootEl() { return document.querySelector('.dshwv-root'); }
+    /**
+     * 真正代表「鲸鱼看得见的部分」的元素。
+     * 不能用根元素量位置：.dshwv-root 是个 175x175 的方框（含大量空白），
+     * 而鲸鱼本体 .dshwv-img 只有 104 高，用根元素对齐底部会让它整个掉出窗口外。
+     */
+    function dockWhaleEl() { return document.querySelector('.dshwv-img') || dockRootEl(); }
+
+    /**
+     * 量出「插件自己摆的」位置。
+     * 注意：**不能动 style.transform** —— 插件用它做动画，踩了会互相干扰
+     * （实测偏移会在 -6 和 +75 之间乱跳）。我们的偏移走独立的 translate 属性，
+     * 所以这里只清 translate 就能拿到干净的自然位置。
+     */
+    function dockNaturalRect(root) {
+        const had = root.style.translate;
+        root.style.translate = '';
+        const r = root.getBoundingClientRect();
+        root.style.translate = had;
+        return r;
+    }
+
+    const rectHits = (a, b, m) => !(a.x + a.w + m <= b.x || a.x - m >= b.x + b.w
+        || a.y + a.h + m <= b.y || a.y - m >= b.y + b.h);
+
+    /**
+     * 算出鲸鱼该放在哪：**先贴屏幕底**（用户要的就是「在下面那块空白里」），
+     * 再避开 Dock —— 底边居中的 Dock 靠横向让进空闲带，底边通栏/侧边栏才抬高。
+     * 插件自己那套定位只保证「贴在窗口底边」，窗口一改尺寸它就偏了，
+     * 所以这里由我们统一摆位，不依赖插件。
+     */
+    function computeDockOffset() {
+        const root = dockRootEl();
+        if (!root) return { x: 0, y: 0 };
+        // 用根元素量：鲸鱼本体 .dshwv-img 的底边与根元素底边重合（实测都是 937），
+        // 而根元素的矩形不受图片加载状态影响，更稳定。
+        const r = dockNaturalRect(root);
+        const z = dockZoneV;
+        const dock = (z && z.found && z.dock) ? z.dock : null;
+
+        // ① 纵向：先想着贴屏幕底
+        const dy = Math.round((innerHeight - BOTTOM_M) - r.bottom);
+        const rect = { x: r.x, y: r.y + dy, w: r.width, h: r.height };
+        if (!dock) return { x: 0, y: dy };            // 没有 Dock 信息：贴底就完事
+        if (!rectHits(rect, dock, DOCK_M)) return { x: 0, y: dy };
+
+        const bands = (z.freeX || []).filter(([a, b]) => b - a >= r.width + 2 * DOCK_M);
+        // ② 底边居中的 Dock：横向那一段被占了，把鲸鱼挪到它旁边的空闲带（保持贴底）
+        if (z.position === 'BOTTOM') {
+            for (const [a] of bands) {
+                const dx = Math.round(a + DOCK_M - r.left);
+                if (!rectHits({ x: r.x + dx, y: rect.y, w: r.width, h: r.height }, dock, DOCK_M))
+                    return { x: dx, y: dy };
+            }
+        }
+        // ③ 侧边栏：横向让开（纵向仍贴底）。
+        //    必须**逐个候选校验**：zone.freeX 只按「地板线」算，而鲸鱼有 175px 高，
+        //    贴着底边时会撞到侧边栏的下端（实测左侧边栏就是这样差 19px 重叠）。
+        if (z.position === 'LEFT' || z.position === 'RIGHT') {
+            // 直接把鲸鱼挪到侧边栏的外侧（比 zone.freeX 更可靠：
+            // freeX 只按地板线算，而鲸鱼有 175px 高，贴底时会撞到侧边栏下端）
+            const dx = z.position === 'LEFT'
+                ? Math.round(dock.x + dock.w + DOCK_M - r.left)
+                : Math.round(dock.x - DOCK_M - r.width - r.left);
+            if (!rectHits({ x: r.x + dx, y: r.y + dy, w: r.width, h: r.height }, dock, DOCK_M)
+                && r.x + dx >= -2 && r.x + dx + r.width <= innerWidth + 2)
+                return { x: dx, y: dy };
+        }
+        // ④ 兜底：把鲸鱼**顶边**放到 Dock 底边之下（侧边栏挡住左下角的情况）
+        const below = Math.round(dock.y + dock.h + DOCK_M - r.top);
+        if (below > 0 && !rectHits({ x: r.x, y: r.y + below, w: r.width, h: r.height }, dock, DOCK_M)
+            && r.y + below + r.height <= innerHeight + 8)
+            return { x: 0, y: below };
+        // ⑤ 实在让不开（底边通栏 / 空闲带太窄）：抬到 Dock 之上
+        return { x: 0, y: Math.round(dock.y - DOCK_M - r.bottom) };
+    }
+
+    function applyDockOffset() {
+        const root = dockRootEl();
+        if (!root) return;
+        dockOffsetV = computeDockOffset();
+        const css = (dockOffsetV.x || dockOffsetV.y)
+            ? `${dockOffsetV.x}px ${dockOffsetV.y}px` : '';
+        if (root.style.translate !== css) root.style.translate = css;   // 没变就不写，省一次样式重算
+    }
+
+    // 测试钩子：直接注入 Dock 占位来验证四种形态（改真实 Dock 设置会动到你的桌面）
+    window.dshwDock = {
+        setZone(z) { dockZoneV = z; applyDockOffset(); return dockOffsetV; },
+        get zone() { return dockZoneV; },
+        get offset() { return dockOffsetV; },
+        recompute() { applyDockOffset(); return dockOffsetV; },
+    };
+
+    if (window.dshwBridge && window.dshwBridge.onDockZone) {
+        window.dshwBridge.onDockZone((z) => { dockZoneV = z; applyDockOffset(); });
+        Promise.resolve(window.dshwBridge.dockZone())
+            .then((z) => { dockZoneV = z; applyDockOffset(); })
+            .catch(() => { /* 拿不到 Dock 信息也不影响挂件 */ });
+    }
+    addEventListener('resize', () => applyDockOffset());
+    // 插件拖拽会改内联 inset；低频复核一次，避免拖完又被 Dock 叠上
+    setInterval(applyDockOffset, 1500);
+
     // ================= 迷你控制条 =================
     let ctlEl = null;
 

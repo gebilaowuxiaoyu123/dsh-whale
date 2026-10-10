@@ -7,7 +7,7 @@
 #    这里用脚本自身所在目录做基准，不管你当前在哪个目录都能跑。
 #
 #  用法（复制这一整行，路径是绝对的）：
-#    sudo bash /home/wukai/dsh-whale/tools/freeze-fix/apply-all.sh
+#    sudo bash ~/dsh-whale/tools/freeze-fix/apply-all.sh
 #
 #  可选：
 #    sudo bash .../apply-all.sh --check    只体检，不改任何东西
@@ -55,6 +55,8 @@ run_step() {
   fi
   bash "$HERE/$script" "$@"
   local rc=$?
+  # rc=0 也可能是「平台不适用，脚本自己跳过了」（如 NVIDIA 机器上的 i915 步骤），
+  # 跳过信息已在上面输出，这里不再判断成败。
   [[ $rc -eq 0 ]] && echo "  ${G}✅ [$id] 完成${N}" || echo "  ${Y}⚠️  [$id] 退出码 $rc${N}"
   return 0
 }

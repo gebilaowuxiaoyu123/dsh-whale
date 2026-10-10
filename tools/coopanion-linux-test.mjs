@@ -177,12 +177,15 @@ async function main() {
     const onTop = petAlwaysOnTop();
     console.log(`  （当前「置顶显示」= ${onTop ? '开' : '关'}）`);
     const wtype = sh('xprop', ['-id', winId, '_NET_WM_WINDOW_TYPE']);
-    check(onTop ? '窗口类型 = DOCK（置顶：避免顶掉桌面 dock）' : '窗口类型 = NORMAL（不置顶：应用窗口能盖住桌宠）',
-        onTop ? /_NET_WM_WINDOW_TYPE_DOCK/.test(wtype) : /_NET_WM_WINDOW_TYPE_NORMAL/.test(wtype), wtype);
-    const wstate = sh('xprop', ['-id', winId, '_NET_WM_STATE']);
-    check(onTop ? '置顶 + 不进任务栏' : '不置顶（无 ABOVE）+ 不进任务栏',
-        /SKIP_TASKBAR/.test(wstate) && (onTop ? /_NET_WM_STATE_ABOVE/.test(wstate) : !/_NET_WM_STATE_ABOVE/.test(wstate)),
-        wstate.slice(0, 90));
+// 本机刻意**始终**用 DOCK 窗口类型，与「置顶显示」开关无关：
+        //   mutter 会把 NORMAL 窗口夹回 workArea（底边只到 Dock 上沿 y=969），
+        //   桌宠因此落不到屏幕真正的底边；DOCK 类型不受夹取，才能站进屏幕最下那条
+        //   空白带（用户要求：两只肥鱼待在 Dock 左右的空白桌面）。
+        //   Shell 自己的 dash 仍绘制在客户端窗口之上，「Dock 始终盖住桌宠」不受影响。
+        check('窗口类型 = DOCK（贴屏幕真底部所需；Shell 的 Dock 仍在它之上）',
+            /_NET_WM_WINDOW_TYPE_DOCK/.test(wtype), wtype);
+        const wstate = sh('xprop', ['-id', winId, '_NET_WM_STATE']);
+        check('不进任务栏（SKIP_TASKBAR）', /SKIP_TASKBAR/.test(wstate), wstate.slice(0, 90));
 
     console.log('\n[3] 点击穿透（形状）');
     const shape = shapeExtents(winId);

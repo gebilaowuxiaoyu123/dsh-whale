@@ -496,19 +496,27 @@ let quitting = false;
 /** 系统托盘图标：提供「显示/隐藏、退出」入口（挂件窗口无边框且不进任务栏）。 */
 /**
  * 控制「另一个桌宠」（Live2D 鲸鱼娘）—— 统一走 tools/petctl.sh，不重复实现一套启停逻辑。
- * 为什么用绝对路径候选而不是 __dirname：DSH 挂件以 AppImage 运行，解包目录是
- * /tmp/appimage_extracted_xxx，在那个目录里找不到仓库的 tools/。
+ *
+ * 路径候选顺序：环境变量 → ~/dsh-whale → 本文件所在仓库根。
+ * **不要写死用户名/家目录** —— 本仓库由两台机器共同完善（另一台是队友的
+ * Ubuntu 22.04 + Legion + RTX 5070），路径不一致时会静默失效。
+ * 注意 AppImage 运行时会解包到 /tmp/appimage_extracted_xxx，那时
+ * __dirname 指不到仓库 —— 所以它只是第 3 个候选，不唯一依赖它。
  */
-function resolvePetctl() {
+function resolveRepoTool(envName, relPath) {
   const cands = [
-    process.env.DSHW_PETCTL,
-    path.join(os.homedir(), 'dsh-whale', 'tools', 'petctl.sh'),
-    '/home/wukai/dsh-whale/tools/petctl.sh',
+    process.env[envName],
+    path.join(os.homedir(), 'dsh-whale', relPath),
+    path.resolve(__dirname, '..', relPath),
   ].filter(Boolean);
   for (const c of cands) {
     try { if (fs.existsSync(c)) return c; } catch (_e) { /* 忽略 */ }
   }
   return '';
+}
+
+function resolvePetctl() {
+  return resolveRepoTool('DSHW_PETCTL', path.join('tools', 'petctl.sh'));
 }
 
 function petctlRun(args) {
@@ -529,6 +537,100 @@ function petctlRun(args) {
 // start/stop/restart/toggle —— 传 ['live2d','status'] 会被当成用法错误。
 ipcMain.handle('dshw-pet-toggle', async (_e, which) => petctlRun([String(which || 'live2d'), 'toggle']));
 ipcMain.handle('dshw-pet-status', async () => petctlRun(['status']));
+
+// ---------- Dock 占位（与 Coopanion 共用 tools/dock-zone.cjs） ----------
+/**
+ * DSH 挂件也要和 Dock 相安无事：鲸鱼默认待在屏幕左下角，Dock 是「底边居中」时
+ * 两者正好互不打扰（Dock 左边就是空白）。但 dash-to-dock 还能切「底边通栏」和
+ * 「左/右侧边栏」，那时鲸鱼会压在 Dock 上、或反过来盖掉 Dock 的可用区域。
+ * 所以把 Dock 占位算出来交给页面，由增强层把鲸鱼整体挪开（见 assets/desktop-enhance.js）。
+ */
+function resolveDockZoneModule() {
+  return resolveRepoTool('DSHW_DOCK_ZONE', path.join('tools', 'dock-zone.cjs'));
+}
+
+let dockZoneCache = null, dockZoneKey = '', dockZoneTimer = 0;
+
+function computeDockZone() {
+  const mod = resolveDockZoneModule();
+  if (!mod) return null;
+  try {
+    const { detectDockZone } = require(mod);
+    const d = screen.getPrimaryDisplay();
+    const z = detectDockZone({
+      screen: { w: Math.round(d.size.width), h: Math.round(d.size.height) },
+      workArea: {
+        x: Math.round(d.workArea.x), y: Math.round(d.workArea.y),
+        w: Math.round(d.workArea.width), h: Math.round(d.workArea.height),
+      },
+    });
+    return toPageCoords(z);
+  } catch (e) {
+    console.log('[dsh-whale] dock-zone 计算失败：' + (e && e.message));
+    return null;
+  }
+}
+
+/**
+ * Dock 矩形是**屏幕坐标**，而页面坐标原点在窗口左上角 —— 本机窗口下移了 ~103px
+ * （见 createWidgetWindow），不换算的话避让会差 100px。
+ * 换算后页面里的 (0, innerHeight) 就是屏幕底部，贴底逻辑才能对。
+ */
+function toPageCoords(z) {
+  if (!z || !z.dock) return z;
+  const dy = Number(global.__dshwWinTop || 0);
+  if (!dy) return z;
+  const shift = (r) => (r ? { ...r, y: r.y - dy } : r);
+  return {
+    ...z,
+    dock: shift(z.dock),
+    screen: { w: z.screen.w, h: z.screen.h - dy },
+    floorY: Number.isFinite(z.floorY) ? z.floorY - dy : z.floorY,
+  };
+}
+
+function refreshDockZone(push) {
+  const z = computeDockZone();
+  const key = JSON.stringify(z && [z.dock, z.floorY, z.blockedX, z.position, z.extendHeight]);
+  const changed = key !== dockZoneKey;
+  dockZoneCache = z;
+  dockZoneKey = key;
+  if (changed && push && win && !win.isDestroyed()) {
+    try { win.webContents.send('dshw-dock-zone', z); } catch (_e) { /* 忽略 */ }
+  }
+  return z;
+}
+
+ipcMain.handle('dshw-dock-zone', () => dockZoneCache || refreshDockZone(false));
+
+// 几何诊断（测试与排障用）：主进程到底认为屏幕多大、窗口实际在哪
+ipcMain.handle('dshw-debug-geom', () => {
+  let b = null;
+  try { b = (win && !win.isDestroyed()) ? win.getBounds() : null; } catch (_e) { /* 忽略 */ }
+  const d = screen.getPrimaryDisplay();
+  return {
+    bounds: b,
+    winTop: global.__dshwWinTop,
+    trueScreen: trueScreenSize(),
+    display: { size: d.size, bounds: d.bounds, workArea: d.workArea, scale: d.scaleFactor },
+    zone: dockZoneCache,
+  };
+});
+
+// 排障用：动态改窗口 bounds，看看 WM 会不会夹回来（用来验证窗口类型是否影响覆盖屏幕底）
+ipcMain.handle('dshw-debug-bounds', (_e, b) => {
+  if (!win || win.isDestroyed() || !b) return null;
+  try { win.setBounds(b); } catch (_e2) { /* 忽略 */ }
+  return win.getBounds();
+});
+
+// Dock 可能在 GNOME 里被挪动 / 换形态：低频轮询，变了才推给页面
+function startDockZoneWatch() {
+  if (dockZoneTimer) return;
+  refreshDockZone(false);
+  dockZoneTimer = setInterval(() => refreshDockZone(true), 8000);
+  if (dockZoneTimer.unref) dockZoneTimer.unref();
+}
 
 function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'whale.png');
@@ -1094,13 +1196,67 @@ function applyAlwaysOnTop() {
   console.log('[dsh-whale] 置顶显示 = ' + on);
 }
 
+/**
+ * 屏幕的「真实」尺寸。
+ * 踩过的坑：Electron 在**建窗之前**查 screen，本机（XWayland）会把 size 报成
+ * workArea（1560x937 而不是 1560x1040），于是算出来的「屏幕底」只是 Dock 的顶边，
+ * 窗口怎么摆都到不了屏幕底。所以额外用 X11 的屏幕尺寸兑底（物理像素 / 缩放）。
+ */
+function trueScreenSize() {
+  const d = screen.getPrimaryDisplay();
+  let h = d.bounds.y + d.size.height;
+  let w = d.size.width;
+  try {
+    const out = execFileSync('xrandr', ['--current'], { encoding: 'utf8', timeout: 4000 });
+    const m = /(\d+)x(\d+)\+0\+0/.exec(out);
+    if (m) {
+      const sc = d.scaleFactor || 1;
+      h = Math.max(h, Math.round(Number(m[2]) / sc));
+      w = Math.max(w, Math.round(Number(m[1]) / sc));
+    }
+  } catch (_e) { /* 没有 xrandr 就算了 */ }
+  return { w, h };
+}
+
+/**
+ * 把窗口摆到「盖满整屏、底部对齐屏幕底」。
+ * 高度用 workArea（请求整屏高度会被 mutter 夹回），靠**下移**到底——
+ * 位置不被夹，底部才能真正落到屏幕底（用户要的「两个大肥鱼在 Dock 两侧的空白里」）。
+ */
+function placeWidgetWindow(why) {
+  if (!win || win.isDestroyed()) return;
+  const all = screen.getAllDisplays();
+  const wh = Math.max(...all.map((d) => d.workArea.height));
+  const left = Math.min(...all.map((d) => d.workArea.x));
+  const ww = Math.max(...all.map((d) => d.workArea.width));
+  const top = Math.max(0, trueScreenSize().h - wh);
+  try { win.setBounds({ x: left, y: top, width: ww, height: wh }); } catch (_e) { return; }
+  global.__dshwWinTop = top;
+  winW = ww; winH = wh;
+  console.log(`[dsh-whale] 窗口就位(${why}): ${ww}x${wh} @y${top}（屏幕底=${trueScreenSize().h}）`);
+}
+
 function createWidgetWindow() {
-  // 覆盖整个桌面：所有显示器的可用区域合并，让鲸鱼可以满桌面拖动
-  const areas = screen.getAllDisplays().map((d) => d.workArea);
-  const left = Math.min(...areas.map((a) => a.x));
-  const top = Math.min(...areas.map((a) => a.y));
-  const right = Math.max(...areas.map((a) => a.x + a.width));
-  const bottom = Math.max(...areas.map((a) => a.y + a.height));
+  // 覆盖整个桌面，并且**盖到屏幕底部**（而不是 workArea 底部）。
+  //
+  // 两个都是实测出来的（本机 GNOME/Wayland + XWayland，缩放 2）：
+  //   1) Dock 会把 workArea 底部切掉 103px（1560x937 @y32，而整屏是 1560x1040），
+  //      而插件把鲸鱼贴在**窗口底边** → 鲸鱼底部正好落在 Dock 顶边上，
+  //      看起来悬在半空、根本没到屏幕底（用户反馈「小鲸鱼还是没到下面」）。
+  //   2) 直接请求整屏高度（1040）**会被 mutter 夹回 workArea（937）**，
+  //      所以不能靠「要个更高的窗口」，只能「把同高的窗口整体下移」：
+  //      高度用 workArea，y = 屏幕底 - 高度 → 底部正好落在屏幕底，且不被夹。
+  // 代价：窗口顶部少盖 ~100px（鲸鱼本来就住底部，可接受）。
+  const areas = screen.getAllDisplays();
+  const left = Math.min(...areas.map((d) => d.workArea.x));
+  const dw = Math.max(...areas.map((d) => d.workArea.width));
+  const wh = Math.max(...areas.map((d) => d.workArea.height));
+  const top = Math.max(0, trueScreenSize().h - wh);
+  const right = left + dw;
+  const bottom = top + wh;
+  // 页面的坐标原点在窗口左上，而 Dock 矩形是屏幕坐标 → 记下偏移，
+  // 发给页面时把 Dock 换算到页面坐标（否则一差就是 100px，避让全错）。
+  global.__dshwWinTop = top;
 
   win = new BrowserWindow({
     x: left,
@@ -1129,6 +1285,11 @@ function createWidgetWindow() {
   winW = right - left;
   winH = bottom - top;
   lastShapeKey = '';
+  // 建窗后再校一次位置：Electron 在窗口存在之前报的显示器尺寸可能是 workArea，
+  // 建窗后才变准；而且 mutter 也可能把窗口重排一次。
+  placeWidgetWindow('建窗后');
+  setTimeout(() => placeWidgetWindow('1.2s 复核'), 1200);
+  setTimeout(() => placeWidgetWindow('3s 复核'), 3000);
   if (IS_LINUX) {
     // Linux 不调用 setIgnoreMouseEvents：实测在 Linux 上它是空操作，还会让透明窗挡住整个桌面。
     // 先保持整窗可交互（保证一定看得见、点得到），等 preload 上报矩形后用 setShape 精确收窄。
@@ -1176,9 +1337,14 @@ function createWidgetWindow() {
 //     · Shell 不再把它当作「一个占满桌面的普通应用窗口」
 //   注意：只改**窗口类型**；_NET_WM_STATE 留给 Electron 自己管，避免两边打架。
 //
-//   「置顶显示」关着的时候反而**不能**用 DOCK —— dock 类型天然在普通窗口之上，
-//   会让挂件又盖住应用窗口。此时用 NORMAL，代价是本机 autohide dock 可能被这个
-//   铺满工作区的窗口顶掉（介意就把「置顶显示」打开）。
+//   为什么**始终**用 DOCK（含「置顶显示」关着的情况）—— 2026-10-10 实测：
+//     mutter 会把 **NORMAL 类型**的窗口夹回 X11 workarea（请求 y=103/高937，
+//     实际得到 y=32）。而 dash-to-dock 给 X11 客户端设了 strut，workarea 比整屏
+//     少了 71px（底部 Dock 那一条）→ 普通类型的挂件**永远到不了屏幕底**，
+//     鲸鱼就悬在 Dock 的顶边上（用户反馈「小鲸鱼还是没到下面」）。
+//     Coopanion 桌宠窗口用的就是 DOCK 类型，所以它没这个问题。
+//   代价：挂件位于 dock 层（普通应用窗口之上）——与 Live2D 桌宠表现一致，可接受；
+//   而「置顶显示」开关仍然控制 _NET_WM_STATE_ABOVE 与「跨工作区显示」。
 function applyLinuxOverlayHints() {
   if (!IS_LINUX || !win || win.isDestroyed()) return;
   const on = readAlwaysOnTop();
@@ -1198,7 +1364,8 @@ function applyLinuxOverlayHints() {
     return;
   }
   const q = (args, cb) => execFile('xprop', args, (err, out) => cb && cb(err, out));
-  const type = on ? '_NET_WM_WINDOW_TYPE_DOCK' : '_NET_WM_WINDOW_TYPE_NORMAL';
+  // 始终 DOCK：只有它能让窗口盖到屏幕底（见上面的实测说明）
+  const type = '_NET_WM_WINDOW_TYPE_DOCK';
   const setType = () => q(['-id', id, '-f', '_NET_WM_WINDOW_TYPE', '32a',
     '-set', '_NET_WM_WINDOW_TYPE', type]);
   setType();
@@ -1206,11 +1373,9 @@ function applyLinuxOverlayHints() {
   setTimeout(() => {
     q(['-id', id, '_NET_WM_WINDOW_TYPE'], (err, out) => {
       const got = String(out || '');
-      const ok = !err && (on ? /DOCK/.test(got) : /NORMAL/.test(got));
+      const ok = !err && /DOCK/.test(got);
       if (ok) {
-        console.log(on
-          ? '[dsh-whale] 窗口类型已设为 DOCK（置顶：dock 的 intellihide 会忽略我们）'
-          : '[dsh-whale] 窗口类型已设为 NORMAL（不置顶：普通应用窗口会盖住挂件）');
+        console.log('[dsh-whale] 窗口类型已设为 DOCK（intellihide 会忽略我们，且不被 workarea 夹）');
         return;
       }
       try {
@@ -1478,6 +1643,7 @@ app.whenReady().then(async () => {
   // 等端口就绪再开窗口：URL 里用的是 WIDGET_PORT，回退后的端口才能被用上
   await startServer();
   createTray();
+  startDockZoneWatch();
   // 首次运行：未配置 API Key 时先弹出配置窗口自动补齐，否则直接显示挂件
   if (readApiKey()) createWidgetWindow();
   else createFirstRunWindow();

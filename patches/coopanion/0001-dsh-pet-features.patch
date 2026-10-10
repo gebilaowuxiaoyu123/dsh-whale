@@ -1,34 +1,31 @@
 diff --git a/app/main.cjs b/app/main.cjs
-index 1950bd2..d0600b3 100644
+index b6bbec3..ddf1bc3 100644
 --- a/app/main.cjs
 +++ b/app/main.cjs
-@@ -32,9 +32,24 @@ const { delimiter, dirname, join } = require('node:path');
- 
- const MAC = process.platform === 'darwin';
- const LINUX = process.platform === 'linux';
-+// NVIDIA 机器上由 tools/setup-nvidia.sh 预制 COOPANION_GPU_FLAGS(EGL 直通等);
-+// 纯核显机器上该变量不存在 → 行为与之前完全一致(不会改变默认路径)。
-+const GPU_FLAGS = (process.env.COOPANION_GPU_FLAGS || '').split(/\s+/).filter(Boolean);
- // Linux: X11 (XWayland under a Wayland session). On Wayland a window cannot place itself or stay on top,
+@@ -30,9 +30,22 @@ const LINUX = process.platform === 'linux';
  // and the cursor position outside the app's own windows is unknown, which the pet needs.
--if (LINUX) app.commandLine.appendSwitch('ozone-platform', 'x11');
-+if (LINUX) {
-+  app.commandLine.appendSwitch('ozone-platform', 'x11');
+ // Without a usable GPU (virtual machines, some drivers) Chromium no longer falls back to software WebGL on
+ // its own, and the whale figure draws with WebGL: allow SwiftShader. It only renders the app's own pages.
++// NVIDIA 机器上由 tools/setup-nvidia.sh 预制 COOPANION_GPU_FLAGS（EGL 直通等）；
++// 纯核显机器上该变量不存在 → 行为与之前完全一致（不会改变默认路径）。
++const GPU_FLAGS = (process.env.COOPANION_GPU_FLAGS || '').split(/\s+/).filter(Boolean);
+ if (LINUX) {
+   app.commandLine.appendSwitch('ozone-platform', 'x11');
+   app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 +  for (const flag of GPU_FLAGS) {
 +    const [key, value = ''] = flag.replace(/^--/, '').split('=');
 +    if (value) app.commandLine.appendSwitch(key, value);
 +    else app.commandLine.appendSwitch(key);
 +  }
-+  // 桌宠窗口是**子进程**(--pet-host)建的,而 appendSwitch 只作用于当前进程:
-+  // 子进程会退回原生 Wayland —— 而 Wayland 下窗口不能自己摆位置、不能常驻置顶,
-+  // 桌宠就彻底不可用(这正是「Linux 版开发不完全」的根因)。
-+  // 环境变量会被所有子 Electron 进程继承,再给 --pet-host 单独补上命令行参数做双保险。
++  // 桌宠窗口是**子进程**（--pet-host）建的，而 appendSwitch 只作用于当前进程：
++  // 子进程会退回原生 Wayland —— 而 Wayland 下窗口不能自己摆位置、不能常驻置顶，
++  // 桌宠就彻底不可用（这正是「Linux 版开发不完全」的根因）。
++  // 环境变量会被所有子 Electron 进程继承，再给 --pet-host 单独补上命令行参数做双保险。
 +  process.env.ELECTRON_OZONE_PLATFORM_HINT = 'x11';
-+}
- // Without a usable GPU (virtual machines, blocklisted drivers) Chromium no longer
- // falls back to software WebGL on its own, and the whale figure draws with WebGL: allow SwiftShader. It
- // only renders the app's own pages.
-@@ -97,7 +112,49 @@ if (process.argv.includes('--pet-host')) {
+ }
+ const APP_ROOT = app.getAppPath();
+ const ICONS = join(__dirname, 'icons');
+@@ -51,7 +64,51 @@ if (process.argv.includes('--pet-host')) {
    app.setPath('userData', join(app.getPath('userData'), 'pet-window'));
    if (MAC) app.dock?.hide();
    const { runPetHost } = require(require.resolve('cortico-world-desktop-pet/host/electron-main.cjs'));
@@ -40,37 +37,39 @@ index 1950bd2..d0600b3 100644
 +/* ---------- start at login ---------- */
 +/**
 + * Started by the system at login: the pet and the tray show, but no window opens on its own.
-+ * `--set-autostart=on|off` only writes the login entry and leaves; it runs before the single-instance
-+ * lock, so it also works while the app is already up.
++ * `--set-autostart=on|off` (what `tools/coopanion-autostart.*` calls) only writes the entry and
++ * leaves; it runs before the single-instance lock, so it also works while the app is already up.
 + */
 +const BACKGROUND = process.argv.includes('--background');
 +/** What starts this app the way it is running now: Electron is only the runtime when unpackaged. */
 +const START_ARGS = app.isPackaged ? ['--background'] : [APP_ROOT, '--background'];
-+/** The login entry; on Linux an XDG autostart file, on Windows/macOS Electron's own login item. */
-+const AUTOSTART_FILE = join(app.getPath('home'), '.config', 'autostart', 'coopanion.desktop');
-+
-+function getAutostart() {
-+  return LINUX ? existsSync(AUTOSTART_FILE) : app.getLoginItemSettings({ path: process.execPath, args: START_ARGS }).openAtLogin;
-+}
-+
-+function setAutostart(on) {
-+  if (!LINUX) { app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args: START_ARGS }); return; }
-+  if (!on) { rmSync(AUTOSTART_FILE, { force: true }); return; }
-+  const exe = process.env.APPIMAGE || process.execPath;
-+  const args = app.isPackaged ? ' --background' : ` "${APP_ROOT}" --background`;
-+  mkdirSync(dirname(AUTOSTART_FILE), { recursive: true });
-+  writeFileSync(AUTOSTART_FILE, `[Desktop Entry]\nType=Application\nName=Coopanion\nExec="${exe}"${args}\nX-GNOME-Autostart-enabled=true\n`);
-+}
++/**
++ * The login entry. Electron's login items cover Windows and macOS; on Linux it is an XDG autostart
++ * file (~/.config/autostart/coopanion.desktop) that runs the AppImage, or the installed executable.
++ * The tray's switch and the launcher scripts both come through here, so there is one entry only.
++ */
++const AUTOSTART = join(app.getPath('home'), '.config', 'autostart', 'coopanion.desktop');
++const autostart = {
++  get: () => (LINUX ? existsSync(AUTOSTART) : app.getLoginItemSettings({ path: process.execPath, args: START_ARGS }).openAtLogin),
++  set(on) {
++    if (!LINUX) { app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args: START_ARGS }); return; }
++    if (!on) { rmSync(AUTOSTART, { force: true }); return; }
++    const exe = process.env.APPIMAGE || process.execPath;
++    const args = app.isPackaged ? ' --background' : ` "${APP_ROOT}" --background`;
++    mkdirSync(dirname(AUTOSTART), { recursive: true });
++    writeFileSync(AUTOSTART, `[Desktop Entry]\nType=Application\nName=Coopanion\nExec="${exe}"${args}\nX-GNOME-Autostart-enabled=true\n`);
++  },
++};
 +
 +const autostartFlag = process.argv.find((a) => a.startsWith('--set-autostart='));
 +if (autostartFlag) {
 +  const on = autostartFlag.slice('--set-autostart='.length) !== 'off';
 +  app.whenReady().then(() => {
 +    try {
-+      setAutostart(on);
-+      console.log(`Coopanion autostart: ${getAutostart() ? 'on' : 'off'}`);
++      autostart.set(on);
++      console.log(`Coopanion 开机自启: ${autostart.get() ? '已开启' : '已关闭'}`);
 +    } catch (err) {
-+      console.error(`Coopanion autostart failed: ${err.message}`);
++      console.error(`Coopanion 开机自启没设成:${err.message}`);
 +      app.exit(1);
 +      return;
 +    }
@@ -79,10 +78,22 @@ index 1950bd2..d0600b3 100644
    return;
  }
  
-@@ -111,9 +168,24 @@ const { CoreHost } = require('./core-host.cjs');
- const { LANGUAGES, configuredLanguage, systemLanguage, textOf } = require('./i18n/index.cjs');
- const { RELEASES_URL, startUpdater } = require('./updater.cjs');
+@@ -63,9 +120,36 @@ if (!app.requestSingleInstanceLock()) {
  
+ const { CoreHost } = require('./core-host.cjs');
+ 
++// ---------------------------------------------------------------------------
++// GPU 兜底（实机取证）：本机是 Intel Meteor Lake + 旧 GuC 固件，GPU 进程会偶发
++// 崩溃（日志：`GPU process exited unexpectedly: exit_code=139`）。
++// 桌宠窗口跑在**子进程**里，带着 --enable-unsafe-swiftshader 等参数，崩了也能兜住；
++// 而主进程没有这层兜底 —— 设置窗口（控制台）建出来后渲染进程起不来，
++// 就永远到不了 ready-to-show，表现就是「点齿轮没反应」。
++// 控制台只是个轻量页面，用软件渲染完全够，换来的是「点了一定能打开」。
++if (LINUX) {
++  app.commandLine.appendSwitch('enable-unsafe-swiftshader');
++  app.disableHardwareAcceleration();
++}
++
 +// Linux：桌宠窗口跑在子进程里，必须**显式**把 X11 开关写进它的命令行，
 +// 否则子进程退回原生 Wayland，桌宠窗口不能自定位/置顶 → 看不见也用不了。
 +// 桌宠窗口是另一份 Electron 进程，**不会继承主进程的 appendSwitch**，所以这些参数必须显式传。
@@ -101,11 +112,11 @@ index 1950bd2..d0600b3 100644
 -const petHost = app.isPackaged ? [process.execPath, '--pet-host'] : [process.execPath, APP_ROOT, '--pet-host'];
 +const petHost = app.isPackaged
 +  ? [process.execPath, '--pet-host', ...PET_PLATFORM_ARGS]
-+  : [process.execPath, APP_ROOT, '--pet-host', ...PET_PLATFORM_ARGS];
++  : [process.execPath, ...PET_PLATFORM_ARGS, APP_ROOT, '--pet-host'];
  
  const core = new CoreHost({
    appRoot: APP_ROOT,
-@@ -124,6 +196,8 @@ const core = new CoreHost({
+@@ -76,6 +160,8 @@ const core = new CoreHost({
      CORTICO_EXTENSIONS_DIR: join(userData, 'extensions'),
      CORTICO_SUPERVISED: '1',
      CORTICO_START_PAUSED: '0',
@@ -114,7 +125,24 @@ index 1950bd2..d0600b3 100644
      CORTICO_DESKTOP_PET_HOST: JSON.stringify(petHost),
      // pnpm keeps its store and caches in LOCALAPPDATA unless told otherwise; pnpm 11 reads the pnpm_config_ prefix
      pnpm_config_store_dir: join(DATA, 'pnpm', 'store'),
-@@ -214,25 +288,12 @@ async function ensurePet() {
+@@ -118,8 +204,15 @@ function openSettings(path = '') {
+     backgroundColor: '#f4f5f4',
+     webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false },
+   });
+-  settings.once('ready-to-show', () => settings.show());
++  settings.once('ready-to-show', () => () => settings.show());
+   settings.on('page-title-updated', (e) => e.preventDefault());
++  // 渲染进程万一崩了（本机 GPU 不稳），自动重载一次，别让窗口变成打不开的死结
++  let settingsReloads = 0;
++  settings.webContents.on('render-process-gone', (_e, details) => {
++    console.error('[settings] 渲染进程退出:', details?.reason, '— 尝试重载');
++    if (settingsReloads < 2 && settings && !settings.isDestroyed())
++      settingsReloads += 1, settings.reload();
++  });
+   settings.webContents.setWindowOpenHandler(({ url }) => {
+     const origin = core.port ? `http://127.0.0.1:${core.port}` : null;
+     const local = /^http:\/\/(127\.0\.0\.1|localhost):\d+\//.test(url);
+@@ -158,25 +251,9 @@ async function ensurePet() {
    if (!state?.connected) await showPet();
  }
  
@@ -133,51 +161,54 @@ index 1950bd2..d0600b3 100644
 -    writeFileSync(AUTOSTART, `[Desktop Entry]\nType=Application\nName=Coopanion\nExec="${exe}" --background\nX-GNOME-Autostart-enabled=true\n`);
 -  },
 -};
-+/** The live login entry: the tray switch and the launcher scripts both go through these helpers. */
-+const loginItem = { get: getAutostart, set: setAutostart };
- 
+-
  /** The usage statistics report whether the app starts at login; the Core reads it when it (re)starts. */
  function noteAutostart() {
 -  core.opts.env.COOPANION_AUTOSTART = app.isPackaged && loginItem.get() ? '1' : '0';
-+  core.opts.env.COOPANION_AUTOSTART = loginItem.get() ? '1' : '0';
++  core.opts.env.COOPANION_AUTOSTART = autostart.get() ? '1' : '0';
  }
  
- function refreshTray() {
-@@ -242,7 +303,7 @@ function refreshTray() {
-     { label: t.trayOpenSettings, click: () => openSettings() },
-     { label: t.trayShowPet, enabled: core.state === 'running', click: () => void showPet() },
-     { type: 'separator' },
--    { label: t.trayLaunchAtLogin, type: 'checkbox', checked: login, enabled: app.isPackaged, click: (item) => { loginItem.set(item.checked); noteAutostart(); refreshTray(); } },
-+      { label: t.trayLaunchAtLogin, type: 'checkbox', checked: login, click: (item) => { loginItem.set(item.checked); noteAutostart(); refreshTray(); } },
-     { label: t.trayRestart, click: () => void core.restart() },
-     { label: t.trayQuit, click: () => app.quit() },
-   ]));
+ function buildTray() {
+@@ -188,12 +265,12 @@ function buildTray() {
+   tray = new Tray(icon);
+   tray.setToolTip('Coopanion');
+   const refresh = () => {
+-    const login = loginItem.get();
++    const login = autostart.get();
+     tray.setContextMenu(Menu.buildFromTemplate([
+       { label: '打开设置', click: () => openSettings() },
+       { label: '显示桌宠', enabled: core.state === 'running', click: () => void showPet() },
+       { type: 'separator' },
+-      { label: '开机自动启动', type: 'checkbox', checked: login, enabled: app.isPackaged, click: (item) => { loginItem.set(item.checked); noteAutostart(); refresh(); } },
++      { label: '开机自动启动', type: 'checkbox', checked: login, click: (item) => { autostart.set(item.checked); noteAutostart(); refresh(); } },
+       { label: '重新启动', click: () => void core.restart() },
+       { label: '退出', click: () => app.quit() },
+     ]));
 diff --git a/console/features/home/index.ts b/console/features/home/index.ts
-index 8695ab7..7c7909b 100644
+index a581bfa..c04190b 100644
 --- a/console/features/home/index.ts
 +++ b/console/features/home/index.ts
-@@ -87,10 +87,12 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -136,10 +136,12 @@ async function mount(ctx: FeatureContext): Promise<void> {
    modelInput.setAttribute('list', modelList.id);
    const keyRow = ui.rowbar();
    const save = ui.button(S.saveStart, { variant: 'primary' });
 +  /** 与 DSH 挂件同步 Key（本仓库自研）：挂件在 127.0.0.1:3090 上读写同一对文件。 */
-+  const syncKey = ui.button('与 DSH 挂件同步', { size: 'sm' });
-   const keyField = ui.field(S.keyLabel(vendorName(vendor, LANGUAGE)), keyInput);
++  const syncKey = ui.button('与 DSH 挂件同步', {});
+   const keyField = ui.field(S.keyLabel(vendor.name), keyInput);
    const modelField = ui.field(S.modelLabel, modelInput);
    modelField.classList.add('home-modelfield');
 -  keyRow.append(modelField, keyField, modelList, save);
 +  keyRow.append(modelField, keyField, modelList, save, syncKey);
-   /** The active endpoint's service, platform and model, once the status is read. */
-   let active: { vendor: Vendor | null; region: Region | null; model: string } = { vendor: null, region: null, model: '' };
-   /** The key box is for the endpoint in use, whose saved key an empty box keeps. */
-@@ -194,6 +196,42 @@ async function mount(ctx: FeatureContext): Promise<void> {
-     modelMsg.classList.remove('bad');
-   };
- 
+   /** The active endpoint's service and model, once the status is read. */
+   let active: { vendor: Vendor | null; model: string } = { vendor: null, model: '' };
+   const getKey = ui.h('a', 'home-link', '');
+@@ -248,6 +250,37 @@ async function mount(ctx: FeatureContext): Promise<void> {
+       save.disabled = false;
+     }
+   });
 +  /**
 +   * 与 DSH 挂件同步 Key（本仓库自研）：两边各改一次很烦，点一下让它们用同一把。
-+   * 输入框里有新 Key 就先本地连一次再推给挂件；空着就是拉挂件的 Key 过来。
-+   * 挂件没开着时只提示，不动本地。
++   * 填了新的 Key → push（推给挂件）；留空 → pull（从挂件拉回来）。
 +   */
 +  syncKey.addEventListener('click', async () => {
 +    const typed = keyInput.value.trim();
@@ -185,14 +216,10 @@ index 8695ab7..7c7909b 100644
 +    modelMsg.classList.remove('bad');
 +    try {
 +      if (typed) {
-+        testing();
-+        const local = await connectVendor(call, vendor, typed, modelInput.value, region);
-+        showTest(local);
-+        if (!local.ok) return;
-+        keyInput.value = '';
-+        editingKey = false;
++        // 先把本地也切到这把 Key，免得两边模型对不上
++        const local = await connectVendor(call, vendor, typed, modelInput.value);
++        if (!local.ok) { showTest(local); return; }
 +      }
-+      modelMsg.textContent = '正在同步…';
 +      const r = await fetch(`http://127.0.0.1:3090/dsh-whale/key-sync/${typed ? 'push' : 'pull'}`, {
 +        method: 'POST',
 +        headers: { 'Content-Type': 'application/json' },
@@ -201,131 +228,125 @@ index 8695ab7..7c7909b 100644
 +      const j = await r.json() as { ok?: boolean; error?: string };
 +      if (!j?.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
 +      modelMsg.textContent = '两边的 Key 已经一样了，再不用各改一次。';
++      keyInput.value = '';
 +      await refreshModel();
 +    } catch (err) {
-+      modelMsg.textContent = `DSH 小鲨鱼挂件没在运行。先打开它，再点这里。（${errText(err)}）`;
++      modelMsg.textContent = `DSH 小鲸鱼挂件没在运行。先打开它，再点这里。（${errText(err)}）`;
 +      modelMsg.classList.add('bad');
 +    } finally {
 +      syncKey.disabled = false;
 +    }
 +  });
-+
-   save.addEventListener('click', async () => {
-     const key = keyInput.value.trim();
-     // only the endpoint in use has a key saved to keep
+   test.addEventListener('click', async () => {
+     const name = status?.modelConnection?.name;
+     if (!name) return;
 diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
-index 4c597f3..12993c4 100644
+index fca746d..e28791d 100644
 --- a/console/features/pet/index.ts
 +++ b/console/features/pet/index.ts
-@@ -36,6 +36,7 @@ const KEYS = {
-   lockFps: `${K}.window.lockFrameRate`,
-   frameRate: `${K}.window.frameRate`,
-   hideFullscreen: `${K}.window.hideWhenFullscreen`,
+@@ -21,6 +21,7 @@ const KEYS = {
+   roam: `${K}.roam`,
+   theme: `${K}.theme`,
+   scale: `${K}.window.scale`,
 +  alwaysOnTop: `${K}.window.alwaysOnTop`,
    sound: `${K}.sound`,
-   snoreSeconds: `${K}.sounds.snoreSeconds`,
-   remember: `${K}.rememberPosition`,
-@@ -47,7 +48,7 @@ const KEYS = {
+   hover: `${K}.hoverButtons`,
+ } as const;
+@@ -42,6 +43,7 @@ const S = pick({
+     roamFree: '常走动',
+     roamCalm: '多待着',
+     roamOff: '不乱动',
++    roamSync: '随刷新率',
+     theme: '颜色',
+     themeDark: '夜间(浅色身体)',
+     themeLight: '白天(深色身体)',
+@@ -65,6 +67,7 @@ const S = pick({
+     roamFree: 'Often',
+     roamCalm: 'Now and then',
+     roamOff: 'Stay put',
++    roamSync: 'Screen rate',
+     theme: 'Colors',
+     themeDark: 'Night (light body)',
+     themeLight: 'Day (dark body)',
+@@ -99,7 +102,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
  
- /** The pet menu's actions in its order (the World's PET_ACTIONS), with the icon each shows. */
- const ACTIONS: ReadonlyArray<[id: string, icon: string]> = [
--  ['chat', 'chat'], ['voice', 'mic'], ['roam', 'roam_calm'], ['theme', 'moon'], ['sound', 'sound'], ['dress', 'shirt'], ['hide', 'eyeOff'],
-+  ['chat', 'chat'], ['voice', 'mic'], ['roam', 'roam_calm'], ['hz', 'hz'], ['theme', 'moon'], ['sound', 'sound'], ['dress', 'shirt'], ['hide', 'eyeOff'],
- ];
- /** Kinds of sound (the World's SOUND_KINDS), each under `worlds.desktop-pet.sounds.<kind>`. */
- const SOUND_KINDS = ['move', 'touch', 'face', 'snore', 'talk', 'ui'] as const;
-@@ -83,7 +84,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
-   const user = ui.input();
-   void post<{ defaultUser?: string }>(PET_STATE, { args: [] }, opts).then((s) => { if (s?.defaultUser) user.placeholder = s.defaultUser; }).catch(() => {});
+   const user = ui.input({ placeholder: '伙伴' });
    const roam = ui.segmented([
 -    { value: 'free', label: S.roamFree }, { value: 'calm', label: S.roamCalm }, { value: 'off', label: S.roamOff },
-+    { value: 'free', label: S.roamFree }, { value: 'calm', label: S.roamCalm }, { value: 'off', label: S.roamOff }, { value: 'sync', label: '随刷新率' },
++    { value: 'free', label: S.roamFree }, { value: 'calm', label: S.roamCalm }, { value: 'off', label: S.roamOff }, { value: 'sync', label: S.roamSync },
    ], { size: 'sm', onSelect: (v) => void save(KEYS.roam, v) });
    const theme = ui.segmented([
      { value: 'dark', label: S.themeDark }, { value: 'light', label: S.themeLight },
-@@ -152,6 +153,9 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -112,6 +115,9 @@ async function mount(ctx: FeatureContext): Promise<void> {
+   scaleBox.append(scale, scaleText);
+   const sound = ui.checkbox(S.sound, { onChange: (on) => void save(KEYS.sound, on) });
+   const stats = ui.checkbox(S.stats, { onChange: (on) => void save(STATS_KEY, on, STATS_GROUP) });
++  // 本仓库自研「置顶显示」：文案表（strings.ts 那套 11 语）里还没有这一项，
++  // 先用中文内联；等上游文案表稳定后再补进多语言。
++  const alwaysOnTop = ui.checkbox('置顶显示', { onChange: (on) => void save(KEYS.alwaysOnTop, on) });
+   const statsDoc = ui.h('a', 'home-link', S.statsDoc);
+   statsDoc.href = STATS_DOC;
+   statsDoc.target = '_blank';
+@@ -157,12 +163,16 @@ async function mount(ctx: FeatureContext): Promise<void> {
      r.append(l, c);
      return r;
    };
-+  // 本仓库自研的「置顶显示」（文案表里还没加，先用中文）
-+  const alwaysOnTop = ui.checkbox('置顶显示', { onChange: (on) => void save(KEYS.alwaysOnTop, on) });
-+  const alwaysOnTopRow = row('', alwaysOnTop.el, '开着时 Coo 浮在所有窗口之上(看视频、全屏时也会挡在前面)。关着时普通应用窗口会盖住它,Coo 仍在桌面图标之上。');
-   // the World declares this setting on Windows only; elsewhere its value never arrives and the row stays hidden
-   const hideFullscreenRow = row('', hideFullscreen.el, S.hideFullscreenHint);
-   hideFullscreenRow.hidden = true;
-@@ -163,6 +167,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
++  const alwaysOnTopRow = row('', alwaysOnTop.el,
++    '开着时 Coo 浮在所有窗口之上(看视频、全屏时也会挡在前面)。关着时普通应用窗口会盖住它,Coo 仍在桌面图标之上。');
+   habits.body.append(
++
+     row(S.user, user, S.userHint),
+     row(S.roam, roam.el),
+     row(S.theme, theme.el),
      row(S.scale, scaleBox),
-     row(S.frameRate, frameRate.el, S.frameRateHint),
-     row('', lockFps.el, S.lockFpsHint),
+     row('', sound.el),
 +    alwaysOnTopRow,
-     hideFullscreenRow,
-     row('', remember.el, S.rememberHint),
      row(S.hover, hoverBox, S.hoverHint(MAX_HOVER)),
-@@ -271,8 +276,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
-       snore.value = String(soundValues[KEYS.snoreSeconds]);
-       snore.dataset.saved = snore.value;
-     }
--    if (typeof values[KEYS.lockFps] === 'boolean') lockFps.setChecked(values[KEYS.lockFps] as boolean);
--    if (typeof values[KEYS.hideFullscreen] === 'boolean') { hideFullscreen.setChecked(values[KEYS.hideFullscreen] as boolean); hideFullscreenRow.hidden = false; }
-+    if (typeof values[KEYS.lockFps] === 'boolean') lockFps.setChecked(values[KEYS.lockFps] as boolean);      if (typeof values[KEYS.alwaysOnTop] === 'boolean') alwaysOnTop.setChecked(values[KEYS.alwaysOnTop] as boolean);    if (typeof values[KEYS.hideFullscreen] === 'boolean') { hideFullscreen.setChecked(values[KEYS.hideFullscreen] as boolean); hideFullscreenRow.hidden = false; }
-     if (typeof values[KEYS.remember] === 'boolean') remember.setChecked(values[KEYS.remember] as boolean);
-     if (typeof values[KEYS.dblclick] === 'boolean') dblclick.setChecked(values[KEYS.dblclick] as boolean);
-     if (typeof values[KEYS.statusBubble] === 'boolean') statusBubble.setChecked(values[KEYS.statusBubble] as boolean);
-diff --git a/console/features/pet/strings.ts b/console/features/pet/strings.ts
-index 781a476..ea0ccee 100644
---- a/console/features/pet/strings.ts
-+++ b/console/features/pet/strings.ts
-@@ -56,7 +56,7 @@ const zh = {
-   statusBubbleHint: 'Coo 想事情、翻记忆里的文件、操作电脑时,头顶冒个小泡写着在做什么,会显示文件名。',
-   selfAdjust: '允许 Coo 自己调整',
-   selfAdjustHint: 'Coo 可以自己换形象和装扮、改走动多少;改音效、大小、黑白模式、悬停按钮和对你的称呼前会先问你。关掉后这些它都改不了。',
--  actions: { chat: '打字', voice: '语音输入', roam: '行为模式', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
-+  actions: { chat: '打字', voice: '语音输入', roam: '行为模式', hz: '测试刷新率', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
-   saved: '已保存',
-   saveFailed: (why: string) => `没保存上:${why}`,
-   stats: '匿名使用统计',
-@@ -111,7 +111,7 @@ export const en: typeof zh = {
-   statusBubbleHint: 'A small bubble above Coo shows when it is thinking, looking through files in its memory or using the computer. File names are shown.',
-   selfAdjust: 'Let Coo adjust itself',
-   selfAdjustHint: 'Coo may change its own figure, dress and how much it walks; it asks you before changing sounds, size, night or day look, hover buttons or what it calls you. When off, it can change none of these.',
--  actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
-+  actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', hz: 'Refresh rate', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
-   saved: 'Saved',
-   saveFailed: (why: string) => `Not saved: ${why}`,
-   stats: 'Anonymous usage statistics',
+     row('', statsBox, S.statsHint),
+     msg,
+@@ -219,6 +229,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+     if (typeof values[KEYS.theme] === 'string') theme.setValue(values[KEYS.theme] as string);
+     if (typeof values[KEYS.scale] === 'number' && active !== scale) { scale.value = String(values[KEYS.scale]); showScale(); }
+     if (typeof values[KEYS.sound] === 'boolean') sound.setChecked(values[KEYS.sound] as boolean);
++    if (typeof values[KEYS.alwaysOnTop] === 'boolean') alwaysOnTop.setChecked(values[KEYS.alwaysOnTop] as boolean);
+     if (typeof values[KEYS.hover] === 'string') {
+       picked = (values[KEYS.hover] as string).split(',').map((x) => x.trim()).filter((x) => ACTIONS.some(([a]) => a === x));
+       renderHover();
 diff --git a/core/companion.ts b/core/companion.ts
-index b863a56..9bca6f4 100644
+index 86f313f..80d9cbf 100644
 --- a/core/companion.ts
 +++ b/core/companion.ts
-@@ -88,6 +88,8 @@ const TALK_EVENTS = new Set(['desktop-pet.message', 'desktop-pet.speech']);
+@@ -68,6 +68,8 @@ const PET_WAIT_MS = 60_000;
+ const TALK_EVENTS = new Set(['desktop-pet.message', 'desktop-pet.speech']);
+ /** After an introduction where the key was put off, the first ask waits this long (talking to Coo asks sooner). */
  const ASK_AFTER_GUIDE_MS = 20 * 60_000;
++/** Started by the system at login (`app/main.cjs --background`): no window opens on its own. */
++const BACKGROUND = process.env.CORTICO_START_BACKGROUND === '1';
  /** Written in the deployment directory once the introduction has run. */
  const GUIDE_FILE = 'guide.json';
-+/** Set by the parent (app/main.cjs) when the system started this app at login: no window opens on its own. */
-+const BACKGROUND = process.env.CORTICO_START_BACKGROUND === '1';
- /** The last version the `coopanion` World told Coo about, in the deployment directory. */
- const NOTICE_FILE = 'notice.json';
  
-@@ -358,7 +360,9 @@ async function introduce(deps: GuideDeps, run: (deps: GuideDeps) => Promise<void
-     if (deps.pet()?.petState().connected) deps.track?.('pet_shown', { ms: Math.round(process.uptime() * 1000) });
-     else {
-       deps.track?.('pet_missing', {});
--      process.send?.({ type: 'companion:open', path: '#/home' });
-+      // nothing else would tell the person why Coo stays silent, but not at login, where a window
+@@ -302,7 +304,11 @@ async function introduce(deps: GuideDeps, keySet: () => boolean, talked: (() =>
+   if (first) {
+     const deadline = Date.now() + PET_WAIT_MS;
+     while (!deps.pet()?.petState().connected && Date.now() < deadline) await sleep(1000);
+-    if (!deps.pet()?.petState().connected) process.send?.({ type: 'companion:open', path: '#/home' });
++    if (!deps.pet()?.petState().connected) {
++      // nothing else would tell the person why Coo stays silent — but not at login, where a window
 +      // opening by itself is exactly what nobody asked for
 +      if (!BACKGROUND) process.send?.({ type: 'companion:open', path: '#/home' });
-     }
-     await run(deps);
++    }
+     await runGuide(deps);
    }
+   if (!talked) return;
 diff --git a/packages/cortico-world-desktop-pet/host/electron-main.cjs b/packages/cortico-world-desktop-pet/host/electron-main.cjs
-index cee3722..c323522 100644
+index cb3ebb9..57dab66 100644
 --- a/packages/cortico-world-desktop-pet/host/electron-main.cjs
 +++ b/packages/cortico-world-desktop-pet/host/electron-main.cjs
-@@ -20,6 +20,70 @@
-  * tables (web/i18n); the windows' titles are the pages' own.
+@@ -16,6 +16,69 @@
+  * macOS gives no way to hand it back to the app that had it.
   */
  const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, session, shell, systemPreferences } = require('electron');
-+/** Linux: the platform the window-type dance below is for. */
++
 +const LINUX = process.platform === 'linux';
 +
 +/**
@@ -336,11 +357,8 @@ index cee3722..c323522 100644
 + * 桌宠窗口铺满整个工作区且置顶，于是 dock 被它一直顶掉：开机不显示、关掉所有窗口也不回来。
 + * 改成 _NET_WM_WINDOW_TYPE_DOCK 后，dash-to-dock 的 intellihide 会忽略它；
 + * 另外 dock 类型天然在普通窗口之上，也不会进任务栏/概览。
-+ *
-+ * `on` 就是「置顶显示」：开 → DOCK + ABOVE（旧行为）；关 → NORMAL（普通应用窗口盖住桌宠，
-+ * 桌宠仍在桌面图标之上）。注意：关掉时 GNOME 的 dock 可能被这个铺满工作区的窗口顶掉 —— 介意的话把开关打开。
 + */
-+function applyOverlayHints(win, on) {
++function applyOverlayHints(win, alwaysOnTop = true) {
 +  if (!LINUX || !win || win.isDestroyed()) return;
 +  let xid = 0;
 +  try {
@@ -358,23 +376,26 @@ index cee3722..c323522 100644
 +    return;
 +  }
 +  const q = (args, cb) => execFile('xprop', args, (err, out) => cb && cb(err, out));
-+  // on: DOCK + ABOVE —— 压在普通窗口之上；off: NORMAL —— 普通应用窗口能盖住桌宠
-+  const type = on ? '_NET_WM_WINDOW_TYPE_DOCK' : '_NET_WM_WINDOW_TYPE_NORMAL';
-+  const state = on
-+    ? '_NET_WM_STATE_ABOVE, _NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_STICKY'
-+    : '_NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_STICKY';
 +  const setType = () => {
-+    q(['-id', id, '-f', '_NET_WM_WINDOW_TYPE', '32a', '-set', '_NET_WM_WINDOW_TYPE', type]);
-+    q(['-id', id, '-f', '_NET_WM_STATE', '32a', '-set', '_NET_WM_STATE', state]);
++    // 置顶 → DOCK：（1）dash-to-dock 的 intellihide 必须忽略 dock 类型窗口；
++    //（2）DOCK 不受 mutter 的 workarea 夹取，宠物才能站到屏幕真正的底边
++    //（NORMAL 会被夹回工作区，底边只能到 Dock 上沿）。
++    // 不置顶 → NORMAL：普通应用窗口可以盖住它（「置顶显示」关掉时的语义）。
++    q(['-id', id, '-f', '_NET_WM_WINDOW_TYPE', '32a',
++       '-set', '_NET_WM_WINDOW_TYPE',
++       alwaysOnTop ? '_NET_WM_WINDOW_TYPE_DOCK' : '_NET_WM_WINDOW_TYPE_NORMAL']);
++    q(['-id', id, '-f', '_NET_WM_STATE', '32a',
++       '-set', '_NET_WM_STATE',
++       alwaysOnTop
++         ? '_NET_WM_STATE_ABOVE, _NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_STICKY'
++         : '_NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_STICKY']);
 +  };
 +  setType();
 +  // 映射后再改不一定被 WM 重新读取，确认一次；没生效就来一次 hide→show 强制重读
 +  setTimeout(() => {
 +    q(['-id', id, '_NET_WM_WINDOW_TYPE'], (err, out) => {
-+      if (!err && (on ? /DOCK/.test(String(out || '')) : /NORMAL/.test(String(out || '')))) {
-+        console.log(on
-+          ? '[pet] 窗口类型已设为 DOCK（置顶：dock 的 intellihide 会忽略桌宠窗口）'
-+          : '[pet] 窗口类型已设为 NORMAL（不置顶：普通应用窗口会盖住桌宠）');
++      if (!err && /DOCK/.test(String(out || ''))) {
++        console.log('[pet] 窗口类型已设为 DOCK（dock 的 intellihide 会忽略桌宠窗口）');
 +        return;
 +      }
 +      try {
@@ -388,11 +409,10 @@ index cee3722..c323522 100644
 +    });
 +  }, 900);
 +}
-+
  const { join } = require('node:path');
- const { pathToFileURL } = require('node:url');
  
-@@ -273,7 +337,7 @@ function trayIcon() {
+ /** Milliseconds between the cursor reports the page gets. */
+@@ -163,24 +226,50 @@ function trayIcon() {
    return img;
  }
  
@@ -401,148 +421,425 @@ index cee3722..c323522 100644
    if (!url) throw new Error('pet host needs --pet-url');
    const origin = new URL(url).origin;
    let win = null, tray = null, dress = null;
-@@ -305,6 +369,15 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
-    */
-   const releaseAutoHidden = () => { autoHidden = false; };
+   /** Id of the display whose work area the window covers. */
+   let displayId = null;
  
 +  /** The pet floats above every window, or sits under normal app windows (the `alwaysOnTop` setting). */
 +  const applyOnTop = () => {
-+    if (!win) return;
-+    if (alwaysOnTop) win.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'screen-saver');
-+    else win.setAlwaysOnTop(false);
-+    // Linux：X11 的窗口类型也得跟着换（置顶时 DOCK、不置顶时 NORMAL），见 applyOverlayHints
-+    applyOverlayHints(win, alwaysOnTop);
++    if (!win || win.isDestroyed()) return;
++    win.setAlwaysOnTop(alwaysOnTop, process.platform === 'darwin' ? 'floating' : 'screen-saver');
++    // Linux：X11 的窗口类型也得跟着换（置顶时 DOCK、不置顶时 NORMAL）
++    if (LINUX) applyOverlayHints(win, alwaysOnTop);
++    // **切回置顶后必须重新贴回屏幕底**：不置顶期间窗口是 NORMAL，mutter 会把它夹回
++    // workArea（底边只到 Dock 上沿，高出 ~71px）；光把类型改回 DOCK 并不会把位置
++    // 退回来 —— 实测「关一下再开」宠物就停在高处不下来了。
++    if (alwaysOnTop) {
++      setTimeout(() => { try { cover(display()); } catch (_e) { /* 忽略 */ } }, 400);
++    }
 +  };
 +
-   const create = () => {
-     const d = display(), wa = coverArea(d);
-     win = new BrowserWindow({
-@@ -322,7 +395,7 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
-     });
-     cover(d);
-     // Native candidate windows and Chromium popups must remain above the pet.
--    win.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'screen-saver');
-+    applyOnTop();
+   /** The display the window belongs on: the one it was moved to, or the primary display once that one is gone. */
+   const display = () => screen.getAllDisplays().find((d) => d.id === displayId) ?? screen.getPrimaryDisplay();
+ 
+   const cover = (d) => {
+     displayId = d.id;
+-    const { x, y, width, height } = d.workArea;
+-    win.setBounds({ x, y, width, height });
++    // 高度用 workArea，但把窗口**整体下移到屏幕底**。
++    //
++    // 为什么（本机 GNOME/Wayland + XWayland 实测）：
++    //   Dock 会把 workArea 底部切掉 ~103px（1560x937 @y32，而整屏是 1560x1040）；
++    //   而桌宠的地板线是 `innerHeight - floorGap()`、即贴着**窗口底边**走 →
++    //   它的脚就停在 Dock 顶边上，根本没到屏幕底部（用户反馈「两个大肥鱼
++    //   没到下面那块空白里」）。
++    //   直接请求整屏高度会被 mutter 夹回 workArea，所以只能「同高窗口往下移」：
++    //   y = 屏幕底 - 高度。位置不会被夹，底部就真正落到屏幕底了。
++    const wa = d.workArea;
++    const screenBottom = d.bounds.y + d.size.height;
++    const y = Math.max(wa.y, screenBottom - wa.height);
++    const b = { x: wa.x, y, width: wa.width, height: wa.height };
++    win.setBounds(b);
+     // Windows: a window moved onto a display with another scale factor is resized by the DPI
+     // change to its old size times the ratio of the two scales; once it is on the new display, the
+     // same bounds set again hold.
+-    win.setBounds({ x, y, width, height });
++    win.setBounds(b);
+   };
+ 
+   const place = () => { if (win) cover(display()); };
+@@ -203,7 +292,17 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+     win.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'screen-saver');
      // on every Space, and over an app in full screen
      if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-     win.setIgnoreMouseEvents(true, { forward: true });
-@@ -392,6 +465,8 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
-   });
-   ipcMain.on('pet:hide', () => { releaseAutoHidden(); if (win) win.hide(); });
-   ipcMain.on('pet:hideWhenFullscreen', (_e, on) => { hideWhenFullscreen = !!on; });
+-    win.setIgnoreMouseEvents(true, { forward: true });
++    // Linux: setIgnoreMouseEvents(…, { forward: true }) 是**空操作**（实测窗口根本没有输入形状），
++    // 铺满工作区的透明窗会把整个桌面的点击全吞掉。真正的做法是把窗口形状收窄到
++    // 「页面上确实画了东西的地方」（由 preload 上报，见 pet:shape）。
++    if (!LINUX) win.setIgnoreMouseEvents(true, { forward: true });
++    // Linux 二次修复：这个窗口铺满整个工作区且置顶，会被 dash-to-dock 的
++    // intellihide（本机 intellihide-mode=ALL_WINDOWS）当成「挡住了 dock 的应用窗口」，
++    // 于是**桌面 dock 一直不显示**（开机不显示、关完窗口也不回来）。
++    // 把窗口类型改成 DOCK：dash-to-dock 必须忽略 dock 类型窗口（否则它自己也会把自己藏起来），
++    // 同时补 SKIP_TASKBAR / SKIP_PAGER / STICKY。
++    if (LINUX) applyOverlayHints(win, alwaysOnTop);
++    else win.setAlwaysOnTop(alwaysOnTop, process.platform === 'darwin' ? 'floating' : 'screen-saver');
+     win.webContents.setWindowOpenHandler(({ url: target }) => {
+       if (target.startsWith(origin)) { openDress(target); return { action: 'deny' }; }
+       shell.openExternal(target);
+@@ -236,7 +335,121 @@ function runPetHost({ url, parentPid = 0, tray: withTray = true }) {
+     dress.loadURL(target);
+   };
+ 
+-  ipcMain.on('pet:interactive', (_e, on) => { if (win) win.setIgnoreMouseEvents(!on, { forward: true }); });
++  /* ---------- Dock 占位（底边居中的 Dock，两侧才是桌面） ----------
++   * 几何交给仓库里的 tools/dock-zone.cjs（支持底边居中 / 底边通栏 / 左右侧边栏四种形态），
++   * 这里只负责：算一次 → 同步给页面 → 之后每 8 秒看一变，变了就推送。
++   * 找不到那个模块时返回 null，页面自动退化成原来的「整屏可用」。
++   */
++  let dockZone = null, dockZoneKey = '', dockZoneTimer = 0;
++  /**
++   * 找 tools/dock-zone.cjs。
++   * 候选：环境变量 → 从本文件向上逐级找仓库根 → ~/dsh-whale。
++   * **不写死用户名/家目录**：本仓库由两台机器共同完善
++   *（另一台是队友的 Ubuntu 22.04 + Legion + RTX 5070），路径不一致会静默失效。
++   */
++  function findDockZoneModule() {
++    const fsx = require('node:fs');
++    const pathx = require('node:path');
++    const osx = require('node:os');
++    const list = [process.env.DSHW_DOCK_ZONE];
++    let d = __dirname;
++    for (let i = 0; i < 6; i++) {
++      d = pathx.dirname(d);
++      list.push(pathx.join(d, 'tools', 'dock-zone.cjs'));
++    }
++    list.push(pathx.join(osx.homedir(), 'dsh-whale', 'tools', 'dock-zone.cjs'));
++    for (const q of list) {
++      try { if (q && fsx.existsSync(q)) return q; } catch (_e) { /* 试下一个 */ }
++    }
++    return '';
++  }
++
++  function computeDockZone() {
++    let mod = null;
++    const found = findDockZoneModule();
++    if (found) {
++      try { mod = require(found); } catch (_e) { /* 试下一个 */ }
++    }
++    if (!mod || !mod.detectDockZone) return null;
++    try {
++      const { screen } = require('electron');
++      // 用窗口所在的显示器（拖到别的屏上也对），拿不到就用主屏
++      let d;
++      try { d = screen.getDisplayMatching(win.getBounds()); } catch (_e) { d = screen.getPrimaryDisplay(); }
++      const z = mod.detectDockZone({
++        screen: { w: Math.round(d.size.width), h: Math.round(d.size.height) },
++        workArea: {
++          x: Math.round(d.workArea.x), y: Math.round(d.workArea.y),
++          w: Math.round(d.workArea.width), h: Math.round(d.workArea.height),
++        },
++        floorGap: 2,   // 与页面 floorGap()（桌宠模式 = 2）保持一致
++      });
++      // Dock 矩形是**屏幕坐标**，而页面原点在窗口左上（本机窗口下移了 ~103px，
++      // 见 cover()）→ 不换算的话避让会差 100px。
++      const dy = win ? win.getBounds().y : 0;
++      if (!dy) return z;
++      return {
++        ...z,
++        dock: z.dock ? { ...z.dock, y: z.dock.y - dy } : z.dock,
++        screen: { w: z.screen.w, h: z.screen.h - dy },
++        floorY: Number.isFinite(z.floorY) ? z.floorY - dy : z.floorY,
++      };
++    } catch (e) {
++      console.log('[pet] dock-zone 计算失败：' + (e && e.message));
++      return null;
++    }
++  }
++  function refreshDockZone(push) {
++    const z = computeDockZone();
++    const key = JSON.stringify(z && [z.dock, z.floorY, z.blockedX, z.floorRaised]);
++    const changed = key !== dockZoneKey;
++    dockZone = z; dockZoneKey = key;
++    if (push && changed && win && !win.isDestroyed() && win.webContents) {
++      console.log('[pet] Dock 占位变化 → 推给页面：' + key);
++      win.webContents.send('pet:dock-zone', z);
++    }
++    return changed;
++  }
++  refreshDockZone(false);
++  ipcMain.on('pet:dock-zone-sync', (e) => { e.returnValue = dockZone; });
++  if (!dockZoneTimer) dockZoneTimer = setInterval(() => refreshDockZone(true), 8000);
++
 +  /** The `alwaysOnTop` world setting, changed while the window runs (the console's 置顶显示 switch). */
 +  ipcMain.on('pet:alwaysOnTop', (_e, on) => { alwaysOnTop = !!on; applyOnTop(); });
-   ipcMain.on('pet:openDress', () => openDress());
-   let language = 'zh';
-   ipcMain.on('pet:language', (_e, code) => {
++
++  ipcMain.on('pet:interactive', (_e, on) => { if (win && !LINUX) win.setIgnoreMouseEvents(!on, { forward: true }); });
++
++  // Linux：页面上报「可见矩形」→ setShape 收窄窗口。没上报到之前保持整窗（宁可暂时挡一下，
++  // 也不能先把桌宠裁没了 —— setShape 同时裁剪绘制）。
++  let lastShapeKey = '';
++  ipcMain.on('pet:shape', (_e, rects) => {
++    if (!LINUX || !win || win.isDestroyed()) return;
++    const b = win.getBounds();
++    const out = [];
++    for (const r of (Array.isArray(rects) ? rects : [])) {
++      if (!r) continue;
++      let x = Math.round(r.x), y = Math.round(r.y);
++      let w = Math.round(r.width), h = Math.round(r.height);
++      if (w < 1 || h < 1) continue;
++      if (x + w < 0 || y + h < 0 || x > b.width || y > b.height) continue;
++      x = Math.max(0, x); y = Math.max(0, y);
++      out.push({ x, y, width: Math.min(w, b.width - x), height: Math.min(h, b.height - y) });
++      if (out.length >= 300) break;
++    }
++    // 空集合 = 此刻没有任何可见内容：给 1x1 的退化形状，等于「全穿透」
++    const shape = out.length ? out : [{ x: 0, y: 0, width: 1, height: 1 }];
++    const key = shape.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join(';');
++    if (key === lastShapeKey) return;
++    lastShapeKey = key;
++    try {
++      win.setShape(shape);
++      // setShape 把新区域纳入形状后，那部分 Chromium 从没绘制过，透明窗会露出**空白底色**
++      // （出现白块）。强制整窗重绘一遍把透明处重新画成 alpha=0。
++      win.webContents.invalidate();
++    } catch (e) {
++      console.log('[pet] setShape 失败：' + e);
++    }
++  });
+   ipcMain.on('pet:focus', () => {
+     if (!win) return;
+     // Explicit text input activates this menu-bar process as well as its window.
 diff --git a/packages/cortico-world-desktop-pet/host/preload.cjs b/packages/cortico-world-desktop-pet/host/preload.cjs
-index 07da391..a12f5a0 100644
+index aa3068e..bccc736 100644
 --- a/packages/cortico-world-desktop-pet/host/preload.cjs
 +++ b/packages/cortico-world-desktop-pet/host/preload.cjs
-@@ -4,6 +4,8 @@ const { contextBridge, ipcRenderer } = require('electron');
+@@ -1,9 +1,151 @@
+ // The only surface the pet page gets from the window process.
+ const { contextBridge, ipcRenderer } = require('electron');
+ 
++// ---------------------------------------------------------------------------
++// Linux（X11 / Wayland 下的 XWayland）：把「当前所有可见内容」的矩形上报给窗口进程，
++// 由它调 win.setShape(rects) 实现点击穿透。
++//
++// 为什么非这样不可：
++//   下面 setInteractive() 用的 setIgnoreMouseEvents(!on, { forward: true }) 在 Linux 上是**空操作**
++//   （实测：窗口没有输入形状，“No window shape defined”）。而这个窗口铺满整个工作区，
++//   于是它会把**整个桌面的鼠标事件全部吞掉** —— 桌宠看得见，但桌面点不动，等于把系统废掉。
++//   实测可行的替代是 win.setShape(rects)：区域外点击可精确穿透。
++//
++// 注意：setShape 在 Linux 走 X11 ShapeBounding，**同时裁剪绘制** —— 形状必须覆盖所有可见像素，
++// 漏一块那块就看不见。所以这里宁大勿小（每个矩形统一外扩 PAD）。
++// ---------------------------------------------------------------------------
++const IS_LINUX = process.platform === 'linux';
++let SHAPE_ERROR = '';
++const SHAPE_PAD = 14;
++const SHAPE_EVERY_MS = 60;
++const SHAPE_MAX = 240;
++
++function paints(el, cs) {
++  // 标签名统一转大写：HTML 里内联 <svg> 的 tagName 是小写，直接比对 'SVG' 永远不成立
++  const tag = String(el.tagName || '').toUpperCase();
++  // 只认**叶子几何**：<svg> / <g> 是容器，它们通常是整屏尺寸的，
++  // 把容器算进来会把形状直接算成整个窗口 —— 等于没做穿透（实测踩过这个坑）。
++  if (['IMG', 'CANVAS', 'VIDEO', 'PATH', 'ELLIPSE', 'CIRCLE', 'RECT',
++       'POLYGON', 'POLYLINE', 'LINE', 'USE', 'TEXT'].includes(tag)) return true;
++  if (cs.backgroundImage && cs.backgroundImage !== 'none') return true;
++  const bg = cs.backgroundColor || '';
++  if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') return true;
++  if (cs.boxShadow && cs.boxShadow !== 'none') return true;
++  if (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0) return true;
++  for (const n of el.childNodes) {
++    if (n.nodeType === 3 && n.textContent && n.textContent.trim()) return true;
++  }
++  return false;
++}
++
++/** 两两去重：被更大矩形完全包住的直接丢掉（形状越小，能穿透的地方越多） */
++function dedupe(rects) {
++  const sorted = rects.slice().sort((a, b) => b.width * b.height - a.width * a.height);
++  const keep = [];
++  for (const r of sorted) {
++    if (keep.length >= SHAPE_MAX) break;
++    const covered = keep.some((k) =>
++      r.x >= k.x && r.y >= k.y &&
++      r.x + r.width <= k.x + k.width &&
++      r.y + r.height <= k.y + k.height);
++    if (!covered) keep.push(r);
++  }
++  return keep;
++}
++
++function collectShapeRects() {
++  const out = [];
++  const vw = window.innerWidth;
++  const vh = window.innerHeight;
++  let nodes;
++  try {
++    nodes = document.body ? document.body.querySelectorAll('*') : [];
++  } catch (_e) {
++    return out;
++  }
++  for (const el of nodes) {
++    const tag = String(el.tagName || '').toUpperCase();
++    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD' || tag === 'DEFS') continue;
++    let r;
++    let cs;
++    try {
++      r = el.getBoundingClientRect();
++      cs = getComputedStyle(el);
++    } catch (_e) {
++      continue;
++    }
++    if (r.width < 2 || r.height < 2) continue;
++    if (r.left > vw || r.top > vh || r.right < 0 || r.bottom < 0) continue;
++    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') continue;
++    try {
++      if (el.closest && el.closest('[hidden]')) continue;
++    } catch (_e) { /* 忽略 */ }
++    if (!paints(el, cs)) continue;
++    out.push({
++      x: Math.round(r.left - SHAPE_PAD), y: Math.round(r.top - SHAPE_PAD),
++      width: Math.round(r.width + SHAPE_PAD * 2), height: Math.round(r.height + SHAPE_PAD * 2),
++    });
++  }
++  return dedupe(out);
++}
++
++if (IS_LINUX) {
++  try {
++    // 初值用一个不可能相等的时间戳：保证**第一帧一定上报**（
++    // 否则若初始算出来是空集，key 与初值 '' 相等会被当成「没变」而永远不发）。
++    let lastKey = '\u0000init';
++    const tick = () => {
++      try {
++        const rects = collectShapeRects();
++        const key = rects.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join(';');
++        if (key === lastKey) return false;
++        lastKey = key;
++        ipcRenderer.send('pet:shape', rects);
++        return true;
++      } catch (_e) { return false; }
++    };
++    // 自适应频率：原来固定 60ms（≈16 次/秒）一直在跑「遍历整个 DOM → 算矩形 →
++    // 拼字符串 → 发 IPC → 主进程 setShape」。桌宠长时间挂着时这部分开销会持续
++    // 压着 CPU / X server / 合成器 —— 本机 GPU 挂死正是被这类持续负载放大的。
++    // 现在：形状刚变过 → 50ms 快速跟随动画；连续稳定一段 → 降到 320ms 巡检。
++    const SHAPE_ACTIVE_MS = 50;
++    const SHAPE_IDLE_MS = 320;
++    const SHAPE_SETTLE_TICKS = 8;
++    let quiet = 0;
++    const loop = () => {
++      quiet = tick() ? 0 : quiet + 1;
++      setTimeout(loop, quiet >= SHAPE_SETTLE_TICKS ? SHAPE_IDLE_MS : SHAPE_ACTIVE_MS);
++    };
++    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loop);
++    else loop();
++  } catch (e) {
++    // 形状上报挂掉不能让整个 preload 挂掉 —— 否则 petHost 都不会被暴露，桌宠整个 UI 报废。
++    SHAPE_ERROR = String((e && e.message) || e);
++    console.log('[pet-shape] 初始化失败：' + SHAPE_ERROR);
++  }
++}
++
++// Dock 占位：宿主用 tools/dock-zone.cjs 算好（屏幕尺寸 + dash-to-dock 设置 →
++// 地板线/禁停区/空闲带），这里同步拿一次，并在 Dock 被挪动/切换形态时接收推送。
++// 拿不到就是 null —— 页面的运动逻辑会自动退化成「整屏可用」。
++let DOCK_ZONE = null;
++const dockSubs = [];
++try {
++  DOCK_ZONE = ipcRenderer.sendSync('pet:dock-zone-sync') || null;
++  ipcRenderer.on('pet:dock-zone', (_e, z) => {
++    DOCK_ZONE = z;
++    for (const cb of dockSubs) { try { cb(z); } catch (_e2) { /* 单个订阅出错不影响其它 */ } }
++  });
++} catch (_e) { /* 忽略：没 Dock 信息也能跑 */ }
++
  contextBridge.exposeInMainWorld('petHost', {
++  /** 诊断用：形状上报是否初始化成功（空串 = 正常） */
++  shapeError: SHAPE_ERROR,
++  platform: process.platform,
    /** true: the window takes the mouse; false: clicks pass through to what is underneath. */
    setInteractive: (on) => ipcRenderer.send('pet:interactive', !!on),
-+  /** true: the window floats above every other window; false: normal app windows cover it. */
++  /** 置顶显示（console 的「置顶显示」开关）：开着时浮在所有窗口之上 */
 +  setAlwaysOnTop: (on) => ipcRenderer.send('pet:alwaysOnTop', !!on),
    focus: () => ipcRenderer.send('pet:focus'),
    /** Takes the keyboard from whatever window has it (a question's number keys), and gives it back. */
    grabFocus: () => ipcRenderer.send('pet:grabFocus'),
+@@ -16,4 +158,13 @@ contextBridge.exposeInMainWorld('petHost', {
+   sampleBackdrop: (rect, skip) => ipcRenderer.invoke('pet:sampleBackdrop', { rect, skip }),
+   /** Moves the window to the display under the cursor: { x, y } the cursor and { w, h } the new size in page pixels, or null when it stays. */
+   followCursor: () => ipcRenderer.invoke('pet:followCursor'),
++    /** Dock 占位（tools/dock-zone.cjs 的结果）；null = 没有 Dock 信息，运动退化为整屏可用 */
++    dockZone: DOCK_ZONE,
++    /** Dock 变动（GNOME 里挪动 Dock / 切形态）时回调；返回取消订阅的函数 */
++    onDockZone: (cb) => {
++      if (typeof cb !== 'function') return () => {};
++      dockSubs.push(cb);
++      return () => { const i = dockSubs.indexOf(cb); if (i >= 0) dockSubs.splice(i, 1); };
++    },
++
+ });
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
-index 80ba17a..1d174e4 100644
+index e5fca42..5f4b274 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts
 +++ b/packages/cortico-world-desktop-pet/src/config.ts
-@@ -12,7 +12,7 @@ export const DESKTOP_PET_ID = 'desktop-pet';
- export const USER_MAX = 20;
- 
- /** What the pet's menu offers, in its order; any of them can also show as a button beside the pet on hover. */
--export const PET_ACTIONS = ['chat', 'voice', 'roam', 'theme', 'sound', 'dress', 'hide'] as const;
-+export const PET_ACTIONS = ['chat', 'voice', 'roam', 'hz', 'theme', 'sound', 'dress', 'hide'] as const;
- export type PetAction = typeof PET_ACTIONS[number];
- /** Most hover buttons. */
- export const MAX_HOVER_BUTTONS = 6;
-@@ -52,7 +52,7 @@ export type SoundSettings = Record<SoundKind, boolean> & {
-   snoreSeconds: number;
- };
- 
--export type RoamMode = 'free' | 'calm' | 'off';
-+export type RoamMode = 'free' | 'calm' | 'off' | 'sync';
- /** Which side of each palette the pet pages draw: dark = light figure for dark surroundings. */
- export type PetTheme = 'dark' | 'light';
- /** Which touches wake the bot: poke = clicks only, petting and carrying wait for the next wake; all; none = every touch waits. */
-@@ -97,6 +97,8 @@ export interface DesktopPetConfigSection extends WorldSection {
-     lockFrameRate: boolean;
-     /** Hide the pet window while a fullscreen window covers the display it is on. */
-     hideWhenFullscreen: boolean;
-+    /** Float above every other window; off keeps the pet a normal window, under the apps you open. */
+@@ -57,6 +57,8 @@ export interface DesktopPetConfigSection extends WorldSection {
+     electronFile: string;
+     /** Figure size on screen, 1 = 256 logo units drawn at 107 px. */
+     scale: number;
++    /** 本仓库自研：置顶显示。开着时宠物浮在所有窗口之上，关着时普通应用窗口能盖住它。 */
 +    alwaysOnTop: boolean;
    };
    roam: RoamMode;
-   /** All of the pet's sounds; `sounds` picks among them while this is on. */
-@@ -154,7 +156,7 @@ export const DESKTOP_PET_DEFAULTS: DesktopPetConfigSection = {
+   sound: boolean;
+@@ -93,13 +95,18 @@ export const DESKTOP_PET_DEFAULTS: DesktopPetConfigSection = {
    enabled: false,
    port: 7797,
-   user: '',
--  window: { enabled: true, electronFile: '', scale: 1, frameRate: 60, lockFrameRate: false, hideWhenFullscreen: false },
-+  window: { enabled: true, electronFile: '', scale: 1, frameRate: 60, lockFrameRate: false, hideWhenFullscreen: false, alwaysOnTop: true },
+   user: '伙伴',
+-  window: { enabled: true, electronFile: '', scale: 1 },
++  window: { enabled: true, electronFile: '', scale: 1, alwaysOnTop: true },
    roam: 'calm',
    sound: true,
-   sounds: { move: true, touch: true, face: true, snore: true, talk: true, ui: true, snoreSeconds: 0 },
-@@ -188,6 +190,11 @@ const K = `worlds.${DESKTOP_PET_ID}`;
- export function desktopPetConfigGroups(language: Language = 'zh'): ConfigGroup[] {
-   const c = petText(language).config;
-   const userMax = capFor(USER_MAX, language);
-+  // 本仓库自研的「置顶显示」：11 种语言的文案表里还没加，先回落到中文
-+  const alwaysOnTopText = c.alwaysOnTop ?? {
-+    title: '置顶显示',
-+    description: '开着时桌宠浮在所有窗口之上(看视频、全屏时也会挡在前面);关着时普通应用窗口会盖住桌宠,桌宠仍在桌面图标之上。',
-+  };
-   const pet: ConfigGroup = {
-     id: `world:${DESKTOP_PET_ID}`,
-     owner: `world:${DESKTOP_PET_ID}`,
-@@ -196,7 +203,7 @@ export function desktopPetConfigGroups(language: Language = 'zh'): ConfigGroup[]
-       title: c.group,
-       properties: {
-         [`${K}.user`]: { type: 'string', title: c.user.title, description: c.user.description(userMax), 'x-hot': true },
--        [`${K}.roam`]: { type: 'string', title: c.roam.title, enum: ['free', 'calm', 'off'], description: c.roam.description, 'x-hot': true },
-+        [`${K}.roam`]: { type: 'string', title: c.roam.title, enum: ['free', 'calm', 'off', 'sync'], description: `${c.roam.description} sync 跟着屏幕刷新率走(屏幕越快它走得越快)。`, 'x-hot': true },
-         [`${K}.theme`]: { type: 'string', title: c.theme.title, enum: ['dark', 'light'], description: c.theme.description, 'x-hot': true },
-         [`${K}.rememberPosition`]: { type: 'boolean', title: c.rememberPosition.title, description: c.rememberPosition.description, 'x-hot': true },
-         [`${K}.hoverButtons`]: { type: 'string', title: c.hoverButtons.title, description: c.hoverButtons.description(MAX_HOVER_BUTTONS, PET_ACTIONS.join(', ')), 'x-hot': true },
-@@ -211,6 +218,7 @@ export function desktopPetConfigGroups(language: Language = 'zh'): ConfigGroup[]
-         ...(process.platform === 'win32' ? {
-           [`${K}.window.hideWhenFullscreen`]: { type: 'boolean', title: c.hideWhenFullscreen.title, description: c.hideWhenFullscreen.description, 'x-hot': true },
-         } : {}),
-+        [`${K}.window.alwaysOnTop`]: { type: 'boolean', title: alwaysOnTopText.title, description: alwaysOnTopText.description, 'x-hot': true },
-         [`${K}.window.electronFile`]: { type: 'string', title: c.electronFile.title, description: c.electronFile.description, 'x-path': { kind: 'file' }, 'x-hot': false },
-         [`${K}.port`]: { type: 'integer', title: c.port.title, minimum: 1024, maximum: 65535, description: c.port.description, 'x-hot': false },
-         [`${K}.touch.enabled`]: { type: 'boolean', title: c.touchEnabled.title, description: c.touchEnabled.description, 'x-hot': true },
-diff --git a/packages/cortico-world-desktop-pet/src/i18n/index.ts b/packages/cortico-world-desktop-pet/src/i18n/index.ts
-index f582097..f44eb60 100644
---- a/packages/cortico-world-desktop-pet/src/i18n/index.ts
-+++ b/packages/cortico-world-desktop-pet/src/i18n/index.ts
-@@ -17,7 +17,10 @@ import ptBR from './pt-BR.ts';
- import it from './it.ts';
- import ru from './ru.ts';
- 
--export type PetText = typeof zh;
-+/** `config.alwaysOnTop` 是本仓库自研新增项，11 种语言的文案表还没补齐，先允许缺省（config.ts 里回落到中文）。 */
-+export type PetText = Omit<typeof zh, 'config'> & {
-+  config: typeof zh.config & { alwaysOnTop?: { title: string; description: string } };
-+};
- 
- export const PET_TEXT: LanguageTable<PetText> = { zh, en, 'zh-Hant': zhHant, ja, ko, fr, de, 'es-419': es419, 'pt-BR': ptBR, it, ru };
- 
+   theme: 'dark',
+   hoverButtons: 'chat,voice',
++  /**
++   * 默认形象改成鲸鱼娘（DeepSeek whale maid，web/whale）。
++   * 上游默认是 'coo'（内置小人）—— 那是 Coopanion 自己的吉祥物，不是鲸鱼娘。
++   * 这台机器要的是鲸鱼娘，所以默认值改成 whale；scheme 用 deepseek 配色。
++   */
+   skin: {
+-    figure: 'coo', scheme: 'deepseek', palette: 'mint', head: 'none', side: 'none', glasses: 'none', neck: 'none',
++    figure: 'whale', scheme: 'deepseek', palette: 'mint', head: 'none', side: 'none', glasses: 'none', neck: 'none',
+     colors: { head: { main: 'body', acc: 'eye' }, side: { main: 'eye', acc: 'eye' }, glasses: { main: 'body', acc: 'eye' }, neck: { main: 'eye', acc: 'eye' } },
+   },
+   touch: { enabled: true, wakeOn: 'poke' },
+@@ -125,12 +132,13 @@ export const DESKTOP_PET_CONFIG_GROUP: ConfigGroup = {
+     title: '桌宠',
+     properties: {
+       [`${K}.user`]: { type: 'string', title: '怎么称呼你', description: '语音、打字和互动事件里用这个名字指代你。', 'x-hot': true },
+-      [`${K}.roam`]: { type: 'string', title: '行为模式', enum: ['free', 'calm', 'off'], description: 'free 常走动;calm 多待着;off 只做被要求的动作。', 'x-hot': true },
++      [`${K}.roam`]: { type: 'string', title: '行为模式', enum: ['free', 'calm', 'off', 'sync'], description: 'free 常走动;calm 多待着;off 只做被要求的动作;sync 跟着屏幕刷新率走(屏幕快就走得快、步频也跟着快)。', 'x-hot': true },
+       [`${K}.sound`]: { type: 'boolean', title: '音效', 'x-hot': true },
+       [`${K}.theme`]: { type: 'string', title: '黑白模式', enum: ['dark', 'light'], description: 'dark 夜间:浅色身体、深色气泡;light 白天:深色身体、浅色气泡。', 'x-hot': true },
+       [`${K}.hoverButtons`]: { type: 'string', title: '悬停按钮', description: `鼠标停在桌宠身上时旁边出现的按钮,最多 ${MAX_HOVER_BUTTONS} 个,逗号分隔:${PET_ACTIONS.join(', ')}。`, 'x-hot': true },
+       [`${K}.window.enabled`]: { type: 'boolean', title: '启动时打开桌宠窗口', 'x-hot': false },
+       [`${K}.window.scale`]: { type: 'number', title: '大小', minimum: .5, maximum: 2, multipleOf: .05, 'x-hot': true },
++      [`${K}.window.alwaysOnTop`]: { type: 'boolean', title: '置顶显示', description: '开着时 Coo 浮在所有窗口之上(看视频、全屏时也会挡在前面)。关着时普通应用窗口会盖住它,Coo 仍在桌面图标之上。', 'x-hot': true },
+       [`${K}.window.electronFile`]: { type: 'string', title: 'Electron 程序', description: '留空时依次用 CORTICO_DESKTOP_PET_HOST 和面板里安装的运行时。', 'x-path': { kind: 'file' }, 'x-hot': false },
+       [`${K}.port`]: { type: 'integer', title: '页面端口', minimum: 1024, maximum: 65535, description: '被占用时向上顺延。', 'x-hot': false },
+       [`${K}.touch.enabled`]: { type: 'boolean', title: '互动发成事件', description: '戳、摸、拎起来甩出去。', 'x-hot': true },
 diff --git a/packages/cortico-world-desktop-pet/src/window-host.ts b/packages/cortico-world-desktop-pet/src/window-host.ts
-index 9f1e0c6..c0350fa 100644
+index 383a00c..f14b5aa 100644
 --- a/packages/cortico-world-desktop-pet/src/window-host.ts
 +++ b/packages/cortico-world-desktop-pet/src/window-host.ts
-@@ -37,25 +37,26 @@ export interface HostState {
+@@ -31,25 +31,28 @@ export interface HostState {
  
  export type HostCommand = { command: string; args: string[]; source: string } | { missing: string };
  
--export function resolveHostCommand(url: string, electronFile: string, managed: string | null, t: WindowText = MODEL_TEXT.zh.window): HostCommand {
-+export function resolveHostCommand(url: string, electronFile: string, managed: string | null, t: WindowText = MODEL_TEXT.zh.window, alwaysOnTop = true): HostCommand {
+-export function resolveHostCommand(url: string, electronFile: string, managed: string | null): HostCommand {
++export function resolveHostCommand(url: string, electronFile: string, managed: string | null, alwaysOnTop = true): HostCommand {
++  // 置顶显示（world 的 window.alwaysOnTop）由命令行传给宠物子进程：
++  // --always-on-top=1 / 0。不传时 host 端默认 true（与上游行为一致）。
 +  const top = `--always-on-top=${alwaysOnTop ? 1 : 0}`;
    const env = process.env[HOST_ENV];
    if (env) {
@@ -553,99 +850,288 @@ index 9f1e0c6..c0350fa 100644
 +        return { command: argv[0], args: [...argv.slice(1), `--pet-url=${url}`, top], source: HOST_ENV };
        }
      } catch { /* fall through to the reason below */ }
-     return { missing: t.badHostEnv(HOST_ENV) };
+     return { missing: `${HOST_ENV} 不是 JSON 字符串数组` };
    }
    if (electronFile) {
-     if (!existsSync(electronFile)) return { missing: t.noElectronFile(electronFile) };
+     if (!existsSync(electronFile)) return { missing: `Electron 程序不存在:${electronFile}` };
 -    return { command: electronFile, args: [HOST_MAIN, `--pet-url=${url}`], source: electronFile };
-+    return { command: electronFile, args: [HOST_MAIN, `--pet-url=${url}`, top], source: electronFile };
++      return { command: electronFile, args: [HOST_MAIN, `--pet-url=${url}`, top], source: electronFile };
    }
 -  if (managed) return { command: managed, args: [HOST_MAIN, `--pet-url=${url}`], source: managed };
-+  if (managed) return { command: managed, args: [HOST_MAIN, `--pet-url=${url}`, top], source: managed };
++    if (managed) return { command: managed, args: [HOST_MAIN, `--pet-url=${url}`, top], source: managed };
    try {
      const bin = createRequire(import.meta.url)('electron') as unknown;
 -    if (typeof bin === 'string' && existsSync(bin)) return { command: bin, args: [HOST_MAIN, `--pet-url=${url}`], source: bin };
-+    if (typeof bin === 'string' && existsSync(bin)) return { command: bin, args: [HOST_MAIN, `--pet-url=${url}`, top], source: bin };
++      if (typeof bin === 'string' && existsSync(bin)) return { command: bin, args: [HOST_MAIN, `--pet-url=${url}`, top], source: bin };
    } catch { /* not installed */ }
-   return { missing: t.noElectron };
+   return { missing: '没有可用的 Electron:在桌宠面板安装窗口运行时,或在配置里指定 Electron 程序' };
  }
 diff --git a/packages/cortico-world-desktop-pet/src/world.ts b/packages/cortico-world-desktop-pet/src/world.ts
-index 94eee10..b45bce8 100644
+index 8c40e79..9415f95 100644
 --- a/packages/cortico-world-desktop-pet/src/world.ts
 +++ b/packages/cortico-world-desktop-pet/src/world.ts
-@@ -726,7 +726,7 @@ export class DesktopPetWorld implements World {
+@@ -334,7 +334,7 @@ export class DesktopPetWorld implements World {
    openWindow(): void {
      if (!this.windowHost || !this.server.port) return;
      const managed = this.store.electron.executable();
--    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed, this.t.window));
-+    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed, this.t.window, this.cfg.window.alwaysOnTop));
+-    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed));
++    this.windowHost.start(resolveHostCommand(this.petUrl, this.cfg.window.electronFile, managed, this.cfg.window.alwaysOnTop));
    }
  
    /* ---------- page protocol ---------- */
-@@ -748,6 +748,7 @@ export class DesktopPetWorld implements World {
-       lockFrameRate: this.cfg.window.lockFrameRate,
-       hideWhenFullscreen: this.cfg.window.hideWhenFullscreen,
-       language: this.appLanguage,
+@@ -347,6 +347,7 @@ export class DesktopPetWorld implements World {
+       theme: this.cfg.theme,
+       hoverButtons: hoverButtonList(this.cfg.hoverButtons),
+       scale: this.cfg.window.scale,
 +      alwaysOnTop: this.cfg.window.alwaysOnTop === true,
-       user: this.userName,
+       user: this.cfg.user,
        mic: this.micWanted(),
        voice: this.voiceBrief(),
-diff --git a/packages/cortico-world-desktop-pet/web/body-host.js b/packages/cortico-world-desktop-pet/web/body-host.js
-index e1cf412..74c7ee6 100644
---- a/packages/cortico-world-desktop-pet/web/body-host.js
-+++ b/packages/cortico-world-desktop-pet/web/body-host.js
-@@ -51,6 +51,9 @@ export function readLayout(l, size) {
-     box,
-     hit: (Array.isArray(l.hit) ? l.hit : []).map((c) => ({ x: num(c?.x), y: num(c?.y), r: Math.max(0, num(c?.r)) })),
-     bubble: pt(l.bubble), side: { ...pt(l.side), reach: clampTo(num(l.side?.reach), 0, side / 2) },
-+    /** 刷新率测试在跑，以及帧循环读到的屏幕刷新率（「随刷新率」照着它走）。 */
-+    scanning: !!l.scanning,
-+    hz: Number.isFinite(l.hz) ? num(l.hz) : null,
-   };
+diff --git a/packages/cortico-world-desktop-pet/web/pet-app.js b/packages/cortico-world-desktop-pet/web/pet-app.js
+index 8535d2f..de1453c 100644
+--- a/packages/cortico-world-desktop-pet/web/pet-app.js
++++ b/packages/cortico-world-desktop-pet/web/pet-app.js
+@@ -32,17 +32,49 @@ if (host) sfx.unlock();
+ else ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => sfx.unlock(), { capture: true }));
+ 
+ const floorGap = () => (host ? 2 : 48);
++/* Dock 占位：宿主已经用 tools/dock-zone.cjs 算好了（地板线 / 禁停区 / 空闲带）。
++ * 本机 Dock 是底边居中的，屏幕左下与右下是纯桌面 —— 鲸鱼就该在那两片空白里活动。 */
++let dockZone = (host && host.dockZone) || null;
+ const ctl = createPet(
+   { petG: $('#pet'), shadowEl: $('#shadow'), fxG: $('#fx') },
+   {
+     sfx,
+     roam: prefs.roam,
+-    bounds: () => ({ W: innerWidth, H: innerHeight, floorY: innerHeight - floorGap(), S: .42 * prefs.scale }),
++    bounds: () => ({
++      W: innerWidth, H: innerHeight,
++      // Dock 通栏时地板线要抬到 Dock 之上；底边居中时保持原来的贴底（两侧空白够宽）
++      floorY: (dockZone && Number.isFinite(dockZone.floorY))
++        ? Math.min(innerHeight - floorGap(), dockZone.floorY)
++        : innerHeight - floorGap(),
++      S: .42 * prefs.scale,
++    }),
+     onEvent: (kind, d) => onBody(kind, d),
+     dialogOpen: () => !!item || !!listen.phase,
+     enter: 'drop',
++    dock: dockZone,
+   },
+ );
++// Dock 被挪动 / 切换形态时几何会变 → 交给运动核心，并重算地板线
++host?.onDockZone?.((z) => {
++  dockZone = z;
++  ctl.setDock(z);
++  ctl.resize();
++});
++/* 测试钩子：运行时换掉 Dock 占位，用来验证「底边居中 / 底边通栏 / 左侧栏 / 右侧栏」
++   四种形态下的行为。真实切换需要改用户的 dash-to-dock 设置（会动桌面），所以走这个入口。 */
++window.__petDock = (z) => {
++  dockZone = z;
++  try { ctl.setDock(z); ctl.resize(); } catch (_e) { return false; }
++  return true;
++};
++/** 测试用：读当前运动状态（位置 / 模式 / 地板线） */
++window.__petDockState = () => ({
++  x: Math.round(ctl.pet.x), y: Math.round(ctl.pet.fy),
++  mode: ctl.pet.mode, facing: ctl.pet.facing, speed: Math.round(ctl.pet.speed || 0),
++  floorY: Math.round(innerHeight - floorGap()), W: innerWidth, H: innerHeight,
++});
++/** 测试用：命令桌宠走到指定 x（run=false 时若需横穿 Dock，核心应自动改成冲刺） */
++window.__petWalk = (x, run) => ctl.walkTo(x, !!run, 'docktest');
+ addEventListener('resize', () => {
+   ctl.resize();
+   // the World reads walk targets and drop spots against the stage the pet is on now
+@@ -88,6 +120,8 @@ function applyPrefs(p) {
+   if (typeof p.sound === 'boolean') { prefs.sound = p.sound; sfx.set(p.sound); }
+   if (p.theme === 'dark' || p.theme === 'light') { prefs.theme = p.theme; applyTheme(p.theme); }
+   if (typeof p.scale === 'number') { prefs.scale = p.scale; ctl.resize(); }
++  // 置顶显示：把世界发来的设置交给窗口进程（X11 下同时会换 DOCK/NORMAL 类型）
++  if (typeof p.alwaysOnTop === 'boolean') host?.setAlwaysOnTop?.(p.alwaysOnTop);
+   if (typeof p.user === 'string') prefs.user = p.user;
+   if (typeof p.micDevice === 'string' && p.micDevice !== prefs.micDevice) { prefs.micDevice = p.micDevice; stopMic(); }
+   if (typeof p.mic === 'boolean') { prefs.mic = p.mic; p.mic && !watching ? startMic() : stopMic(); }
+@@ -521,14 +555,28 @@ function stepTalkMotion() {
  }
  
-@@ -134,6 +137,17 @@ export function loadBody({ layer, pack, start, theme, bounds, onEvent, onSound,
-       do: (word) => post({ t: 'do', word }),
-       walk: (x, run, id) => post({ t: 'walk', x, run, id }),
-       stopWalk: (id) => post({ t: 'stop-walk', id }),
-+      /** 刷新率测试：resolve 出读数；被打断/叫停则 ok:false。腿数是段数（左→右算一段）。 */
-+      hzScan(o = {}) {
-+        if (gone) return Promise.resolve({ ok: false, reason: 'gone' });
-+        const s = ++seq;
-+        post({ t: 'hz-scan', legs: o.legs, seq: s });
-+        return new Promise((done) => waits.set(s, (r) => done(r ?? { ok: false, reason: 'gone' })));
-+      },
-+      stopHzScan: () => post({ t: 'hz-stop' }),
-+      /** 刷新率测试在跑，以及帧循环读到的屏幕刷新率（「随刷新率」照着它走）。 */
-+      get scanning() { return !!layout?.scanning; },
-+      get hz() { return typeof layout?.hz === 'number' ? layout.hz : 60; },
-       /** `type`: down, move, up, cancel, leave; `p` in stage pixels with `t` (ms). */
-       pointer(type, p) { if (type !== 'leave') touches.input(performance.now()); post({ t: 'pointer', type, p }); },
-       drop(p) { touches.input(performance.now()); post({ t: 'drop', p }); },
-@@ -193,6 +207,10 @@ export function loadBody({ layer, pack, start, theme, bounds, onEvent, onSound,
-         z = typeof m.z === 'string' ? m.z : null;
-         waits.get(m.seq)?.();
-         waits.delete(m.seq);
-+      } else if (m.t === 'hz-scan') {
-+        // 刷新率测试跑完了（或被叫停/打断）：把读数交给等着的那次调用
-+        waits.get(m.seq)?.(m.result);
-+        waits.delete(m.seq);
-       } else if (m.t === 'error') {
-         fail(new Error(m.message));
-       }
-diff --git a/packages/cortico-world-desktop-pet/web/coo/coo.js b/packages/cortico-world-desktop-pet/web/coo/coo.js
-index 2a00ff0..3ae6797 100644
---- a/packages/cortico-world-desktop-pet/web/coo/coo.js
-+++ b/packages/cortico-world-desktop-pet/web/coo/coo.js
-@@ -266,8 +266,14 @@ export function mini(face, acc, t = 0, extra = {}) {
-  * is the pages' to find out: an id that is not falls back to Coo there.
-  */
- const FIGURE_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+ /* ---------- typed input: the hover button, or double-click ---------- */
++/**
++ * The bubble's way into the console. The embedding app lends its settings window (the local
++ * console) as the `settings` control; without one the key is left out rather than dead.
++ */
++const consoleKey = () => (prefs.bot?.buttons?.settings
++  ? `<button class="b-cfg" type="button" title="打开设置(本地调试界面)" aria-label="打开设置">${ICONS.settings}</button>` : '');
++
++/** Asks the World to show the app's settings window; the pet's own page never opens it directly. */
++function openConsole() {
++  sfx.tick();
++  send({ t: 'control', action: 'settings' });
++}
++
+ function openInput() {
+   closeMenu();
+   if (item && item.kind === 'ask' && !item.answered) return;
+   if (item) closeBubble();
+   item = { kind: 'input' };
+-  openBubble('ask', '<button class="b-close" type="button" aria-label="关闭">×</button><form class="b-own"><input type="text" maxlength="500" autocomplete="off" placeholder="想说什么…" aria-label="打字说话"><button type="submit">发送</button></form>');
++  openBubble('ask', `<button class="b-close" type="button" aria-label="关闭">×</button><form class="b-own">${consoleKey()}<input type="text" maxlength="500" autocomplete="off" placeholder="想说什么…" aria-label="打字说话"><button type="submit">发送</button></form>`);
+   const form = bubble.querySelector('form'), input = form.querySelector('input');
+   bubble.querySelector('.b-close').addEventListener('click', () => closeBubble());
++  bubble.querySelector('.b-cfg')?.addEventListener('click', () => { closeBubble(); openConsole(); });
+   form.addEventListener('submit', (e) => {
+     e.preventDefault();
+     const v = input.value.trim();
+@@ -636,9 +684,9 @@ function stopMic() {
+ }
+ 
+ /* ---------- actions: the menu's lower zone and the hover buttons draw from one list ---------- */
+-const ROAM_ORDER = ['off', 'calm', 'free'];
+-const ROAM = { off: '不乱动', calm: '多待着', free: '常走动' };
+-const ROAM_LEVEL = { off: '低', calm: '中', free: '高' };
++const ROAM_ORDER = ['off', 'calm', 'free', 'sync'];
++const ROAM = { off: '不乱动', calm: '多待着', free: '常走动', sync: '随刷新率' };
++const ROAM_LEVEL = { off: '低', calm: '中', free: '高', sync: '跟随屏幕' };
+ /** The voice button's badge: listening all the time, or only on the talk key. */
+ const MIC_BADGE = { always: 'auto', hold: 'key', toggle: 'key' };
+ /** Most hover buttons shown beside the pet. */
+@@ -671,7 +719,9 @@ const ACTIONS = {
+     icon: () => ICONS[`roam_${prefs.roam}`] ?? ICONS.roam_calm,
+     state: () => {
+       const next = ROAM_ORDER[(ROAM_ORDER.indexOf(prefs.roam) + 1) % ROAM_ORDER.length];
+-      return `行为模式:${ROAM_LEVEL[prefs.roam] ?? ''} · ${ROAM[prefs.roam] ?? ''} · 点一下换成「${ROAM[next]}」`;
++      // 「随刷新率」 says which screen it settled on, so the pace it walks to can be checked
++      const hz = prefs.roam === 'sync' ? `(屏幕约 ${Math.round(ctl.hz)}Hz)` : '';
++      return `行为模式:${ROAM_LEVEL[prefs.roam] ?? ''} · ${ROAM[prefs.roam] ?? ''}${hz} · 点一下换成「${ROAM[next]}」`;
+     },
+     run: () => cycleRoam(),
+   },
+@@ -894,7 +944,10 @@ function stepTools() {
+   // shown while the cursor is on the pet or on the buttons, and a moment after it leaves; decided
+   // from where the cursor is now, not from the last move event, which may be stale
+   const p = cursor.at;
+-  if (p && (ctl.hitPet(p) || overTools(p))) toolsUntil = ctl.time + TOOLS_LINGER;
++  // 用 Math.max：触屏轻点设的是更长的 TOUCH_TOOLS_LINGER，而触屏上窗口报回来的
++  // “光标位置”可能仍停在宠物身上（并没有真的移开），若直接赋值会被鼠标的短
++  // linger 覆盖掉，触屏按钮又变回不可点。
++  if (p && (ctl.hitPet(p) || overTools(p))) toolsUntil = Math.max(toolsUntil, ctl.time + TOOLS_LINGER);
+   tools.hidden = !(ctl.time < toolsUntil && !ctl.pressing && !ctl.busy() && menu.hidden && toolIds !== '');
+   if (tools.hidden) endHold();
+   tools.querySelector('[data-action="voice"]')?.classList.toggle('live', listen.phase === 'hearing');
+@@ -989,11 +1042,65 @@ host?.onCursor?.((p) => {
+   diag.poll = { at: performance.now(), x: p.x, y: p.y, hit, ui };
+   setInteractive(ctl.pressing || hit || ui, 'poll');
+ });
++/* ---------- 触屏支持 -------------------------------------------------------------
++ * Pointer Events 本身鼠标/触摸/笔都收，但上游只按鼠标调过，触屏上还有三个真实缺口：
++ *   1. 触屏没有悬停 → 靠 cursor.at 显现的 .tools 悬停按钮永远不出现，等于点不到；
++ *   2. 右键菜单靠浏览器合成的 contextmenu，touch-action:none 下不保证触发；
++ *   3. 双击开输入框靠 dblclick，轻点/双击不会合成出 dblclick。
++ * 下面用 pointerType==='touch'|'pen' 显式补齐 1/2/3；鼠标路径完全不变。
++ */
++const TOUCH_LONG_PRESS_MS = 550;   // 与 dsh-whale-shell-extension 的长按阈值保持一致
++const TOUCH_SLOP_PX = 12;          // 超过这个位移就不再算「长按/轻点」，而是拖拽
++const TOUCH_DOUBLE_TAP_MS = 340;
++const TOUCH_TOOLS_LINGER = .8 * 3; // 触屏按钮多留一会（手指遮挡，需要时间看清再加点）
++const isTouch = (e) => e.pointerType === 'touch' || e.pointerType === 'pen';
++const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
++let lpAt = null, lpTimer = 0, lpFired = false;
++let tapAt = 0, tapFrom = null, tapMoved = false;
++const lpClear = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = 0; } };
++
+ stage.addEventListener('pointerdown', (e) => {
+   if (e.button !== 0) return;
+   closeMenu();
++  if (isTouch(e)) {
++    const p = { x: e.clientX, y: e.clientY };
++    lpAt = p; lpFired = false;
++    tapFrom = p; tapMoved = false;
++    lpClear();
++    // 轻点一下就把悬停按钮露出来：触屏没有 hover，否则这些按钮永远不可达
++    if (ctl.hitPet(p)) toolsUntil = ctl.time + TOUCH_TOOLS_LINGER;
++    lpTimer = setTimeout(() => {
++      lpTimer = 0;
++      if (!lpAt || !ctl.hitPet(lpAt)) return;
++      if (tapMoved) return;                 // 手指已经滑过 → 当拖拽，不弹菜单
++      lpFired = true;
++      try { sfx.tick(); } catch (_e) { /* 音效失败不影响菜单 */ }
++      openMenu(lpAt.x, lpAt.y);
++    }, TOUCH_LONG_PRESS_MS);
++  }
+   if (ctl.pointerDown({ x: e.clientX, y: e.clientY })) { stage.setPointerCapture(e.pointerId); e.preventDefault(); }
+ });
++// 触摸移动：超过阈值就取消长按/轻点判定
++stage.addEventListener('pointermove', (e) => {
++  if (!isTouch(e)) return;
++  const p = { x: e.clientX, y: e.clientY };
++  if (tapFrom && dist(tapFrom, p) > TOUCH_SLOP_PX) { tapMoved = true; lpClear(); }
++  lpAt = p;
++});
++// 触摸抬起：轻点/双击（鼠标由 dblclick 处理，触摸必须自己算）
++stage.addEventListener('pointerup', (e) => {
++  if (!isTouch(e)) return;
++  lpClear();
++  if (lpFired) { lpFired = false; return; }        // 刚才是长按弹菜单
++  if (tapMoved || !tapFrom) return;                 // 拖动过 → 不是轻点
++  const p = { x: e.clientX, y: e.clientY };
++  if (!ctl.hitPet(p)) return;
++  const now = performance.now();
++  if (now - tapAt < TOUCH_DOUBLE_TAP_MS) { tapAt = 0; openInput(); }   // 双击 → 打字聊天
++  else tapAt = now;
++});
++stage.addEventListener('pointercancel', () => { lpClear(); lpFired = false; });
++
+ const up = () => { ctl.pointerUp(); stage.style.cursor = ''; };
+ /**
+  * Most milliseconds a drop on another display waits for the page to take the window's new size
+@@ -1178,8 +1285,26 @@ function stepBackdrop(dt) {
+ }
+ 
+ /* ---------- loop ---------- */
++/**
++ * 帧率上限（桌面端）。
++ *
++ * 桌宠不需要 60fps 满帧重绘。本机是 3120x2080@2x，桌宠窗口是全屏 3120x1874，
++ * 满帧时合成器要持续处理上千万像素的透明混合 —— 实测这段高负载期间 i915 连续报
++ * 「GUC: TLB invalidation response timed out」并在 44 秒后 GPU HANG，
++ * 症状正是「画面冻死、只剩鼠标能动、点什么都没反应」。
++ * 降到交互 30fps / 静止 15fps，砍掉 50%~75% 的合成工作量，视觉上几乎无差别。
++ */
++const ACTIVE_FPS = 30, IDLE_FPS = 15;
+ let last = performance.now();
++function busyNow() {
++  return !!(ctl.pressing || !menu.hidden || (bubble && !bubble.hidden)
++    || ctl.busy() || listen.phase !== 'idle');
++}
+ function frame(now) {
++  // 先排下一帧：下面提前 return 时也不能把循环断掉
++  requestAnimationFrame(frame);
++  const interval = 1000 / (busyNow() ? ACTIVE_FPS : IDLE_FPS);
++  if (now - last < interval - 1.5) return;   // 未到时间片：丢弃这次 rAF
+   const dt = Math.min(.05, (now - last) / 1000); last = now;
+   stepActs();
+   stepDialog(dt);
+@@ -1191,7 +1316,7 @@ function frame(now) {
+   stepBackdrop(dt);
+   stepTools();
+   layout();
+-  requestAnimationFrame(frame);
+ }
+ ctl.render();
+ requestAnimationFrame(frame);
++
+diff --git a/packages/cortico-world-desktop-pet/web/pet-core.js b/packages/cortico-world-desktop-pet/web/pet-core.js
+index 487bebe..3a92fe8 100644
+--- a/packages/cortico-world-desktop-pet/web/pet-core.js
++++ b/packages/cortico-world-desktop-pet/web/pet-core.js
+@@ -294,8 +294,14 @@ export function mini(face, acc, t = 0, extra = {}) {
+ /* ---------- skin ---------- */
+ /** Bodies the pet can wear: Coo (drawn here) or the DeepSeek whale maid (web/whale, with its colour schemes). */
+ export const FIGURES = [['coo', 'Coo'], ['whale', 'DeepSeek 大肥鱼']];
 +/**
 + * 页面侧的形象默认值。
-+ * 上游默认是 'coo'(Coopanion 自己的内置小人);这台机器要的是鲸鱼娘
-+ * ('whale',即 DeepSeek 大肥鱼)。核心下发的 skin 是权威值,这里只是
-+ * 「核心没下发时」的兜底,所以两边都要改,否则兜底会把形象拉回 coo。
++ * 上游默认是 'coo'（Coopanion 自己的内置小人）；这台机器要的是鲸鱼娘
++ * （'whale'，即 DeepSeek 大肥鱼）。核心下发的 skin 是权威值，这里只是
++ * 「核心没下发时」的兜底，所以两边都要改，否则兜底会把形象拉回 coo。
 + */
  export function defaultSkin() {
 -  return { figure: 'coo', scheme: 'deepseek', palette: 'mint', head: 'none', side: 'none', glasses: 'none', neck: 'none', colors: JSON.parse(JSON.stringify(CHANNEL_DEFAULT)) };
@@ -653,42 +1139,19 @@ index 2a00ff0..3ae6797 100644
  }
  const validColor = (slot, v) => (v === 'eye' || (v === 'body' && !NO_BODY[slot]) || ACC_COLORS.some(c => c.id === v));
  /** Keeps what is valid in `raw`, defaults the rest. */
-diff --git a/packages/cortico-world-desktop-pet/web/figure-frame.js b/packages/cortico-world-desktop-pet/web/figure-frame.js
-index 76c4f23..f78caeb 100644
---- a/packages/cortico-world-desktop-pet/web/figure-frame.js
-+++ b/packages/cortico-world-desktop-pet/web/figure-frame.js
-@@ -80,7 +80,7 @@ addEventListener('message', async (e) => {
-       // calls that come before the body is ready have nothing to act on
-     } else if (m.t === 'tick') {
-       body.step(m.dt);
--      post({ t: 'frame', layout: body.layout(), events, sounds, z: body.z ?? null });
-+      post({ t: 'frame', layout: body.layout(), events, sounds, z: body.z ?? null, scanning: !!body.scanning, hz: body.hz ?? null });
-       events = []; sounds = [];
-     } else if (m.t === 'scheme') {
-       // the fade starts at the body's next frame: the page's clock is not the body's
-@@ -99,6 +99,13 @@ addEventListener('message', async (e) => {
-     }
-     else if (m.t === 'cue') body.cue?.(m.kind);
-     else if (m.t === 'talk') body.talk?.();
-+    // 刷新率测试：跑完（或被叫停/打断）才回话，页面那边等着这个结果
-+    else if (m.t === 'hz-scan') {
-+      let result = { ok: false, reason: 'unsupported' };
-+      try { result = (await body.hzScan?.({ legs: m.legs })) ?? result; } catch (_e) { result = { ok: false, reason: 'error' }; }
-+      post({ t: 'hz-scan', seq: m.seq, result });
-+    }
-+    else if (m.t === 'hz-stop') body.stopHzScan?.();
-   } catch (err) {
-     fail(err);
-   }
-diff --git a/packages/cortico-world-desktop-pet/web/kit/body.js b/packages/cortico-world-desktop-pet/web/kit/body.js
-index 5db031e..231298b 100644
---- a/packages/cortico-world-desktop-pet/web/kit/body.js
-+++ b/packages/cortico-world-desktop-pet/web/kit/body.js
-@@ -85,6 +85,29 @@ export const KIT_EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surp
-   'smug', 'pout', 'worried', 'determined', 'flustered', 'scared', 'excited', 'cry', 'confused'];
- export const KIT_MOTIONS = ['stand', 'jump', 'hop', 'look', 'turn', 'nod', 'shake', 'spin', 'sit', 'sleep', 'dizzy', 'walk', 'run',
-   'wave', 'bow', 'shiver', 'flap', 'dance'];
-+
+@@ -370,6 +376,8 @@ export const ICONS = {
+   roam_off: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16 7 13.2"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
+   roam_calm: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16V10"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
+   roam_free: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l5-2.8"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M19.5 6.5l1.5-1.5M21 10h1.5"/>'),
++  // the gauge again, with readings flying out of it: the pace is the screen's
++  roam_sync: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4.4-3.4"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M3.6 11.6 5.4 10.2M20.4 11.6 18.6 10.2M12 5.4V3.6"/>'),
+ };
+ /** Sets `theme` ('dark' | 'light') on the page; `button`, when given, shows the mode a click switches to. */
+ export function applyTheme(theme, button) {
+@@ -496,6 +504,21 @@ export const EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surprise
+ /** Motions: things the body does. `sit` and `sleep` last until something else happens. */
+ export const MOTIONS = ['stand', 'jump', 'hop', 'look', 'turn', 'nod', 'shake', 'spin', 'sit', 'sleep', 'dizzy', 'walk', 'run'];
+ 
 +/* ---------- how fast the screen is ---------- */
 +/**
 + * The refresh rates a reading snaps to, and how near one it must land to count (a share of it),
@@ -704,19 +1167,12 @@ index 5db031e..231298b 100644
 + */
 +export const SYNC_MIN = .5, SYNC_MAX = 3;
 +
-+/* ---------- 刷新率测试 ---------- */
-+/**
-+ * 「测试刷新率」怎么跑：共几段（左→右算一段，右→左再算一段），一段跑完每帧走几个像素，
-+ * 以及量屏幕时数多久的帧。一帧走 1 px 的「帧」是指屏幕真实刷新的一帧：1 px 乘刷新率就是
-+ * 这段路的速度，所以跑完的耗时（连同量到的帧数）直接说出屏幕到底多快。
-+ */
-+const HZ_SCAN_LEGS = 4, HZ_SCAN_PX = 1, HZ_PROBE_MS = 900, HZ_PROBE_MIN = 40;
- /** The tone each face plays as it comes on (the host's synthesized sounds, web/sound.js), filed as a face sound. */
- const FACE_TONES = {
-   happy: 'happy', wink: 'wink', love: 'love', surprised: 'surprised', angry: 'angry', sad: 'sad', shy: 'shy', sleepy: 'yawn',
-@@ -133,6 +156,9 @@ export function createPet(els, opts) {
+ /* ---------- the live pet: simulation, rendering, pointer ---------- */
+ /**
+  * `els`: { svg, petG, shadowEl, fxG } inside a stage element that receives pointer events.
+@@ -518,6 +541,9 @@ export function createPet(els, opts) {
    let roam = opts.roam ?? 'free';
-   let skin = opts.skin || null;
+   let skin = opts.skin || defaultSkin();
    let hold = 0; // until T: an order from outside is in progress, free roaming waits
 +  /** The display's refresh rate, the recent frame gaps it is read from, and where the last frame was. */
 +  let hz = 60, hzReady = false, hzAt = 0;
@@ -724,143 +1180,141 @@ index 5db031e..231298b 100644
    const pet = {
      x: 260, fy: 0, vx: 0, vy: 0, facing: 1, faceVis: 1, mode: 'idle', modeT: 0, dur: 0, target: 0,
      speed: 0, stride: 0, lift: 0, bob: 0, phase: 0, lastHalf: 0, lean: 0, tilt: 0, tiltV: 0,
-@@ -144,6 +170,8 @@ export function createPet(els, opts) {
-     glance: [0, 0], glanceAt: 0, swing: 0, swingV: 0, prevA: null, velX: 0, talkK: 0, sfxAt: 0, skid: false, cue: 0,
-     pulse: null, walkId: 0, walkWord: null, listening: false, thinking: false, thoughtShown: false, placed: false, noteAt: 0, tearN: 0,
-     cursor: '',
-+    /** 刷新率测试用：这几段的固定速度(px/s)，0 = 平常那套加減速。 */
-+    pace: 0,
-   };
-   const pointer = { x: -1e4, y: -1e4, inside: false, vx: 0, samples: [] };
-   let press = null, strokeAcc = 0, petCool = 0;
-@@ -158,6 +186,7 @@ export function createPet(els, opts) {
+@@ -538,6 +564,61 @@ export function createPet(els, opts) {
+   let A = { ...COO_ANCHORS, ...custom?.anchors };
+   const minX = () => 104 * S + 8, maxX = () => W - 104 * S - 8;
+ 
++  /* ---------- Dock 感知 ----------
++   * 几何由 tools/dock-zone.cjs 算好（屏幕尺寸 + dash-to-dock 设置 → 地板线/禁停区/空闲带），
++   * 再通过宿主传进来。本机 Dock 是**底边居中**的：屏幕左下与右下是纯桌面，
++   * Dock 那一段对桌宠是「禁停区」。规则（拿不到 dock 信息时全部退化成原行为）：
++   *   · 从来不把禁停区选作漫游/动作目标（否则鲸鱼会坐在 Dock 里）
++   *   · 从一段空闲区走到另一段时自动改成**冲刺**，尽快穿过 Dock
++   *   · 万一被拖拽甩进禁停区、或 Dock 刚挪到脚下 → 立刻走出来
++   */
++  const BODY_HALF = 52;                    // 身体半宽（stage px），给禁停区留安全边
++  function normDock(d) {
++    if (!d) return null;
++    const norm = (arr) => (Array.isArray(arr) ? arr : [])
++      .filter((b) => Array.isArray(b) && b.length === 2 && Number.isFinite(Number(b[0])) && Number.isFinite(Number(b[1])))
++      .map((b) => [Number(b[0]), Number(b[1])]);
++    return {
++      blockedX: norm(d.blockedX), freeX: norm(d.freeX),
++      floorRaised: !!d.floorRaised,
++      floorY: Number.isFinite(d.floorY) ? d.floorY : null,
++    };
++  }
++  let dock = normDock(opts.dock);
++  const dockBlocked = () => !!(dock && dock.blockedX.length);
++  const inDock = (x) => !!dock && dock.blockedX.some(([a, b]) => x + BODY_HALF > a && x - BODY_HALF < b);
++  const crossesDock = (x0, x1) => {
++    if (!dock || !dock.blockedX.length) return false;
++    const lo = Math.min(x0, x1), hi = Math.max(x0, x1);
++    return dock.blockedX.some(([a, b]) => hi + BODY_HALF > a && lo - BODY_HALF < b);
++  };
++  /** 随机挑一个「能站」的 x：只在空闲带里选，按宽度加权（宽的地方更可能被选中） */
++  function pickFreeX() {
++    const bands = (dock && dock.freeX.length) ? dock.freeX : [[minX(), maxX()]];
++    const usable = bands
++      .map(([a, b]) => [clamp(a, minX(), maxX()), clamp(b, minX(), maxX())])
++      .filter(([a, b]) => b - a > 20);
++    if (!usable.length) return null;
++    const total = usable.reduce((s, [a, b]) => s + (b - a), 0);
++    let r = Math.random() * total;
++    for (const [a, b] of usable) { const w0 = b - a; if ((r -= w0) < 0) return a + Math.random() * w0; }
++    const [a, b] = usable[0]; return a + Math.random() * (b - a);
++  }
++  /** 离当前位置最近的安全落脚点（被丢进 Dock、或 Dock 挪到脚下时用来逃出去） */
++  function dockEscapeX() {
++    const bands = (dock && dock.freeX.length) ? dock.freeX : [[minX(), maxX()]];
++    let best = null, bestD = Infinity;
++    for (const [a, b] of bands) {
++      const lo = clamp(a + BODY_HALF * .4, minX(), maxX());
++      const hi = clamp(b - BODY_HALF * .4, minX(), maxX());
++      if (hi < lo) continue;
++      const x = clamp(pet.x, lo, hi);
++      const d = Math.abs(x - pet.x);
++      if (d < bestD) { bestD = d; best = x; }
++    }
++    return best;
++  }
++
    function resize() {
      const b = opts.bounds();
      W = b.W; H = b.H; floorY = b.floorY; S = b.S;
-+    hzPinned = false;   // 换屏幕/改缩放就重新量：刚钉住的读数未必还是这块屏
-     if (!pet.placed && W > 0) {
-       pet.x = opts.startX != null ? opts.startX : W * .7; pet.placed = true;
-       if (opts.enter === 'drop') { pet.fy = -8; pet.vy = 0; pet.vx = 0; pet.airKind = 'drop'; setMode('air'); }
-@@ -302,6 +331,118 @@ export function createPet(els, opts) {
-     if ((pet.mode === 'walk' || pet.mode === 'run') && pet.walkId === walkId) setMode('idle');
+@@ -568,15 +649,18 @@ export function createPet(els, opts) {
+       pet.walkId = 0;
+     }
+     pet.mode = m; pet.modeT = 0; pet.turned = false; pet.startle = false; pet.skid = false; pet.cue = 0;
++    pet.dash = false;
+     Object.assign(pet, o);
+     if (prev !== m) onEvent('mode', { mode: m });
+   }
+   const busy = () => pet.mode === 'drag' || pet.mode === 'air' || pet.mode === 'crouch';
+   function pickTarget(minDist) {
+     for (let i = 0; i < 12; i++) {
+-      const x = rnd(minX(), maxX());
+-      if (Math.abs(x - pet.x) > minDist) return x;
++      const x = dockBlocked() ? pickFreeX() : rnd(minX(), maxX());
++      if (x == null) break;
++      if (Math.abs(x - pet.x) > minDist && !inDock(x)) return x;
+     }
++    if (dockBlocked()) { const e = dockEscapeX(); if (e != null) return e; }
+     return pet.x - minX() > maxX() - pet.x ? minX() : maxX();
    }
  
-+  /* ---------- 刷新率测试：量屏幕，再以「一帧一步」横穿桌面来回跑 ---------- */
-+  /**
-+   * 正在跑的测试：段数/已跑段数/这一段的方向、起点 x、量到的读数，以及结束时回话的 resolve。
-+   * `hold0` 记住测试前的「自家乱动」截止时间（跑完照原样放回去），`x0` 是测试前站的位。
-+   */
-+  let scan = null;
-+  /** 刚量过屏幕就钉住读数：页面帧循环被压到 15/30 fps，那不是屏幕的帧率，别让它把读数拉回去。 */
-+  let hzPinned = false;
-+
-+  /** 读数落到真实的刷新率上（24/30/…/360），离得都远的就按原值四舍五入。 */
-+  function snapHz(raw) {
-+    const near = HZ_STEPS.find((s) => Math.abs(s - raw) <= s * HZ_TOLERANCE);
-+    return near ?? Math.round(raw);
-+  }
-+
-+  /**
-+   * 数一小会儿真实帧：单开一条 rAF 只数字、不画东西，所以不受页面帧率上限影响，开销可以忽略。
-+   * 第一帧只用来定起点（去掉那次 rAF 请求自己的延迟），后面的帧数除以耗时就是屏幕的刷新率。
-+   */
-+  function probeHz() {
-+    return new Promise((resolve) => {
-+      let frames = 0, t0 = 0;
-+      const tick = () => {
-+        const now = performance.now();
-+        if (!frames) t0 = now;
-+        frames++;
-+        const ms = now - t0;
-+        if (ms < HZ_PROBE_MS || frames <= HZ_PROBE_MIN) { requestAnimationFrame(tick); return; }
-+        const n = frames - 1;
-+        resolve({ frames: n, ms, raw: n / (ms / 1000) });
-+      };
-+      requestAnimationFrame(tick);
-+    });
-+  }
-+
-+  /** 一段跑完、被打断或被叫停：把自家乱动放回去、读数钉住，然后回话。 */
-+  function scanEnd(ok, why) {
-+    const s = scan;
-+    if (!s) return null;
-+    scan = null;
-+    pet.pace = 0;
-+    hold = s.hold0;
-+    if (ok) { hzPinned = true; hz = s.hz; hzReady = true; }
-+    const out = {
-+      ok, reason: why, hz: s.hz, raw: s.raw, frames: s.frames, probeMs: s.probeMs,
-+      legs: s.done, ms: s.ms, px: Math.round(s.px), x0: s.x0,
-+    };
-+    s.resolve(out);
-+    return out;
-+  }
-+
-+  /** 这一段到头了：转身跑下一段（这一段的方向翻过来），最后一段走完就收工。 */
-+  function scanLeg() {
-+    const s = scan;
-+    if (!s) return;
-+    s.done++;
-+    if (s.done >= s.legs) {
-+      s.ms = performance.now() - s.t0;
-+      scanEnd(true);
-+      return;
-+    }
-+    s.dir = -s.dir;
-+    pet.pace = s.pace;
-+    setMode('run', { target: s.dir > 0 ? maxX() : minX() });
-+  }
-+
-+  /** 每帧看一眼测试：被拎起来/抛出去就中断，跑动中把实际走过的路记下来（用时按真实时钟算）。 */
-+  function tickScan() {
-+    const s = scan;
-+    if (busy()) { scanEnd(false, 'interrupted'); return; }
-+    if (s.phase !== 'legs') return;
-+    s.px += Math.abs(pet.x - s.lastX);
-+    s.lastX = pet.x;
-+  }
-+
-+  /** 叫停（再点一下那个按钮）。 */
-+  function stopHzScan() { scanEnd(false, 'cancelled'); }
-+
-+  /**
-+   * 刷新率测试：先按常速（它的跑）跑到最左，再以「一帧一步」(1 px) 从左到右、右到左共 `legs` 段
-+   * 横穿桌面。屏幕的刷新率在开跑前量（和跑往左边同时开始），量完就按「一帧一步」算出速度。
-+   * 跑完 resolve 出读数、段数、实走路程与用时；被拎起来/抛出去/被叫停则 ok:false。
-+   * 全程不动行为模式（只是不让它自家乱走），跑完接着按原来的模式过。
-+   */
-+  function hzScan({ legs = HZ_SCAN_LEGS } = {}) {
-+    if (scan || busy()) return Promise.resolve({ ok: false, reason: 'busy' });
-+    const s = {
-+      legs: Math.max(2, legs | 0), done: 0, dir: 1, pace: 0, hz: 0, raw: 0, frames: 0, probeMs: 0,
-+      px: 0, ms: 0, phase: 'approach', x0: pet.x, hold0: hold, lastX: pet.x, t0: 0, resolve: null,
-+    };
-+    scan = s;
-+    hold = Infinity;                       // 测试期间它自己別乱走
-+    const done = new Promise((res) => { s.resolve = res; });
-+    const reading = probeHz();             // 量屏幕：和跑往左边同时开始
-+    const going = walkTo(minX(), true, 0);
-+    const settle = new Promise((res) => {
-+      if (!going) { res(); return; }
-+      const check = () => { if (!scan || busy() || pet.mode === 'idle') res(); else requestAnimationFrame(check); };
-+      requestAnimationFrame(check);
-+    });
-+    Promise.all([reading, settle]).then(([p]) => {
-+      if (!scan) return;                   // 已经被打断或叫停
-+      if (busy()) { scanEnd(false, 'interrupted'); return; }
-+      s.raw = p.raw; s.frames = p.frames; s.probeMs = p.ms; s.hz = snapHz(p.raw);
-+      s.pace = HZ_SCAN_PX * p.raw;         // 一帧一步 → 每秒就走「屏幕每秒刷多少帧」个像素
-+      s.phase = 'legs'; s.dir = 1; s.lastX = pet.x; s.px = 0; s.t0 = performance.now();
-+      pet.pace = s.pace;
-+      setMode('run', { target: maxX() });
-+    }).catch(() => { if (scan) scanEnd(false, 'error'); });
-+    return done;
-+  }
-+
-   function faceName() {
-     const m = pet.mode;
-     if (m === 'drag') return 'dragged';
-@@ -342,10 +483,40 @@ export function createPet(els, opts) {
+@@ -587,8 +671,28 @@ export function createPet(els, opts) {
+     const seated = pet.mode === 'sleep' || pet.mode === 'sit';
+     switch (a) {
+       case 'stand': setMode(seated ? 'wake' : 'idle', seated ? { startle: false } : {}); pet.nextAt = T + 3; break;
+-      case 'walk': setMode('walk', { target: pickTarget(160) }); break;
+-      case 'run': setMode('run', { target: pet.x < W / 2 ? maxX() - rnd(0, 30) : minX() + rnd(0, 30) }); break;
++      case 'walk': {
++        const tx = pickTarget(160);
++        const dash = crossesDock(pet.x, tx);
++        setMode(dash ? 'run' : 'walk', { target: tx, dash });
++        break;
++      }
++      case 'run': {
++        // 冲刺：优先选「另一段空闲区」的中间 —— 这样天然会穿过 Dock，
++        // 而 dash 会让它快速跑过去、不在 Dock 里停留。
++        let tx = null;
++        const bands = (dock && dock.freeX.length) ? dock.freeX : null;
++        if (bands && bands.length > 1) {
++          const cur = bands.findIndex(([a, b]) => pet.x >= a - BODY_HALF && pet.x <= b + BODY_HALF);
++          const others = bands.filter((_, i) => i !== cur);
++          const [a, b] = others[Math.floor(Math.random() * others.length)] || bands[0];
++          tx = (a + b) / 2;
++        }
++        if (tx == null) tx = pet.x < W / 2 ? maxX() - rnd(0, 30) : minX() + rnd(0, 30);
++        tx = clamp(tx, minX(), maxX());
++        setMode('run', { target: tx, dash: crossesDock(pet.x, tx) });
++        break;
++      }
+       case 'jump': setMode('crouch', { jumpV: 720, jumpVx: pet.facing * 40 }); break;
+       case 'hop': setMode('crouch', { jumpV: 480, jumpVx: 0 }); break;
+       case 'look': setMode('look'); break;
+@@ -630,7 +734,9 @@ export function createPet(els, opts) {
+     const target = clamp(x, minX(), maxX());
+     pet.expr = null;
+     if (Math.abs(target - pet.x) < 2) { onEvent('arrived', { walkId, x: Math.round(pet.x) }); return true; }
+-    setMode(run ? 'run' : 'walk', { target, walkId });
++    // 路线穿过 Dock 禁停区 → 强制冲刺：尽快跑过去，中间不停
++    const dash = crossesDock(pet.x, target);
++    setMode(run || dash ? 'run' : 'walk', { target, walkId, dash });
+     return true;
+   }
+ 
+@@ -651,6 +757,8 @@ export function createPet(els, opts) {
+   }
+ 
+   function decide() {
++    // 在 Dock 禁停区里：不要坐下/发呆，直接冲刺到另一段空闲区
++    if (dockBlocked() && inDock(pet.x)) { act('run'); return; }
+     const calm = roam === 'calm';
+     const opts2 = [['walk', calm ? 10 : 28], ['run', calm ? 0 : 12], ['look', 14], ['jump', calm ? 2 : 8], ['sit', 16], ['expr', 12], ['wait', calm ? 30 : 10]]
+       .filter(o => o[1] > 0 && (o[0] !== pet.lastAct || o[0] === 'wait'));
+@@ -674,8 +782,35 @@ export function createPet(els, opts) {
      }
    }
  
@@ -872,8 +1326,6 @@ index 5db031e..231298b 100644
 +   * forever once taken, so the pace holds while the window is away.
 +   */
 +  function readHz() {
-+    // 刚量过屏幕就别再听了：平时的帧循环被压到 15/30 fps，量出来的不是屏幕的刷新率
-+    if (hzPinned) return;
 +    const now = performance.now();
 +    if (hzAt) {
 +      const gap = now - hzAt;
@@ -893,15 +1345,26 @@ index 5db031e..231298b 100644
 +  const syncK = () => (roam === 'sync' ? clamp(hz / 60, SYNC_MIN, SYNC_MAX) : 1);
 +
    function step(dt) {
-     // a frame that took no time has nothing to advance, and the horizontal speed below divides by its length
-     if (!(dt > 0 && dt < Infinity)) return;
      T += dt; pet.modeT += dt;
 +    readHz();
-+    if (scan) tickScan();
-     A = anchors();
      const m = pet.mode, mt = pet.modeT;
      let sqT = 0, strideT = 0, liftT = 0, leanT = 0, sitT = 0, bobT = 0, rate = 0, lookT = [0, 0], tiltT = 0;
-@@ -380,15 +551,25 @@ export function createPet(els, opts) {
+     let tk = 160, tc = 12, drowseT = 0;
+@@ -697,6 +832,13 @@ export function createPet(els, opts) {
+ 
+     switch (m) {
+       case 'idle': {
++        // 站在 Dock 禁停区里（被拖拽甩进去、或 Dock 刚挪到脚下）→ 立刻走出来，
++        // 不要在 Dock 里发呆/坐下。1.2s 节流避免连绡触发。
++        if (dockBlocked() && !press && T > (pet.dockLeaveAt || 0) && inDock(pet.x)) {
++          pet.dockLeaveAt = T + 1.2;
++          const ex = dockEscapeX();
++          if (ex != null && Math.abs(ex - pet.x) > 24) { walkTo(ex, true, 0); break; }
++        }
+         lookT = track();
+         if (pointer.inside && !press && pdx * pet.facing < -50 && pm < 600) {
+           pet.turnAcc += dt;
+@@ -709,9 +851,16 @@ export function createPet(els, opts) {
        case 'walk': case 'run': {
          const run = m === 'run', d = pet.target - pet.x, dist = Math.abs(d), dir = Math.sign(d) || pet.facing;
          pet.facing = dir;
@@ -910,243 +1373,77 @@ index 5db031e..231298b 100644
 -        strideT = run ? 17 : 10; liftT = run ? 15 : 8; bobT = run ? 7 : 3; rate = run ? 4.4 : 2.1;
 +        // 「随刷新率」 walks the screen's speed: the steps keep pace with it (same `rate` factor), so
 +        // the body covers the same ground per stride and the feet never slide; every other mode
-+        // keeps the one pace. 刷新率测试的那几段例外：速度是「一帧一步」折算出的固定 px/s
-+        // (`pet.pace`)，步频按同样比例缩放（一步的位移与常速一致），也不乘「随刷新率」的倍数。
++        // keeps the one pace.
 +        const sync = syncK();
-+        const base = run ? 250 : 78;
-+        const pace = pet.pace > 0 ? pet.pace : 0;
-+        const vMax = pace ? base : base * sync;
-+        // 测试那几段不减速：速度就是「一帧一步」，到了边上一帧也不多不少 —— 这样「4 段用时」
-+        // 除以路程就正好是屏幕的刷新率（拿秒表反推也准）。
-+        const vT = pace || Math.min(vMax, (run ? dist * 4 + 20 : dist * 3 + 14) * sync);
-+        strideT = run ? 17 : 10; liftT = run ? 15 : 8; bobT = run ? 7 : 3;
-+        rate = (run ? 4.4 : 2.1) * (pace ? Math.max(.15, pace / base) : sync);
++        // dash：穿越 Dock 禁停区的冲刺速度（尽量少待在 Dock 里）
++        // Dock 区内提速冲刺：穿过 Dock 要「快进快出」，别在里面磨蹭（用户要求）
++        const dashK = pet.dash ? 1.9 : 1;
++        const vMax = (run ? 250 : 78) * sync * dashK;
++        const vT = Math.min(vMax, (run ? dist * 4 + 20 : dist * 3 + 14) * sync * dashK);
++        strideT = run ? 17 : 10; liftT = run ? 15 : 8; bobT = run ? 7 : 3; rate = (run ? 4.4 : 2.1) * sync;
          leanT = run ? (dist < 50 && pet.speed > 120 ? -6 : 11) : 4;
-         if (leanT < 0 && !pet.skid) { pet.skid = true; play('skid', 'move'); }
+         if (leanT < 0 && !pet.skid) { pet.skid = true; sfx.skid(); }
          const ramp = Math.min(1, mt / (run ? .35 : .25));
--        pet.speed = lerp(pet.speed, vT * smooth(ramp), ease(run ? 6 : 9, dt));
-+        pet.speed = pace ? vT : lerp(pet.speed, vT * smooth(ramp), ease(run ? 6 : 9, dt));
-         pet.x += dir * Math.min(dist, pet.speed * dt);
--        const k = clamp(pet.speed / vMax, 0, 1);
-+        const k = pace ? 1 : clamp(pet.speed / vMax, 0, 1);
-         strideT *= .4 + .6 * k; liftT *= .4 + .6 * k;
-         pet.phase += Math.PI * 2 * rate * dt * Math.max(.35, k);
-         lookT = [run ? 4 : 3, run ? 1 : 0];
-@@ -403,6 +584,8 @@ export function createPet(els, opts) {
-           const id = pet.walkId; pet.walkId = 0;
-           setMode('idle'); pet.nextAt = T + rnd(1.2, 3.2);
-           if (id) onEvent('arrived', { walkId: id, x: Math.round(pet.x) });
-+          // 刷新率测试：这一段到头了 → 转身跑下一段（或者收工）
-+          if (scan && scan.phase === 'legs') scanLeg();
-         }
-         break;
-       }
-@@ -819,8 +1002,11 @@ export function createPet(els, opts) {
-   custom?.setSkin?.(skin);
-   return {
-     pet, step, render, resize, act, setExpr, doWord, walkTo, stopWalk, toStage, hitPet, busy, layout,
-+    hzScan, stopHzScan,
-     pointerDown, pointerMove, pointerUp, pointerLeave, dropAt, shiftDrag,
-     get pressing() { return !!press; },
-+    /** 刷新率测试在跑：这时页面的帧循环不该再降频。 */
-+    get scanning() { return !!scan; },
-     /** Pressed, carried, airborne, walking, running, dancing, turning round, or in a short gesture (nod, wave, bow…): motion that frames far apart show as jumps. */
-     get moving() {
-       return !!press || MOVING_MODES.has(pet.mode) || !!pet.pulse || Math.abs(pet.faceVis - pet.facing) > .05;
-@@ -843,6 +1029,8 @@ export function createPet(els, opts) {
+@@ -1090,6 +1239,23 @@ export function createPet(els, opts) {
      get skin() { return skin; },
      setRoam(r) { roam = r; if (r !== 'off') pet.nextAt = T + 1; },
      get roam() { return roam; },
++    /**
++     * 更新 Dock 占位（在 GNOME 里挪动 Dock / 切换形态时几何会变）。
++     * 传 null 表示「没有 Dock 信息」→ 完全恢复成整屏可用。
++     * 若当下正站在新的禁停区里，会立刻冲刺出去。
++     */
++    setDock(z) {
++      dock = normDock(z);
++      if (dockBlocked() && inDock(pet.x) && pet.mode === 'idle') {
++        const ex = dockEscapeX();
++        if (ex != null) walkTo(ex, true, 0);
++      }
++    },
++    get dock() { return dock; },
++    inDock(x) { return inDock(x); },
++    pickFreeX,
 +    /** The display's refresh rate as the frame loop reads it: what 「随刷新率」 walks to. */
 +    get hz() { return hz; },
      /** Outside orders keep free roaming quiet for `seconds`. */
      holdRoam(seconds) { hold = Math.max(hold, T + seconds); },
      talk() { pet.talkK = 1; },
-@@ -945,6 +1133,13 @@ export function createBody(host, opts) {
-     },
-     talk: ctl.talk,
-     setScheme: (id, o) => opts.figure.setScheme?.(id, o),
-+    /** 刷新率测试：resolve 出读数（ok:false 表示被打断/叫停）。 */
-+    hzScan: (o) => ctl.hzScan(o),
-+    stopHzScan: () => ctl.stopHzScan(),
-+    /** 刷新率测试在跑：这时页面的帧循环不该再降频。 */
-+    get scanning() { return ctl.scanning; },
-+    /** 帧循环读到的屏幕刷新率：「随刷新率」照着它走。 */
-+    get hz() { return ctl.hz; },
-     get z() { return opts.figure.colors?.z ?? null; },
-     dispose() { opts.figure.dispose?.(); svg.remove(); style.remove(); skinStyle.remove(); },
-   };
-diff --git a/packages/cortico-world-desktop-pet/web/pet-app.js b/packages/cortico-world-desktop-pet/web/pet-app.js
-index 0d9f507..230ff21 100644
---- a/packages/cortico-world-desktop-pet/web/pet-app.js
-+++ b/packages/cortico-world-desktop-pet/web/pet-app.js
-@@ -183,6 +183,8 @@ function applyPrefs(p) {
-   if (p.sounds && typeof p.sounds === 'object') sfx.configure({ kinds: p.sounds, snoreSeconds: p.sounds.snoreSeconds });
-   if (p.theme === 'dark' || p.theme === 'light') { prefs.theme = p.theme; applyTheme(p.theme); body?.set({ theme: p.theme }); }
-   if (typeof p.scale === 'number') { prefs.scale = p.scale; body?.set({ bounds: bounds() }); }
-+  // 「置顶显示」：只有桌宠窗口有 petHost，浏览器标签页里这行是空操作
-+  if (typeof p.alwaysOnTop === 'boolean') host?.setAlwaysOnTop?.(p.alwaysOnTop);
-   if (typeof p.rememberPosition === 'boolean') { prefs.rememberPosition = p.rememberPosition; reportPosition(); }
-   if (typeof p.user === 'string') prefs.user = p.user;
-   if (typeof p.micDevice === 'string' && p.micDevice !== prefs.micDevice) { prefs.micDevice = p.micDevice; stopMic(); }
-@@ -306,6 +308,20 @@ function closeBubble() {
-   item = null;
- }
- 
-+/** 冒一句话（和 World 让 Coo 说话走的是同一套气泡），等它说完再 resolve。 */
-+function sayOnce(text) {
-+  // `i: -1` 是必须的：stepDialog 靠它判断「这一轮还没开始」（World 发来的 say 也是这么组的）
-+  const it = { kind: 'say', id: 'own' + Math.random().toString(36).slice(2), beats: [{ text }], i: -1 };
-+  queue.push(it);
-+  return new Promise((res) => {
-+    const id = setInterval(() => {
-+      if (queue.includes(it) || item === it) return;   // 还没轮到/正在说
-+      clearInterval(id);
-+      res();
-+    }, 200);
-+  });
-+}
-+
- /**
-  * While a question's options are up, the pet window takes the keyboard so 1–9 pick one right
-  * away, and gives it back to the window that had it once the question is answered or gone.
-@@ -643,6 +659,19 @@ function stepTalkMotion() {
- }
- 
- /* ---------- typed input: the hover button, or double-click when switched on ---------- */
-+/**
-+ * The bubble's way into the console. The embedding app lends its settings window (the local
-+ * console) as the `settings` control; without one the key is left out rather than dead.
-+ */
-+const consoleKey = () => (prefs.bot?.buttons?.settings
-+  ? `<button class="b-cfg" type="button" title="打开设置(本地调试界面)" aria-label="打开设置">${ICONS.settings}</button>` : '');
-+
-+/** Asks the World to show the app's settings window; the pet's own page never opens it directly. */
-+function openConsole() {
-+  sfx.tick();
-+  send({ t: 'control', action: 'settings' });
-+}
-+
- function openInput() {
-   closeMenu();
-   if (item && item.kind === 'ask' && !item.answered) return;
-@@ -651,9 +680,10 @@ function openInput() {
-   const expand = prefs.bot?.buttons?.chat
-     ? `<button class="b-expand" type="button" aria-label="${esc(t('bubble.expand'))}" title="${esc(t('bubble.expand'))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button>`
-     : '';
--  openBubble('ask', `<button class="b-close" type="button" aria-label="${esc(t('bubble.close'))}">×</button><form class="b-own"><input type="text" maxlength="500" autocomplete="off" placeholder="${esc(t('bubble.typePlaceholder'))}" aria-label="${esc(t('bubble.typeLabel'))}">${expand}<button type="submit">${esc(t('bubble.send'))}</button></form>`);
-+  openBubble('ask', `<button class="b-close" type="button" aria-label="${esc(t('bubble.close'))}">×</button><form class="b-own">${consoleKey()}<input type="text" maxlength="500" autocomplete="off" placeholder="${esc(t('bubble.typePlaceholder'))}" aria-label="${esc(t('bubble.typeLabel'))}">${expand}<button type="submit">${esc(t('bubble.send'))}</button></form>`);
-   const form = bubble.querySelector('form'), input = form.querySelector('input');
-   bubble.querySelector('.b-close').addEventListener('click', () => closeBubble());
-+  bubble.querySelector('.b-cfg')?.addEventListener('click', () => { closeBubble(); openConsole(); });
-   // the chat page takes longer text and images; the draft goes with it
-   bubble.querySelector('.b-expand')?.addEventListener('click', () => {
-     send({ t: 'expand', text: input.value });
-@@ -820,9 +850,10 @@ function stopMic() {
- }
- 
- /* ---------- actions: the menu's lower zone and the hover buttons draw from one list ---------- */
--const ROAM_ORDER = ['off', 'calm', 'free'];
--const roamName = (id) => (ROAM_ORDER.includes(id) ? t(`roam.${id}`) : '');
--const roamLevel = (id) => (ROAM_ORDER.includes(id) ? t(`roam.level.${id}`) : '');
-+const ROAM_ORDER = ['off', 'calm', 'free', 'sync'];
-+// 本仓库自研的「随刷新率」：页面文案表里还没加，先写死中文
-+const roamName = (id) => (ROAM_ORDER.includes(id) ? (id === 'sync' ? '随刷新率' : t(`roam.${id}`)) : '');
-+const roamLevel = (id) => (ROAM_ORDER.includes(id) ? (id === 'sync' ? '跟随屏幕' : t(`roam.level.${id}`)) : '');
- /** The voice button's badge: `auto` when listening all the time, else the talk key (`Alt×2`). */
- const micBadge = () => (prefs.voice.mode === 'always' ? 'auto' : prefs.voice.key || 'key');
- /** Most hover buttons shown beside the pet. */
-@@ -855,10 +886,19 @@ const ACTIONS = {
-     icon: () => ICONS[`roam_${prefs.roam}`] ?? ICONS.roam_calm,
-     state: () => {
-       const next = ROAM_ORDER[(ROAM_ORDER.indexOf(prefs.roam) + 1) % ROAM_ORDER.length];
--      return t('action.roam', { level: roamLevel(prefs.roam), name: roamName(prefs.roam), next: roamName(next) });
-+      // 「随刷新率」 says which screen it settled on, so the pace it walks to can be checked
-+      const hz = prefs.roam === 'sync' ? `（屏幕约 ${Math.round(body?.hz ?? 60)}Hz）` : '';
-+      return t('action.roam', { level: roamLevel(prefs.roam), name: `${roamName(prefs.roam)}${hz}`, next: roamName(next) });
-     },
-     run: () => cycleRoam(),
-   },
-+  /** 「测试刷新率」：先跑到最左，再以「一帧一步」横穿桌面来回跑两趟，量屏幕的刷新率。 */
-+  hz: {
-+    icon: () => ICONS.hz,
-+    on: () => !!body?.scanning,
-+    state: () => (body?.scanning ? '正在测刷新率…再点一下停下' : '横穿桌面来回跑两趟，量出屏幕的刷新率'),
-+    run: () => { void runHzTest(); },
-+  },
-   theme: {
-     keep: true,
-     icon: () => (prefs.theme === 'dark' ? ICONS.moon : ICONS.sun),
-@@ -1001,6 +1041,29 @@ function refreshButtons() {
-   renderTools();
- }
- 
-+/**
-+ * 刷新率测试（悬停按钮「测试刷新率」）：先跑到最左，再以「一帧一步」从左到右、右到左
-+ * 共 4 段（两趟来回）横穿桌面；屏幕的刷新率在开跑前量（和跑往左边同时开始），量完就按
-+ * 「一帧一步」算出速度。说完读数再慢悠悠走回测试前站着的地方。跑的过程中再点一下 = 停下。
-+ */
-+async function runHzTest() {
-+  if (body?.scanning) { body.stopHzScan(); return; }
-+  if (!body) return;
-+  const r = await body.hzScan({ legs: 4 });
-+  refreshButtons();
-+  if (!r?.ok) {
-+    if (r?.reason === 'cancelled' || r?.reason === 'gone') return;
-+    sfx.pop();
-+    await sayOnce(r?.reason === 'busy' ? '我现在腾不开身：先把我放下、关上对话框再点我。' : '刷新率测试被打断了。');
-+    return;
-+  }
-+  sfx.pop();
-+  await sayOnce(`测试完成 · 屏幕约 ${r.hz} Hz（实测 ${r.raw.toFixed(1)} Hz · ${r.legs} 段 ${r.px} px 用时 ${(r.ms / 1000).toFixed(1)} 秒）`);
-+  // 说完再慢慢走回测试前的位置：用平常的走，不用跑
-+  holdRoam(30);
-+  body?.walk(r.x0, false, 0);
-+}
-+
- /* ---------- hover buttons: the actions chosen in settings (chat and voice by default), beside the pet ---------- */
- /** Seconds the buttons stay after the pointer leaves both the pet and them. */
- const TOOLS_LINGER = .8;
-@@ -1437,9 +1500,10 @@ function frame(now) {
-     const msg = err?.message ?? String(err);
-     if (msg !== frameErr) { frameErr = msg; console.error(err); }
-   }
--  const full = prefs.lockFrameRate || !!at()?.moving;
-+  // 刷新率测试的那几段必须每帧都画：它的速度就是「一帧一步」折算出来的，掉一帧读数就偏
-+  const full = prefs.lockFrameRate || !!at()?.moving || !!body?.scanning;
-   // a moving rate of 0 draws on every display refresh
--  gap = full ? (prefs.frameRate > 0 ? 1000 / prefs.frameRate : 0) : 1000 / RESTING_FPS;
-+  gap = body?.scanning ? 0 : full ? (prefs.frameRate > 0 ? 1000 / prefs.frameRate : 0) : 1000 / RESTING_FPS;
-   // a frame more than a gap late starts the count again instead of drawing the missed ones back to back
-   dueAt = now - dueAt > gap ? now + gap : dueAt + gap;
-   // moving frames wait on display refreshes: a timer can wake late, which a body at rest hides and a moving one shows as stutter
 diff --git a/packages/cortico-world-desktop-pet/web/pet.css b/packages/cortico-world-desktop-pet/web/pet.css
-index 54c553c..51cec14 100644
+index 2bbe367..21e42f3 100644
 --- a/packages/cortico-world-desktop-pet/web/pet.css
 +++ b/packages/cortico-world-desktop-pet/web/pet.css
-@@ -142,6 +142,10 @@ body.desk .floor{display:none}
+@@ -29,6 +29,8 @@ body{
+   font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+   font-size:15px; line-height:1.55; color:var(--text);
+   user-select:none; -webkit-user-select:none;
++  /* 触屏：去掉点击高亮块，否则点桌宠会闪一下灰方块 */
++  -webkit-tap-highlight-color:transparent;
+ }
+ /* in a browser tab the page draws its own wall and floor; in the pet window it is transparent */
+ body.tab{
+@@ -95,6 +97,10 @@ body.desk .floor{display:none}
  .b-own:focus-within, .b-own.chosen{border-style:solid; border-color:var(--skin-eye)}
  .b-own input{flex:1; min-width:0; border:0; background:transparent; font:inherit; font-size:14px; color:var(--text); outline:none; padding:4px 0}
- .b-own button[type="submit"]{flex:none; font:inherit; font-size:12.5px; padding:4px 10px; border-radius:8px; border:0; background:var(--text); color:var(--surface); cursor:pointer}
+ .b-own button{flex:none; font:inherit; font-size:12.5px; padding:4px 10px; border-radius:8px; border:0; background:var(--text); color:var(--surface); cursor:pointer}
 +/* the small key at the head of the text box: into the console, not a send */
-+.b-own button.b-cfg{display:grid; place-items:center; width:24px; height:24px; padding:0; margin:0 2px 0 0; border-radius:8px; background:none; color:var(--muted, #838389); transition:color .15s, background .15s}
++.b-own button.b-cfg{display:grid; place-items:center; width:24px; height:24px; padding:0; margin:0 -1px 0 -4px; border-radius:8px; background:none; color:var(--muted); transition:color .15s, background .15s}
 +.b-own button.b-cfg svg{width:15px; height:15px}
-+.b-own button.b-cfg:hover{color:var(--skin-eye); background:var(--line, #2a2a2e)}
- .b-expand{flex:none; display:grid; place-items:center; width:26px; height:26px; padding:0; border:0; border-radius:50%; background:none; color:var(--muted); cursor:pointer}
- .b-expand:hover{color:var(--text)}
- .b-expand svg{width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round}
-diff --git a/packages/cortico-world-desktop-pet/web/ui.js b/packages/cortico-world-desktop-pet/web/ui.js
-index 1a9da24..64c74c3 100644
---- a/packages/cortico-world-desktop-pet/web/ui.js
-+++ b/packages/cortico-world-desktop-pet/web/ui.js
-@@ -33,6 +33,10 @@ export const ICONS = {
-   roam_off: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16 7 13.2"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
-   roam_calm: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16V10"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
-   roam_free: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l5-2.8"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M19.5 6.5l1.5-1.5M21 10h1.5"/>'),
-+  // the gauge again, with readings flying out of it: the pace is the screen's
-+  roam_sync: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4.4-3.4"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M3.6 11.6 5.4 10.2M20.4 11.6 18.6 10.2M12 5.4V3.6"/>'),
-+  /** 「测试刷新率」：一道脉冲。 */
-+  hz: icon('<path d="M3 12.5h3.6l2.4-6.5 3.4 12.5 2.5-6h4.1"/>'),
-   // activity above the pet; separate parts let each small icon move in its own way
-   status_think: icon('<circle cx="4" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="20" cy="12" r="1.5"/>'),
-   status_read: icon('<path d="M6 3h9l4 4v14H6zM14 3v5h5"/><path class="scan" d="M9 11h7"/>'),
++.b-own button.b-cfg:hover{color:var(--skin-eye); background:var(--line)}
+ .b-opt.dim, .b-own.dim{opacity:.35}
+ /* an app's conversation: one step per bubble, with the answer's controls under Coo's line */
+ .d-mark{color:var(--skin-eye); font-weight:700}
+@@ -266,3 +272,14 @@ body.desk .floor{display:none}
+ .tool.sent{animation:tool-sent .36s cubic-bezier(.3,1.5,.5,1)}
+ @keyframes tool-sent{45%{transform:scale(1.2)}}
+ @media (prefers-reduced-motion: reduce){.bubble.pop, .b-opt, .b-own, .d-body > *, .d-card, .d-key, .d-key.taps, .d-bar.wait i, .d-card.on .d-cardic, .d-field.shake, .d-pill.chosen, .trail i, .caret, .menu, .tools, .tool.holding::after, .tool.sent, .m-tile, .m-tile::before, .m-tile::after, .m-tile .ic, .m-tile .ic::before{animation:none}}
++
++/* 触摸设备（笔记本一体触屏、平板）：手指比鼠标粗得多，
++   把可点区域放大到接近 44px（人机工程学的最小可点尺寸），并同步放大图标与菜单行高。 */
++@media (pointer: coarse){
++  .tool{width:46px; height:46px; border-width:2px}
++  .tool svg{width:22px; height:22px}
++  .menu button, .menu li{min-height:44px}
++  .b-close{min-width:34px; min-height:34px; font-size:17px}
++  .b-opt{min-height:44px}
++  .caret{width:3px}
++}

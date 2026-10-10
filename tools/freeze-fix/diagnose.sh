@@ -20,27 +20,55 @@ bad(){ echo "  ${R}❌${N} $*"; }
 warn(){ echo "  ${Y}⚠️${N} $*"; }
 info(){ echo "  ${D}·${N} $*"; }
 
+# ---- 平台识别：本仓库由两台机器共同完善 ----
+#   Intel MTL + Ubuntu 24.04（GNOME/Wayland） / NVIDIA Legion + Ubuntu 22.04（X11）
+# 诊断项很多是 i915 专属的，非 Intel 机器上不能拿来当结论。
+is_intel_gpu(){  lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' | grep -q '\[8086:'; }
+is_nvidia_gpu(){ lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' | grep -q '\[10de:'; }
+gpu_vendors(){
+  lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' \
+    | grep -oE '\[(8086|10de|1002):[0-9a-f]{4}\]' | sed 's/\[//;s/\]//' \
+    | cut -d: -f1 | sort -u | tr '\n' ' '
+}
+i915_active(){ ls -d /sys/bus/pci/drivers/i915/*/ >/dev/null 2>&1; }
+# GPU 异常关键字：i915 与 NVRM 合并，两台机器共用同一套统计口径
+GPU_PAT='GPU HANG|Resetting chip for stopped heartbeat|GUC: TLB invalidation response timed out|NVRM: Xid|GPU has fallen off the bus'
+GPU_PAT_SHORT='GPU HANG|Resetting chip|TLB invalidation response timed out|NVRM: Xid|fallen off the bus'
+
 hdr "1. 环境"
 echo "  kernel    : $(uname -r)"
 echo "  启动参数  : $(cat /proc/cmdline)"
 echo "  会话类型  : ${XDG_SESSION_TYPE:-?}  桌面: ${XDG_CURRENT_DESKTOP:-?}"
-grep -q 'i915.enable_psr=0' /proc/cmdline && ok "已禁用 PSR（关键稳定项）" \
-  || warn "PSR 未禁用 —— MTL 上「冻结只剩光标」的头号诱因，建议跑 i915-stabilize.sh"
-grep -q 'i915.enable_dc=0' /proc/cmdline && ok "已禁用 DC states" \
-  || warn "DC states 未禁用（次要诱因）"
+echo "  显卡厂商  : $(gpu_vendors)  ${D}(8086=Intel, 10de=NVIDIA, 1002=AMD)${N}"
+if is_intel_gpu && i915_active; then
+  info "i915 固件家族: $(journalctl -k -b --no-pager 2>/dev/null | grep -oE 'i915/[a-z0-9]+_(guc|huc)' | sed 's|i915/||;s|_.*||' | sort -u | tr '\n' ' ')"
+  grep -q 'i915.enable_psr=0' /proc/cmdline && ok "已禁用 PSR（关键稳定项）" \
+    || warn "PSR 未禁用 —— MTL 上「冻结只剩光标」的头号诱因，建议跑 i915-stabilize.sh"
+  grep -q 'i915.enable_dc=0' /proc/cmdline && ok "已禁用 DC states" \
+    || warn "DC states 未禁用（次要诱因）"
+else
+  info "本机没有由 i915 接管的 Intel 核显 → 跳过 PSR/DC 检查（这两项只对 i915 有意义）"
+fi
+if is_nvidia_gpu; then
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    ok "NVIDIA 驱动 $(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)（$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)）"
+  else
+    warn "检测到 NVIDIA 显卡但没有 nvidia-smi（驱动可能没装好）"
+  fi
+fi
 echo "  sysrq     : $(cat /proc/sys/kernel/sysrq 2>/dev/null) ${D}(1=全开，紧急时可用 Alt+SysRq+S,U,B 安全重启)${N}"
 
 hdr "2. GPU 挂死事件统计"
 if ! command -v journalctl >/dev/null; then bad "没有 journalctl"; exit 1; fi
-cnt_all=$(journalctl -k --no-pager 2>/dev/null | grep -cE 'GPU HANG|Resetting chip for stopped heartbeat|GUC: TLB invalidation response timed out' || true)
+cnt_all=$(journalctl -k --no-pager 2>/dev/null | grep -cE "$GPU_PAT" || true)
 echo "  全部记录（内核日志范围内）: ${R}${cnt_all}${N} 次"
 for b in 0 -1 -2 -3 -4; do
-  c=$(journalctl -b $b -k --no-pager 2>/dev/null | grep -cE 'GPU HANG|Resetting chip|TLB invalidation response timed out' || true)
+  c=$(journalctl -b $b -k --no-pager 2>/dev/null | grep -cE "$GPU_PAT_SHORT" || true)
   [[ "$c" != "0" ]] && echo "  boot $b : $c 次"
 done
 echo
 info "最近 5 条 GPU 错误（含时间戳）："
-journalctl --no-pager 2>/dev/null | grep -E 'GPU HANG|Resetting chip for stopped heartbeat|TLB invalidation response timed out' | tail -5 | cut -c1-150 | sed 's/^/      /'
+journalctl --no-pager 2>/dev/null | grep -E "$GPU_PAT" | tail -5 | cut -c1-150 | sed 's/^/      /'
 
 hdr "3. 冻结的直接证据：mutter 无响应"
 c=$(journalctl --no-pager 2>/dev/null | grep -cE "Mutter.DisplayConfig.*超时|Mutter.DisplayConfig.*[Tt]imed out" || true)

@@ -8,6 +8,47 @@
 
 ---
 
+## [修复：齿轮按钮 / 置顶开关后上浮 / 两只桌宠贴底 + 双机适配] - 2026-10-10
+
+> 这一轮全部来自实机排查（都插过探针取证），并把仓库从「只在本机成立」改成**两台机器共用**。
+
+### 修复
+- **点聊天框的齿轮打不开设置界面**（真因不是链路，是 GPU）
+  设置窗的渲染进程起不来 → 永远到不了 `ready-to-show` → `show()` 不执行。
+  日志证据：`GPU process exited unexpectedly: exit_code=139` + `Failed to send GpuControl.CreateCommandBuffer`。
+  桌宠跑在子进程里带着 `--enable-unsafe-swiftshader` 兜底，主进程没有。
+  → `app/main.cjs`：主进程加软件渲染兜底（`disableHardwareAcceleration` + `enable-unsafe-swiftshader`），
+  并给设置窗加 `render-process-gone` 自动重载。**实测**：点击后 `settings 被 show()` ✓，且不再被隐藏 ✓。
+- **「置顶显示」关一次再开，桌宠停在半空**
+  不置顶期间窗口是 NORMAL，mutter 会把它夹回 workArea（底边只到 Dock 上沿，高出 ~71px）；
+  光把类型改回 DOCK 不会把位置退回来 → `applyOnTop()` 里切回置顶时重新 `cover()` 贴底。
+  并给 `tools/aot-toggle-test.mjs` 加了「开关一次后窗口仍贴在屏幕底」判据（现 6/6）。
+- **DSH 小鲸鱼离屏幕底留一条缝**：`BOTTOM_M` 6 → 0（原来空出 12 物理像素）→ 实测距屏底 0 像素。
+- **看门狗误整机重启**（真正在造「莫名奇妙关机」）：`restart gdm` 会销毁用户会话，
+  60 秒后再探「用户会话里的 mutter」必然失败 → 100% 落到 `systemctl reboot -f`。
+  改为探 gdm 自身 + 恢复冷却 180s + 两次 gdm 都起不来才动整机。
+- **电池下闲置 15 分钟自动挂起** → `sleep-inactive-battery-type` 改为 `nothing`（原值已备份）。
+- **hanabi 动态壁纸吃 92% CPU / 53W** → `pause-on-battery` 从 1（低于阈值才停）改 2（电池下即停）：
+  功耗 53.4W → 37.2W，剩余时间 36.9 → 52.5 分钟。
+
+### 两台机器共用（队友那台 Ubuntu 22.04 + Legion + RTX 5070 / X11）
+- `tools/freeze-fix/*`：`install-guc-firmware.sh` 加平台判定（非 Intel / 非 MTL 直接跳过）；
+  `i915-stabilize.sh` 同样守卫（但 `--revert` 永远放行）；`gpu-watchdog.sh` 补 NVRM 关键字
+  （`GPU has fallen off the bus` / `NVRM: Xid`，仍由「内核异常 + mutter 真冻结」双条件把关）；
+  `diagnose.sh` 按平台分岔（NVIDIA 机器改查驱动与 Xid）；`apply-all.sh` 跳过措辞修正。
+- 去掉所有写死家目录：`dsh-whale-desktop-linux/main.js`、Coopanion `host/electron-main.cjs`、
+  `dsh-whale-pets-tray/extension.js` 统一改为「环境变量 → ~/dsh-whale → 仓库相对/向上查找」。
+- Coopanion 侧改动重新折进 `patches/coopanion/0001-dsh-pet-features.patch`（12 文件 868 行，与工作区逐字一致）。
+
+### 未完成（唯一一项）
+- **「随刷新率」走动 + 悬停按钮「测试刷新率」**（原六个自研功能里的最后两个）。
+  上游把 `web/kit/body.js` 并回了 `web/pet-core.js`，补丁无法原样套用；实现要点见
+  [`docs/coopanion-integration.md`](docs/coopanion-integration.md)（含读数吸附表、
+  rAF 探针、「一帧一步」段序、`hzPinned` 钉住读数等）。
+  `coopanion-feature-test` 剩余 11 项失败全部属于它，不是回归。
+
+---
+
 ## [Coopanion 升级到上游 v0.1.20（重新移植全部自研功能）] - 2026-10-10
 
 > 上游在 **v0.1.19 / v0.1.20** 重构了前端：原来的 `web/pet-core.js` 被拆成 **`web/kit/body.js`（模拟引擎）**、

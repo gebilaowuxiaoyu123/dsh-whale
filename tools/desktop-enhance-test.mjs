@@ -401,7 +401,10 @@ async function main() {
 
     console.log('\n[11] 迷你控制条');
     const btns = await evaluate("document.querySelectorAll('.dshwe-ctl button').length");
-    check('控制条有 3 个按钮', btns === 3, `实际 ${btns}`);
+    // 第 4 个是后加的 🐋（Live2D 鲸鱼娘桌宠 开/关），与托盘菜单走同一入口
+    check('控制条有 4 个按钮（🎨 📊 ✂️ 🐋）', btns === 4, `实际 ${btns}`);
+    const hasPetBtn = await evaluate("(() => { const bs = [...document.querySelectorAll('.dshwe-ctl button')]; return bs.some(b => (b.textContent || '').includes('🐋')); })()");
+    check('控制条含 🐋 桌宠开关按钮', hasPetBtn === true, `实际 ${hasPetBtn}`);
     const ctlGeo = await evaluate(`(() => {
       const el = document.querySelector('.dshwe-ctl');
       if (!el) return null;

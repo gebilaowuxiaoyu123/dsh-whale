@@ -34,10 +34,14 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 function resolvePetctl() {
     const env = GLib.getenv('DSHW_PETCTL');
     const home = GLib.get_home_dir();
+    // 不写死用户名/家目录：本仓库由两台机器共同完善
+    //（另一台是队友的 Ubuntu 22.04 + Legion + RTX 5070）。
+    // 扩展装在 ~/.local/share/gnome-shell/extensions/<uuid>/，
+    // 走不到仓库相对路径，默认只认「~/dsh-whale」这个克隆位置；
+    // 克隆到别处请用环境变量 DSHW_PETCTL 指定。
     const cands = [
         env,
         `${home}/dsh-whale/tools/petctl.sh`,
-        '/home/wukai/dsh-whale/tools/petctl.sh',
     ].filter((p) => !!p);
     for (const p of cands) {
         if (GLib.file_test(p, GLib.FileTest.EXISTS))
