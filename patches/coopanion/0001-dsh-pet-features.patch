@@ -1,5 +1,5 @@
 diff --git a/app/main.cjs b/app/main.cjs
-index b6bbec3..ddac092 100644
+index b6bbec3..d483d84 100644
 --- a/app/main.cjs
 +++ b/app/main.cjs
 @@ -30,9 +30,22 @@ const LINUX = process.platform === 'linux';
@@ -78,8 +78,21 @@ index b6bbec3..ddac092 100644
    return;
  }
  
-@@ -63,9 +120,36 @@ if (!app.requestSingleInstanceLock()) {
+@@ -61,11 +118,49 @@ if (!app.requestSingleInstanceLock()) {
+   return;
+ }
  
++// 主进程想落到 XWayland 只能靠命令行参数：如上所述，环境变量与 appendSwitch 都实测无效。
++// 启动脚本已带上 --ozone-platform=x11，这里再兜一层 —— 不论从哪里启动（手敲、快捷方式、
++// 其他脚本），只要没带参数就自己补上重启一次。带 --dsh-ozone-relaunch 标记防止无限递归。
++if (LINUX && !process.argv.some((a) => a.startsWith('--ozone-platform'))) {
++  if (!process.argv.includes('--dsh-ozone-relaunch')) {
++    app.relaunch({ args: [...process.argv.slice(1), '--ozone-platform=x11', '--dsh-ozone-relaunch'] });
++    app.exit(0);
++    return;
++  }
++}
++
  const { CoreHost } = require('./core-host.cjs');
  
 +// ---------------------------------------------------------------------------
@@ -116,7 +129,7 @@ index b6bbec3..ddac092 100644
  
  const core = new CoreHost({
    appRoot: APP_ROOT,
-@@ -76,6 +160,8 @@ const core = new CoreHost({
+@@ -76,6 +171,8 @@ const core = new CoreHost({
      CORTICO_EXTENSIONS_DIR: join(userData, 'extensions'),
      CORTICO_SUPERVISED: '1',
      CORTICO_START_PAUSED: '0',
@@ -125,7 +138,7 @@ index b6bbec3..ddac092 100644
      CORTICO_DESKTOP_PET_HOST: JSON.stringify(petHost),
      // pnpm keeps its store and caches in LOCALAPPDATA unless told otherwise; pnpm 11 reads the pnpm_config_ prefix
      pnpm_config_store_dir: join(DATA, 'pnpm', 'store'),
-@@ -106,8 +192,22 @@ function openSettings(path = '') {
+@@ -106,8 +203,22 @@ function openSettings(path = '') {
    if (MAC) void app.dock?.show();
    if (settings) {
      if (settings.isMinimized()) settings.restore();
@@ -150,7 +163,7 @@ index b6bbec3..ddac092 100644
      const url = consoleUrl(path);
      if (url && path) settings.loadURL(url);
      return;
-@@ -118,8 +218,25 @@ function openSettings(path = '') {
+@@ -118,8 +229,25 @@ function openSettings(path = '') {
      backgroundColor: '#f4f5f4',
      webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false },
    });
@@ -177,7 +190,7 @@ index b6bbec3..ddac092 100644
    settings.webContents.setWindowOpenHandler(({ url }) => {
      const origin = core.port ? `http://127.0.0.1:${core.port}` : null;
      const local = /^http:\/\/(127\.0\.0\.1|localhost):\d+\//.test(url);
-@@ -158,25 +275,9 @@ async function ensurePet() {
+@@ -158,25 +286,9 @@ async function ensurePet() {
    if (!state?.connected) await showPet();
  }
  
@@ -204,7 +217,7 @@ index b6bbec3..ddac092 100644
  }
  
  function buildTray() {
-@@ -188,12 +289,12 @@ function buildTray() {
+@@ -188,12 +300,12 @@ function buildTray() {
    tray = new Tray(icon);
    tray.setToolTip('Coopanion');
    const refresh = () => {
@@ -219,7 +232,7 @@ index b6bbec3..ddac092 100644
        { label: '重新启动', click: () => void core.restart() },
        { label: '退出', click: () => app.quit() },
      ]));
-@@ -213,8 +314,8 @@ core.on('state', (state, detail) => {
+@@ -213,8 +325,8 @@ core.on('state', (state, detail) => {
    if (state === 'failed') dialog.showErrorBox('Coopanion', detail);
  });
  
@@ -286,7 +299,7 @@ index a581bfa..c04190b 100644
      const name = status?.modelConnection?.name;
      if (!name) return;
 diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
-index fca746d..02a15a9 100644
+index fca746d..283a9eb 100644
 --- a/console/features/pet/index.ts
 +++ b/console/features/pet/index.ts
 @@ -21,6 +21,7 @@ const KEYS = {
@@ -301,8 +314,8 @@ index fca746d..02a15a9 100644
  /** The pet menu's actions in its order (the World's PET_ACTIONS), with the icon each shows. */
  const ACTIONS: ReadonlyArray<[id: string, icon: string]> = [
    ['chat', 'chat'], ['voice', 'mic'], ['roam', 'roam_calm'], ['theme', 'moon'], ['sound', 'sound'], ['dress', 'shirt'], ['hide', 'eyeOff'],
-+// 'hz' 的标签文案：测试刷新率
-+  ['hz', 'hz'], ['voice', 'mic'], ['roam', 'roam_calm'], ['theme', 'moon'], ['sound', 'sound'], ['dress', 'shirt'], ['hide', 'eyeOff'],
++  // 第六个自研功能：量这块屏的刷新率（标签文案在下面的 actions 表里）
++  ['hz', 'hz'],
  ];
  /** Most hover buttons (the World's MAX_HOVER_BUTTONS). */
  const MAX_HOVER = 6;
@@ -314,6 +327,15 @@ index fca746d..02a15a9 100644
      theme: '颜色',
      themeDark: '夜间(浅色身体)',
      themeLight: '白天(深色身体)',
+@@ -49,7 +53,7 @@ const S = pick({
+     sound: '音效',
+     hover: '悬停按钮',
+     hoverHint: (n: number) => `鼠标停在 Coo 身上时旁边出现的按钮,最多 ${n} 个。`,
+-    actions: { chat: '打字', voice: '语音输入', roam: '行为模式', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
++    actions: { chat: '打字', voice: '语音输入', roam: '行为模式', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠', hz: '测试刷新率' } as Record<string, string>,
+     saved: '已保存',
+     saveFailed: (why: string) => `没保存上:${why}`,
+     stats: '匿名使用统计',
 @@ -65,6 +69,7 @@ const S = pick({
      roamFree: 'Often',
      roamCalm: 'Now and then',
@@ -322,6 +344,15 @@ index fca746d..02a15a9 100644
      theme: 'Colors',
      themeDark: 'Night (light body)',
      themeLight: 'Day (dark body)',
+@@ -72,7 +77,7 @@ const S = pick({
+     sound: 'Sounds',
+     hover: 'Hover buttons',
+     hoverHint: (n: number) => `Buttons beside Coo while the pointer rests on it, up to ${n}.`,
+-    actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
++    actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet', hz: 'Screen rate' } as Record<string, string>,
+     saved: 'Saved',
+     saveFailed: (why: string) => `Not saved: ${why}`,
+     stats: 'Anonymous usage statistics',
 @@ -99,7 +104,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
  
    const user = ui.input({ placeholder: '伙伴' });
@@ -834,9 +865,18 @@ index aa3068e..bccc736 100644
 +
  });
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
-index e5fca42..fb547a5 100644
+index e5fca42..07280aa 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts
 +++ b/packages/cortico-world-desktop-pet/src/config.ts
+@@ -7,7 +7,7 @@ import { DEFAULT_HOTKEY } from './asr/hotkey.ts';
+ export const DESKTOP_PET_ID = 'desktop-pet';
+ 
+ /** What the pet's menu offers, in its order; any of them can also show as a button beside the pet on hover. */
+-export const PET_ACTIONS = ['chat', 'voice', 'roam', 'theme', 'sound', 'dress', 'hide'] as const;
++export const PET_ACTIONS = ['chat', 'voice', 'roam', 'hz', 'theme', 'sound', 'dress', 'hide'] as const;
+ export type PetAction = typeof PET_ACTIONS[number];
+ /** Most hover buttons. */
+ export const MAX_HOVER_BUTTONS = 6;
 @@ -35,7 +35,7 @@ export interface PetSkin {
    colors: Record<string, { main: string; acc: string }>;
  }
@@ -1224,7 +1264,7 @@ index 8535d2f..9da41ce 100644
 +  }
 +}
 diff --git a/packages/cortico-world-desktop-pet/web/pet-core.js b/packages/cortico-world-desktop-pet/web/pet-core.js
-index 487bebe..359663e 100644
+index 487bebe..8cf03c7 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-core.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-core.js
 @@ -294,8 +294,14 @@ export function mini(face, acc, t = 0, extra = {}) {
@@ -1421,7 +1461,7 @@ index 487bebe..359663e 100644
      const calm = roam === 'calm';
      const opts2 = [['walk', calm ? 10 : 28], ['run', calm ? 0 : 12], ['look', 14], ['jump', calm ? 2 : 8], ['sit', 16], ['expr', 12], ['wait', calm ? 30 : 10]]
        .filter(o => o[1] > 0 && (o[0] !== pet.lastAct || o[0] === 'wait'));
-@@ -674,8 +784,101 @@ export function createPet(els, opts) {
+@@ -674,8 +784,108 @@ export function createPet(els, opts) {
      }
    }
  
@@ -1506,13 +1546,20 @@ index 487bebe..359663e 100644
 +  function stepHzScan(dt) {
 +    const s = scan;
 +    if (!s) return;
-+    s.ms += dt * 1000;
-+    s.px += Math.abs(pet.speed || 0) * dt;
-+    const atEnd = Math.abs(pet.x - s.target) < 3 || pet.mode === 'idle';
++    // 只有「正式段」才计路程与用时：准备段（先跑到最左）不算，否则总路程会多出半屏。
++    if (s.armed) { s.ms += dt * 1000; s.px += Math.abs(pet.speed || 0) * dt; }
++    // 只认「真的走到了」：别把 pet.mode === 'idle' 也算到站 —— 刚换目标的那一帧
++    // 宠物还没进入 run，会被误判成到站，段数瞬间耗光（实测段序只剩一个 L）。
++    const atEnd = Math.abs(pet.x - s.target) < 1;
 +    if (!atEnd) { if (pet.mode !== 'run') walkTo(s.target, true, 0); return; }
++    if (!s.armed) {                       // 准备段到站：站定在最左，正式开始第 1 段
++      s.armed = true; s.x0 = pet.x; s.target = s.right;
++      walkTo(s.target, true, 0);
++      return;
++    }
 +    s.done += 1;
 +    if (s.done >= s.legs) { scanEnd(true, null); return; }
-+    s.target = s.done % 2 === 1 ? s.right : s.left;   // 段序：左→右、右→左 交替
++    s.target = s.done % 2 === 1 ? s.left : s.right;   // 段序：左→右、右→左 交替
 +    walkTo(s.target, true, 0);
 +  }
 +
@@ -1523,7 +1570,7 @@ index 487bebe..359663e 100644
      const m = pet.mode, mt = pet.modeT;
      let sqT = 0, strideT = 0, liftT = 0, leanT = 0, sitT = 0, bobT = 0, rate = 0, lookT = [0, 0], tiltT = 0;
      let tk = 160, tc = 12, drowseT = 0;
-@@ -697,6 +900,13 @@ export function createPet(els, opts) {
+@@ -697,6 +907,13 @@ export function createPet(els, opts) {
  
      switch (m) {
        case 'idle': {
@@ -1537,7 +1584,7 @@ index 487bebe..359663e 100644
          lookT = track();
          if (pointer.inside && !press && pdx * pet.facing < -50 && pm < 600) {
            pet.turnAcc += dt;
-@@ -709,9 +919,16 @@ export function createPet(els, opts) {
+@@ -709,12 +926,24 @@ export function createPet(els, opts) {
        case 'walk': case 'run': {
          const run = m === 'run', d = pet.target - pet.x, dist = Math.abs(d), dir = Math.sign(d) || pet.facing;
          pet.facing = dir;
@@ -1551,13 +1598,22 @@ index 487bebe..359663e 100644
 +        // dash：穿越 Dock 禁停区的冲刺速度（尽量少待在 Dock 里）
 +        // Dock 区内提速冲刺：穿过 Dock 要「快进快出」，别在里面磨蹭（用户要求）
 +        const dashK = pet.dash ? 1.9 : 1;
-+        const vMax = (run ? 250 : 78) * sync * dashK;
++        // 测刷新率时 `pet.pace` 就是「每秒该走多少像素」（1 px / 屏幕帧）：
++        // 直接接管速度上限，否则「一帧一步」「用时 = 路程 ÷ 刷新率」都不成立；
++        // pace=0（日常）时完全走原来的分支，行为不变。
++        const vMax = (pet.pace || (run ? 250 : 78)) * sync * dashK;
 +        const vT = Math.min(vMax, (run ? dist * 4 + 20 : dist * 3 + 14) * sync * dashK);
 +        strideT = run ? 17 : 10; liftT = run ? 15 : 8; bobT = run ? 7 : 3; rate = (run ? 4.4 : 2.1) * sync;
          leanT = run ? (dist < 50 && pet.speed > 120 ? -6 : 11) : 4;
          if (leanT < 0 && !pet.skid) { pet.skid = true; sfx.skid(); }
-         const ramp = Math.min(1, mt / (run ? .35 : .25));
-@@ -1090,6 +1307,42 @@ export function createPet(els, opts) {
+-        const ramp = Math.min(1, mt / (run ? .35 : .25));
++        // 测刷新率时必须恒速：平时的起步加速斜坡会让每段多花 ~0.35s（120Hz 下 42 帧），
++        // 「一帧一步」和「用时 = 路程 ÷ 刷新率」都会偏。pace=0 时保持原来的斜坡。
++        const ramp = pet.pace ? 1 : Math.min(1, mt / (run ? .35 : .25));
+         pet.speed = lerp(pet.speed, vT * smooth(ramp), ease(run ? 6 : 9, dt));
+         pet.x += dir * Math.min(dist, pet.speed * dt);
+         const k = clamp(pet.speed / vMax, 0, 1);
+@@ -1090,6 +1319,45 @@ export function createPet(els, opts) {
      get skin() { return skin; },
      setRoam(r) { roam = r; if (r !== 'off') pet.nextAt = T + 1; },
      get roam() { return roam; },
@@ -1586,8 +1642,11 @@ index 487bebe..359663e 100644
 +      const legs = clamp(Math.round(o.legs || HZ_SCAN_LEGS), 2, 12);
 +      return probeHz().then((r) => new Promise((resolve) => {
 +        scan = {
-+          legs, done: 0, x0: pet.x, right: maxX(), left: minX(),
-+          target: pet.x > (minX() + maxX()) / 2 ? minX() : maxX(),
++          // armed=false = 还在「先跑到最左」的准备段（规矩就是先到最左再横穿）：
++          // 这一段既不算段数、也不计路程，否则起点在桌面中间时第一段会短一截，
++          // 总路程 / 段序 / 用时都会对不上。
++          legs, done: 0, armed: false, x0: pet.x, right: maxX(), left: minX(),
++          target: minX(),
 +          raw: r.raw, frames: r.frames, probeMs: r.ms, px: 0, ms: 0, resolve,
 +        };
 +        pet.pace = HZ_SCAN_PX * (r.raw || 60);   // 1 px / 屏幕帧 → px/s
@@ -1595,7 +1654,7 @@ index 487bebe..359663e 100644
 +        walkTo(scan.target, true, 0);
 +      }));
 +    },
-+    stopHzScan() { return !!scanEnd(false, 'stopped'); },
++    stopHzScan() { return !!scanEnd(false, 'cancelled'); },
 +    get scanning() { return !!scan; },
      /** Outside orders keep free roaming quiet for `seconds`. */
      holdRoam(seconds) { hold = Math.max(hold, T + seconds); },

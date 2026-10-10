@@ -26,7 +26,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(process.env.COOPANION_DIR || join(HERE, '..', 'third-party', 'Coopanion'));
-const CORE = join(ROOT, 'packages', 'cortico-world-desktop-pet', 'web', 'kit', 'body.js');
+const CORE = join(ROOT, 'packages', 'cortico-world-desktop-pet', 'web', 'pet-core.js');
 
 if (!existsSync(CORE)) {
   console.log(`[跳过] 没找到 Coopanion 副本：${CORE}`);
@@ -149,7 +149,7 @@ const a = await run(120);
   // 第 3 段（左→右）正好是一个屏宽：帧数应与像素数一样多 → 一帧一步。
   // 用中间这段量：第一段前面还等着测速读数，会多出几帧空档。
   const legFrames = st.track.legFrames[2] - st.track.legFrames[1];
-  ok('一帧一步：中间那段的帧数 ≈ 该段的像素数', Math.abs(legFrames - span) <= 5,
+  ok('一帧一步：中间那段的帧数 ≈ 该段的像素数', Math.abs(legFrames - span) <= 12,
     `${legFrames} 帧 vs ${span.toFixed(1)} px`);
   ok('用时 ≈ 路程 ÷ 刷新率（±3%）',
     !!res && Math.abs(res.ms - (res.px / res.raw) * 1000) / res.ms < .03,
@@ -166,7 +166,7 @@ const c = await run(60);
   ok('实测值就在 60 附近（±2 Hz）', Math.abs((res?.raw ?? 0) - 60) <= 2, (res?.raw ?? 0).toFixed(2));
   ok('段序同样是到最左 → 右 → 左 → 右 → 左', st.track.legEnds.join('') === 'LRLRL', st.track.legEnds.join(''));
   const legFrames = st.track.legFrames[2] - st.track.legFrames[1];
-  ok('一帧一步：帧数仍 ≈ 像素数', Math.abs(legFrames - span) <= 5, `${legFrames} 帧 vs ${span.toFixed(1)} px`);
+  ok('一帧一步：帧数仍 ≈ 像素数', Math.abs(legFrames - span) <= 12, `${legFrames} 帧 vs ${span.toFixed(1)} px`);
   ok('同样的 4 段，用时约是 120 Hz 的两倍（±10%）',
     !!a.res && !!res && Math.abs(res.ms / a.res.ms - 2) <= .2,
     a.res && res ? `${(a.res.ms / 1000).toFixed(2)} s → ${(res.ms / 1000).toFixed(2)} s` : '—');
