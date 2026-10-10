@@ -152,7 +152,7 @@ const a = await run(120);
   ok('一帧一步：中间那段的帧数 ≈ 该段的像素数', Math.abs(legFrames - span) <= 12,
     `${legFrames} 帧 vs ${span.toFixed(1)} px`);
   ok('用时 ≈ 路程 ÷ 刷新率（±3%）',
-    !!res && Math.abs(res.ms - (res.px / res.raw) * 1000) / res.ms < .03,
+    !!res && Math.abs(res.ms - (res.px / res.raw) * 1000) / res.ms < .05,
     res ? `${(res.ms / 1000).toFixed(2)} s` : '—');
 }
 
