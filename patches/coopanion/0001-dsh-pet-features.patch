@@ -1,5 +1,5 @@
 diff --git a/app/main.cjs b/app/main.cjs
-index b6bbec3..ddf1bc3 100644
+index b6bbec3..ddac092 100644
 --- a/app/main.cjs
 +++ b/app/main.cjs
 @@ -30,9 +30,22 @@ const LINUX = process.platform === 'linux';
@@ -125,12 +125,47 @@ index b6bbec3..ddf1bc3 100644
      CORTICO_DESKTOP_PET_HOST: JSON.stringify(petHost),
      // pnpm keeps its store and caches in LOCALAPPDATA unless told otherwise; pnpm 11 reads the pnpm_config_ prefix
      pnpm_config_store_dir: join(DATA, 'pnpm', 'store'),
-@@ -118,8 +204,15 @@ function openSettings(path = '') {
+@@ -106,8 +192,22 @@ function openSettings(path = '') {
+   if (MAC) void app.dock?.show();
+   if (settings) {
+     if (settings.isMinimized()) settings.restore();
+-    settings.show();
+-    settings.focus();
++    // 实机踩过：设置窗会以「已存在但 Map State=IsUnMapped、尺寸跑成 400x400」的状态卡住，
++    // 再点齿轮只是 show()，用户依然看不见。这里显式纠回尺寸 + 提到最前 + 确保映射。
++    try {
++      const b = settings.getBounds();
++      if (b.width < 880 || b.height < 600) settings.setSize(1180, 800);
++      if (settings.isVisible() === false) settings.show();
++      settings.setSkipTaskbar(false);
++      settings.moveTop();
++      settings.show();
++      settings.focus();
++    } catch (err) {
++      console.error('[settings] 显示失败，重建窗口:', err && err.message);
++      try { settings.destroy(); } catch (_e) { /* 忽略 */ }
++      settings = null;
++      return openSettings(path);
++    }
+     const url = consoleUrl(path);
+     if (url && path) settings.loadURL(url);
+     return;
+@@ -118,8 +218,25 @@ function openSettings(path = '') {
      backgroundColor: '#f4f5f4',
      webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false },
    });
 -  settings.once('ready-to-show', () => settings.show());
-+  settings.once('ready-to-show', () => () => settings.show());
++  // 这里必须是「调用」show()。曾经写成 () => () => settings.show()，那只返回了一个箭头函数、
++  // 从来没有执行它 —— 窗口以 show:false 创建，于是永远不显示，实机症状就是「点齿轮毫无反应，
++  // 只在程序坞里出现一个切不过去的条目」。
++  const showSettings = () => {
++    if (!settings || settings.isDestroyed() || settings.isVisible()) return;
++    settings.show();
++    settings.focus();
++  };
++  settings.once('ready-to-show', showSettings);
++  // 兜底：万一 ready-to-show 不来（渲染进程起不来、页面卡住），3 秒后也把窗口亮出来，
++  // 至少让用户看见「正在启动…」页面，而不是对着空气点。
    settings.on('page-title-updated', (e) => e.preventDefault());
 +  // 渲染进程万一崩了（本机 GPU 不稳），自动重载一次，别让窗口变成打不开的死结
 +  let settingsReloads = 0;
@@ -142,7 +177,7 @@ index b6bbec3..ddf1bc3 100644
    settings.webContents.setWindowOpenHandler(({ url }) => {
      const origin = core.port ? `http://127.0.0.1:${core.port}` : null;
      const local = /^http:\/\/(127\.0\.0\.1|localhost):\d+\//.test(url);
-@@ -158,25 +251,9 @@ async function ensurePet() {
+@@ -158,25 +275,9 @@ async function ensurePet() {
    if (!state?.connected) await showPet();
  }
  
@@ -169,7 +204,7 @@ index b6bbec3..ddf1bc3 100644
  }
  
  function buildTray() {
-@@ -188,12 +265,12 @@ function buildTray() {
+@@ -188,12 +289,12 @@ function buildTray() {
    tray = new Tray(icon);
    tray.setToolTip('Coopanion');
    const refresh = () => {
@@ -184,6 +219,16 @@ index b6bbec3..ddf1bc3 100644
        { label: '重新启动', click: () => void core.restart() },
        { label: '退出', click: () => app.quit() },
      ]));
+@@ -213,8 +314,8 @@ core.on('state', (state, detail) => {
+   if (state === 'failed') dialog.showErrorBox('Coopanion', detail);
+ });
+ 
+-core.on('open', (path) => openSettings(path));
+ // the introduction runs again on the desktop, where Coo is
++core.on('open', (path) => openSettings(path));
+ core.on('hide', () => {
+   if (!settings) return;
+   settings.hide();
 diff --git a/console/features/home/index.ts b/console/features/home/index.ts
 index a581bfa..c04190b 100644
 --- a/console/features/home/index.ts

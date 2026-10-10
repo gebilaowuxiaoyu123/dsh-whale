@@ -13,12 +13,20 @@
 > 这一轮全部来自实机排查（都插过探针取证），并把仓库从「只在本机成立」改成**两台机器共用**。
 
 ### 修复
-- **点聊天框的齿轮打不开设置界面**（真因不是链路，是 GPU）
-  设置窗的渲染进程起不来 → 永远到不了 `ready-to-show` → `show()` 不执行。
-  日志证据：`GPU process exited unexpectedly: exit_code=139` + `Failed to send GpuControl.CreateCommandBuffer`。
-  桌宠跑在子进程里带着 `--enable-unsafe-swiftshader` 兜底，主进程没有。
-  → `app/main.cjs`：主进程加软件渲染兜底（`disableHardwareAcceleration` + `enable-unsafe-swiftshader`），
-  并给设置窗加 `render-process-gone` 自动重载。**实测**：点击后 `settings 被 show()` ✓，且不再被隐藏 ✓。
+- **点聊天框的齿轮打不开设置界面**（真因是 `show()` 从没被调用，与 GPU 无关）
+  上游原本是 `settings.once('ready-to-show', () => settings.show())`；本轮给 `openSettings`
+  加诊断时手滑写成了 `() => () => settings.show()` —— **多套了一层箭头函数**，
+  `ready-to-show` 触发时只是「返回」了一个函数，从来没有执行它。窗口以 `show: false`
+  创建，于是永远亮不出来：进程在、程序坞里有条目、页面也在后台加载，但用户看到的是
+  「点了没反应 / 只在程序坞里转圈」。
+  → 改回真正的调用，并加 3 秒兜底（`ready-to-show` 万一不来也把窗口亮出来）；
+  复用已存在窗口的分支补上「尺寸跑歪就纠回 1180x800 + 提到最前 + 确保映射」，
+  真出错就销毁重建。代码注释里写明「这里必须是调用」以及错误写法，防止再犯。
+  **实测**：点击后主进程 CDP 页面数 `0 → 1`，URL = `http://127.0.0.1:17788/#/home`
+  （控制台 SPA 已加载并完成路由跳转）。
+  另一层与真因无关、但确实存在的加固保留：GPU 崩溃（`exit_code=139`）时渲染进程起不来，
+  主进程因此加了软件渲染兜底 + `render-process-gone` 自动重载。
+
 - **「置顶显示」关一次再开，桌宠停在半空**
   不置顶期间窗口是 NORMAL，mutter 会把它夹回 workArea（底边只到 Dock 上沿，高出 ~71px）；
   光把类型改回 DOCK 不会把位置退回来 → `applyOnTop()` 里切回置顶时重新 `cover()` 贴底。
@@ -788,6 +796,7 @@
 
 ### 验证
 - Coopanion 端到端 **26/26**、触屏 **21/21**、功能与补丁一致性 **15/15**，补丁无漂移
+- **齿轮按钮实测**：点桌宠气泡里的齿轮 → 主进程新建页面 `http://127.0.0.1:17788/#/home`（控制台真的打开）
 - 端到端实测 🐋 开关：`petToggle('live2d')` → `live2d=stopped` → 再点 → `live2d=running`
 - DSH 新构建已验证：`{"hasBridge":true,"ctlButtons":["🎨","📊","✂️","🐋"],"hasWhaleBtn":true}`
 
