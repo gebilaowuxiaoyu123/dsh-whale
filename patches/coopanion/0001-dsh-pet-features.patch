@@ -299,7 +299,7 @@ index a581bfa..c04190b 100644
      const name = status?.modelConnection?.name;
      if (!name) return;
 diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
-index fca746d..283a9eb 100644
+index fca746d..5a2b9f8 100644
 --- a/console/features/pet/index.ts
 +++ b/console/features/pet/index.ts
 @@ -21,6 +21,7 @@ const KEYS = {
@@ -319,7 +319,7 @@ index fca746d..283a9eb 100644
  ];
  /** Most hover buttons (the World's MAX_HOVER_BUTTONS). */
  const MAX_HOVER = 6;
-@@ -42,6 +45,7 @@ const S = pick({
+@@ -42,14 +45,16 @@ const S = pick({
      roamFree: '常走动',
      roamCalm: '多待着',
      roamOff: '不乱动',
@@ -327,16 +327,18 @@ index fca746d..283a9eb 100644
      theme: '颜色',
      themeDark: '夜间(浅色身体)',
      themeLight: '白天(深色身体)',
-@@ -49,7 +53,7 @@ const S = pick({
+     scale: '大小',
      sound: '音效',
      hover: '悬停按钮',
-     hoverHint: (n: number) => `鼠标停在 Coo 身上时旁边出现的按钮,最多 ${n} 个。`,
+-    hoverHint: (n: number) => `鼠标停在 Coo 身上时旁边出现的按钮,最多 ${n} 个。`,
 -    actions: { chat: '打字', voice: '语音输入', roam: '行为模式', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠' } as Record<string, string>,
++    hoverHint: (n: number) => `鼠标停在 Coo 身上时旁边出现的按钮:点亮哪一个就出现哪一个,最多 ${n} 个。`,
++    hoverFull: (n: number) => `最多 ${n} 个:先点掉一个亮着的,再点它。`,
 +    actions: { chat: '打字', voice: '语音输入', roam: '行为模式', theme: '夜间模式', sound: '音效', dress: '装扮', hide: '隐藏桌宠', hz: '测试刷新率' } as Record<string, string>,
      saved: '已保存',
      saveFailed: (why: string) => `没保存上:${why}`,
      stats: '匿名使用统计',
-@@ -65,6 +69,7 @@ const S = pick({
+@@ -65,14 +70,16 @@ const S = pick({
      roamFree: 'Often',
      roamCalm: 'Now and then',
      roamOff: 'Stay put',
@@ -344,16 +346,18 @@ index fca746d..283a9eb 100644
      theme: 'Colors',
      themeDark: 'Night (light body)',
      themeLight: 'Day (dark body)',
-@@ -72,7 +77,7 @@ const S = pick({
+     scale: 'Size',
      sound: 'Sounds',
      hover: 'Hover buttons',
-     hoverHint: (n: number) => `Buttons beside Coo while the pointer rests on it, up to ${n}.`,
+-    hoverHint: (n: number) => `Buttons beside Coo while the pointer rests on it, up to ${n}.`,
 -    actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet' } as Record<string, string>,
++    hoverHint: (n: number) => `Which buttons appear beside Coo while the pointer rests on it: the lit ones, up to ${n}.`,
++    hoverFull: (n: number) => `Up to ${n}: turn one off first, then pick this one.`,
 +    actions: { chat: 'Type', voice: 'Voice input', roam: 'Walking', theme: 'Night mode', sound: 'Sounds', dress: 'Dress up', hide: 'Hide pet', hz: 'Screen rate' } as Record<string, string>,
      saved: 'Saved',
      saveFailed: (why: string) => `Not saved: ${why}`,
      stats: 'Anonymous usage statistics',
-@@ -99,7 +104,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -99,7 +106,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
  
    const user = ui.input({ placeholder: '伙伴' });
    const roam = ui.segmented([
@@ -362,7 +366,7 @@ index fca746d..283a9eb 100644
    ], { size: 'sm', onSelect: (v) => void save(KEYS.roam, v) });
    const theme = ui.segmented([
      { value: 'dark', label: S.themeDark }, { value: 'light', label: S.themeLight },
-@@ -112,6 +117,9 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -112,6 +119,9 @@ async function mount(ctx: FeatureContext): Promise<void> {
    scaleBox.append(scale, scaleText);
    const sound = ui.checkbox(S.sound, { onChange: (on) => void save(KEYS.sound, on) });
    const stats = ui.checkbox(S.stats, { onChange: (on) => void save(STATS_KEY, on, STATS_GROUP) });
@@ -372,7 +376,28 @@ index fca746d..283a9eb 100644
    const statsDoc = ui.h('a', 'home-link', S.statsDoc);
    statsDoc.href = STATS_DOC;
    statsDoc.target = '_blank';
-@@ -157,12 +165,16 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -130,7 +140,9 @@ async function mount(ctx: FeatureContext): Promise<void> {
+     b.append(ui.h('span', 'companion-hoverlbl', S.actions[id] ?? id));
+     b.addEventListener('click', () => {
+       const on = picked.includes(id);
+-      if (!on && picked.length >= MAX_HOVER) return;
++      // 满了不再静默失效：按钮仍可点，点了会告诉你为什么没亮
++            // （有用户以为「测试刷新率」坏了，其实只是 6 个坑位已满）。
++            if (!on && picked.length >= MAX_HOVER) { msg.text(S.hoverFull(MAX_HOVER)); return; }
+       // kept in the menu's order, whatever order they were picked in
+       picked = ACTIONS.map(([a]) => a).filter((a) => (a === id ? !on : picked.includes(a)));
+       renderHover();
+@@ -144,7 +156,8 @@ async function mount(ctx: FeatureContext): Promise<void> {
+       const on = picked.includes(id);
+       b.classList.toggle('on', on);
+       b.setAttribute('aria-pressed', String(on));
+-      b.disabled = !on && picked.length >= MAX_HOVER;
++      // 不再 disabled：满了也让它可点，由点击处理给出「先点掉一个」的提示
++              b.classList.toggle('full', !on && picked.length >= MAX_HOVER);
+     }
+   };
+ 
+@@ -157,12 +170,16 @@ async function mount(ctx: FeatureContext): Promise<void> {
      r.append(l, c);
      return r;
    };
@@ -389,7 +414,7 @@ index fca746d..283a9eb 100644
      row(S.hover, hoverBox, S.hoverHint(MAX_HOVER)),
      row('', statsBox, S.statsHint),
      msg,
-@@ -219,6 +231,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -219,6 +236,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
      if (typeof values[KEYS.theme] === 'string') theme.setValue(values[KEYS.theme] as string);
      if (typeof values[KEYS.scale] === 'number' && active !== scale) { scale.value = String(values[KEYS.scale]); showScale(); }
      if (typeof values[KEYS.sound] === 'boolean') sound.setChecked(values[KEYS.sound] as boolean);
