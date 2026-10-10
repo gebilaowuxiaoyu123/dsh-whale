@@ -198,8 +198,10 @@ async function testDSH() {
             || rect.y + rect.h + M <= d.y || rect.y - M >= d.y + d.h);
         check(`[${name}] 鲸鱼不再与 Dock 重叠`, !inter,
             `鲸鱼 ${JSON.stringify(rect)}  Dock ${JSON.stringify(d)}  偏移 ${off}`);
+        // 贴底是「鲸鱼可见像素」贴屏底：贴图底部自带约 6 逻辑像素透明内边距，
+        // 所以元素盒子按设计会探出屏底一点（BOTTOM_M = -6），这里按 8px 放行。
         check(`[${name}] 鲸鱼仍在屏幕内`, rect.x >= -2 && rect.y >= -2
-            && rect.x + rect.w <= SCREEN.w + 2 && rect.y + rect.h <= SCREEN.h + 2,
+            && rect.x + rect.w <= SCREEN.w + 2 && rect.y + rect.h <= SCREEN.h + 8,
             JSON.stringify(rect));
     }
 
