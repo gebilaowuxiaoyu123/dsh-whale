@@ -241,7 +241,7 @@ index a581bfa..c04190b 100644
      const name = status?.modelConnection?.name;
      if (!name) return;
 diff --git a/console/features/pet/index.ts b/console/features/pet/index.ts
-index fca746d..e28791d 100644
+index fca746d..02a15a9 100644
 --- a/console/features/pet/index.ts
 +++ b/console/features/pet/index.ts
 @@ -21,6 +21,7 @@ const KEYS = {
@@ -252,7 +252,16 @@ index fca746d..e28791d 100644
    sound: `${K}.sound`,
    hover: `${K}.hoverButtons`,
  } as const;
-@@ -42,6 +43,7 @@ const S = pick({
+@@ -28,6 +29,8 @@ const KEYS = {
+ /** The pet menu's actions in its order (the World's PET_ACTIONS), with the icon each shows. */
+ const ACTIONS: ReadonlyArray<[id: string, icon: string]> = [
+   ['chat', 'chat'], ['voice', 'mic'], ['roam', 'roam_calm'], ['theme', 'moon'], ['sound', 'sound'], ['dress', 'shirt'], ['hide', 'eyeOff'],
++// 'hz' 的标签文案：测试刷新率
++  ['hz', 'hz'], ['voice', 'mic'], ['roam', 'roam_calm'], ['theme', 'moon'], ['sound', 'sound'], ['dress', 'shirt'], ['hide', 'eyeOff'],
+ ];
+ /** Most hover buttons (the World's MAX_HOVER_BUTTONS). */
+ const MAX_HOVER = 6;
+@@ -42,6 +45,7 @@ const S = pick({
      roamFree: '常走动',
      roamCalm: '多待着',
      roamOff: '不乱动',
@@ -260,7 +269,7 @@ index fca746d..e28791d 100644
      theme: '颜色',
      themeDark: '夜间(浅色身体)',
      themeLight: '白天(深色身体)',
-@@ -65,6 +67,7 @@ const S = pick({
+@@ -65,6 +69,7 @@ const S = pick({
      roamFree: 'Often',
      roamCalm: 'Now and then',
      roamOff: 'Stay put',
@@ -268,7 +277,7 @@ index fca746d..e28791d 100644
      theme: 'Colors',
      themeDark: 'Night (light body)',
      themeLight: 'Day (dark body)',
-@@ -99,7 +102,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -99,7 +104,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
  
    const user = ui.input({ placeholder: '伙伴' });
    const roam = ui.segmented([
@@ -277,7 +286,7 @@ index fca746d..e28791d 100644
    ], { size: 'sm', onSelect: (v) => void save(KEYS.roam, v) });
    const theme = ui.segmented([
      { value: 'dark', label: S.themeDark }, { value: 'light', label: S.themeLight },
-@@ -112,6 +115,9 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -112,6 +117,9 @@ async function mount(ctx: FeatureContext): Promise<void> {
    scaleBox.append(scale, scaleText);
    const sound = ui.checkbox(S.sound, { onChange: (on) => void save(KEYS.sound, on) });
    const stats = ui.checkbox(S.stats, { onChange: (on) => void save(STATS_KEY, on, STATS_GROUP) });
@@ -287,7 +296,7 @@ index fca746d..e28791d 100644
    const statsDoc = ui.h('a', 'home-link', S.statsDoc);
    statsDoc.href = STATS_DOC;
    statsDoc.target = '_blank';
-@@ -157,12 +163,16 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -157,12 +165,16 @@ async function mount(ctx: FeatureContext): Promise<void> {
      r.append(l, c);
      return r;
    };
@@ -304,7 +313,7 @@ index fca746d..e28791d 100644
      row(S.hover, hoverBox, S.hoverHint(MAX_HOVER)),
      row('', statsBox, S.statsHint),
      msg,
-@@ -219,6 +229,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
+@@ -219,6 +231,7 @@ async function mount(ctx: FeatureContext): Promise<void> {
      if (typeof values[KEYS.theme] === 'string') theme.setValue(values[KEYS.theme] as string);
      if (typeof values[KEYS.scale] === 'number' && active !== scale) { scale.value = String(values[KEYS.scale]); showScale(); }
      if (typeof values[KEYS.sound] === 'boolean') sound.setChecked(values[KEYS.sound] as boolean);
@@ -780,9 +789,18 @@ index aa3068e..bccc736 100644
 +
  });
 diff --git a/packages/cortico-world-desktop-pet/src/config.ts b/packages/cortico-world-desktop-pet/src/config.ts
-index e5fca42..5f4b274 100644
+index e5fca42..fb547a5 100644
 --- a/packages/cortico-world-desktop-pet/src/config.ts
 +++ b/packages/cortico-world-desktop-pet/src/config.ts
+@@ -35,7 +35,7 @@ export interface PetSkin {
+   colors: Record<string, { main: string; acc: string }>;
+ }
+ 
+-export type RoamMode = 'free' | 'calm' | 'off';
++export type RoamMode = 'free' | 'calm' | 'off' | 'sync';
+ /** Which side of each palette the pet pages draw: dark = light figure for dark surroundings. */
+ export type PetTheme = 'dark' | 'light';
+ /** Which touches wake the bot: poke = clicks only, petting and carrying wait for the next wake; all; none = every touch waits. */
 @@ -57,6 +57,8 @@ export interface DesktopPetConfigSection extends WorldSection {
      electronFile: string;
      /** Figure size on screen, 1 = 256 logo units drawn at 107 px. */
@@ -888,10 +906,10 @@ index 8c40e79..9415f95 100644
        mic: this.micWanted(),
        voice: this.voiceBrief(),
 diff --git a/packages/cortico-world-desktop-pet/web/pet-app.js b/packages/cortico-world-desktop-pet/web/pet-app.js
-index 8535d2f..de1453c 100644
+index 8535d2f..9da41ce 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-app.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-app.js
-@@ -32,17 +32,49 @@ if (host) sfx.unlock();
+@@ -32,17 +32,52 @@ if (host) sfx.unlock();
  else ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => sfx.unlock(), { capture: true }));
  
  const floorGap = () => (host ? 2 : 48);
@@ -939,10 +957,13 @@ index 8535d2f..de1453c 100644
 +});
 +/** 测试用：命令桌宠走到指定 x（run=false 时若需横穿 Dock，核心应自动改成冲刺） */
 +window.__petWalk = (x, run) => ctl.walkTo(x, !!run, 'docktest');
++/** 测试用：跑一次刷新率测试（返回读数） */
++window.__petHzScan = (legs) => ctl.hzScan({ legs: legs || 4 });
++window.__petHzState = () => ({ scanning: ctl.scanning, hz: ctl.hz });
  addEventListener('resize', () => {
    ctl.resize();
    // the World reads walk targets and drop spots against the stage the pet is on now
-@@ -88,6 +120,8 @@ function applyPrefs(p) {
+@@ -88,6 +123,8 @@ function applyPrefs(p) {
    if (typeof p.sound === 'boolean') { prefs.sound = p.sound; sfx.set(p.sound); }
    if (p.theme === 'dark' || p.theme === 'light') { prefs.theme = p.theme; applyTheme(p.theme); }
    if (typeof p.scale === 'number') { prefs.scale = p.scale; ctl.resize(); }
@@ -951,7 +972,7 @@ index 8535d2f..de1453c 100644
    if (typeof p.user === 'string') prefs.user = p.user;
    if (typeof p.micDevice === 'string' && p.micDevice !== prefs.micDevice) { prefs.micDevice = p.micDevice; stopMic(); }
    if (typeof p.mic === 'boolean') { prefs.mic = p.mic; p.mic && !watching ? startMic() : stopMic(); }
-@@ -521,14 +555,28 @@ function stepTalkMotion() {
+@@ -521,14 +558,28 @@ function stepTalkMotion() {
  }
  
  /* ---------- typed input: the hover button, or double-click ---------- */
@@ -981,7 +1002,7 @@ index 8535d2f..de1453c 100644
    form.addEventListener('submit', (e) => {
      e.preventDefault();
      const v = input.value.trim();
-@@ -636,9 +684,9 @@ function stopMic() {
+@@ -636,9 +687,9 @@ function stopMic() {
  }
  
  /* ---------- actions: the menu's lower zone and the hover buttons draw from one list ---------- */
@@ -994,7 +1015,7 @@ index 8535d2f..de1453c 100644
  /** The voice button's badge: listening all the time, or only on the talk key. */
  const MIC_BADGE = { always: 'auto', hold: 'key', toggle: 'key' };
  /** Most hover buttons shown beside the pet. */
-@@ -671,7 +719,9 @@ const ACTIONS = {
+@@ -671,10 +722,18 @@ const ACTIONS = {
      icon: () => ICONS[`roam_${prefs.roam}`] ?? ICONS.roam_calm,
      state: () => {
        const next = ROAM_ORDER[(ROAM_ORDER.indexOf(prefs.roam) + 1) % ROAM_ORDER.length];
@@ -1005,7 +1026,16 @@ index 8535d2f..de1453c 100644
      },
      run: () => cycleRoam(),
    },
-@@ -894,7 +944,10 @@ function stepTools() {
++  hz: {
++    keep: true,
++    icon: () => ICONS.hz,
++    state: () => (ctl.scanning ? '正在测屏幕刷新率…' : `测试刷新率：横穿桌面来回跑两趟，量出屏幕的刷新率（当前读数约 ${Math.round(ctl.hz)} Hz）`),
++    run: () => void runHzTest(),
++  },
+   theme: {
+     keep: true,
+     icon: () => (prefs.theme === 'dark' ? ICONS.moon : ICONS.sun),
+@@ -894,7 +953,10 @@ function stepTools() {
    // shown while the cursor is on the pet or on the buttons, and a moment after it leaves; decided
    // from where the cursor is now, not from the last move event, which may be stale
    const p = cursor.at;
@@ -1017,7 +1047,7 @@ index 8535d2f..de1453c 100644
    tools.hidden = !(ctl.time < toolsUntil && !ctl.pressing && !ctl.busy() && menu.hidden && toolIds !== '');
    if (tools.hidden) endHold();
    tools.querySelector('[data-action="voice"]')?.classList.toggle('live', listen.phase === 'hearing');
-@@ -989,11 +1042,65 @@ host?.onCursor?.((p) => {
+@@ -989,11 +1051,65 @@ host?.onCursor?.((p) => {
    diag.poll = { at: performance.now(), x: p.x, y: p.y, hit, ui };
    setInteractive(ctl.pressing || hit || ui, 'poll');
  });
@@ -1083,7 +1113,7 @@ index 8535d2f..de1453c 100644
  const up = () => { ctl.pointerUp(); stage.style.cursor = ''; };
  /**
   * Most milliseconds a drop on another display waits for the page to take the window's new size
-@@ -1178,8 +1285,26 @@ function stepBackdrop(dt) {
+@@ -1178,8 +1294,26 @@ function stepBackdrop(dt) {
  }
  
  /* ---------- loop ---------- */
@@ -1110,7 +1140,7 @@ index 8535d2f..de1453c 100644
    const dt = Math.min(.05, (now - last) / 1000); last = now;
    stepActs();
    stepDialog(dt);
-@@ -1191,7 +1316,7 @@ function frame(now) {
+@@ -1191,7 +1325,36 @@ function frame(now) {
    stepBackdrop(dt);
    stepTools();
    layout();
@@ -1119,8 +1149,37 @@ index 8535d2f..de1453c 100644
  ctl.render();
  requestAnimationFrame(frame);
 +
++/* ---------- 测试刷新率：一帧一步横穿桌面来回跑两趟 ---------- */
++/**
++ * 「测试刷新率」：点一下，Coo 横穿桌面来回跑两趟来量这块屏到底多少 Hz。
++ * 一帧走 1 px（1 px 乘刷新率就是速度），所以跑完的耗时连同量到的帧数直接说出屏幕多快。
++ */
++let hzBusy = false;
++async function runHzTest() {
++  if (hzBusy || ctl.scanning) return;
++  hzBusy = true;
++  // 合并后运动核心叫 ctl；它就是原补丁里的 body（模拟引擎），这里留个别名让移植来的代码可读
++  const body = ctl;
++  try {
++    ctl.holdRoam(30);
++    openBubble('say', '我来量一下这块屏…');
++    const r = await body.hzScan({ legs: 4 });
++    if (r && r.ok) {
++      openBubble('say', `测试完成 · 屏幕约 ${r.hz} Hz · 实测 ${r.raw.toFixed(1)} Hz · ${r.legs} 段 ${r.px} px 用时 ${(r.ms / 1000).toFixed(1)} 秒`);
++      body?.walk(r.x0, false, 0);
++      ctl.holdRoam(30);
++    } else {
++      openBubble('say', '测到一半被打断了，再点一次试试。');
++    }
++  } catch (err) {
++    console.error('[hz] 刷新率测试失败', err);
++    try { openBubble('say', '这次没测出来，再点一次试试。'); } catch (_e) { /* 忽略 */ }
++  } finally {
++    hzBusy = false;
++  }
++}
 diff --git a/packages/cortico-world-desktop-pet/web/pet-core.js b/packages/cortico-world-desktop-pet/web/pet-core.js
-index 487bebe..3a92fe8 100644
+index 487bebe..359663e 100644
 --- a/packages/cortico-world-desktop-pet/web/pet-core.js
 +++ b/packages/cortico-world-desktop-pet/web/pet-core.js
 @@ -294,8 +294,14 @@ export function mini(face, acc, t = 0, extra = {}) {
@@ -1139,16 +1198,19 @@ index 487bebe..3a92fe8 100644
  }
  const validColor = (slot, v) => (v === 'eye' || (v === 'body' && !NO_BODY[slot]) || ACC_COLORS.some(c => c.id === v));
  /** Keeps what is valid in `raw`, defaults the rest. */
-@@ -370,6 +376,8 @@ export const ICONS = {
+@@ -369,7 +375,11 @@ export const ICONS = {
+   // how much the pet walks on its own, as a gauge: low, middle, high
    roam_off: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16 7 13.2"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
    roam_calm: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16V10"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/>'),
++  // 速度表：刷新率测试
++  hz: icon('<path d="M4 18a8 8 0 1 1 16 0z"/><path d="M12 18l4.5-6.5"/><circle cx="12" cy="18" r="1.4" fill="currentColor"/>'),
    roam_free: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l5-2.8"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M19.5 6.5l1.5-1.5M21 10h1.5"/>'),
 +  // the gauge again, with readings flying out of it: the pace is the screen's
 +  roam_sync: icon('<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4.4-3.4"/><circle cx="12" cy="16" r="1.2" fill="currentColor"/><path d="M3.6 11.6 5.4 10.2M20.4 11.6 18.6 10.2M12 5.4V3.6"/>'),
  };
  /** Sets `theme` ('dark' | 'light') on the page; `button`, when given, shows the mode a click switches to. */
  export function applyTheme(theme, button) {
-@@ -496,6 +504,21 @@ export const EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surprise
+@@ -496,6 +506,21 @@ export const EXPRESSIONS = ['neutral', 'happy', 'wink', 'love', 'shy', 'surprise
  /** Motions: things the body does. `sit` and `sleep` last until something else happens. */
  export const MOTIONS = ['stand', 'jump', 'hop', 'look', 'turn', 'nod', 'shake', 'spin', 'sit', 'sleep', 'dizzy', 'walk', 'run'];
  
@@ -1170,7 +1232,7 @@ index 487bebe..3a92fe8 100644
  /* ---------- the live pet: simulation, rendering, pointer ---------- */
  /**
   * `els`: { svg, petG, shadowEl, fxG } inside a stage element that receives pointer events.
-@@ -518,6 +541,9 @@ export function createPet(els, opts) {
+@@ -518,6 +543,9 @@ export function createPet(els, opts) {
    let roam = opts.roam ?? 'free';
    let skin = opts.skin || defaultSkin();
    let hold = 0; // until T: an order from outside is in progress, free roaming waits
@@ -1180,7 +1242,7 @@ index 487bebe..3a92fe8 100644
    const pet = {
      x: 260, fy: 0, vx: 0, vy: 0, facing: 1, faceVis: 1, mode: 'idle', modeT: 0, dur: 0, target: 0,
      speed: 0, stride: 0, lift: 0, bob: 0, phase: 0, lastHalf: 0, lean: 0, tilt: 0, tiltV: 0,
-@@ -538,6 +564,61 @@ export function createPet(els, opts) {
+@@ -538,6 +566,61 @@ export function createPet(els, opts) {
    let A = { ...COO_ANCHORS, ...custom?.anchors };
    const minX = () => 104 * S + 8, maxX = () => W - 104 * S - 8;
  
@@ -1242,7 +1304,7 @@ index 487bebe..3a92fe8 100644
    function resize() {
      const b = opts.bounds();
      W = b.W; H = b.H; floorY = b.floorY; S = b.S;
-@@ -568,15 +649,18 @@ export function createPet(els, opts) {
+@@ -568,15 +651,18 @@ export function createPet(els, opts) {
        pet.walkId = 0;
      }
      pet.mode = m; pet.modeT = 0; pet.turned = false; pet.startle = false; pet.skid = false; pet.cue = 0;
@@ -1263,7 +1325,7 @@ index 487bebe..3a92fe8 100644
      return pet.x - minX() > maxX() - pet.x ? minX() : maxX();
    }
  
-@@ -587,8 +671,28 @@ export function createPet(els, opts) {
+@@ -587,8 +673,28 @@ export function createPet(els, opts) {
      const seated = pet.mode === 'sleep' || pet.mode === 'sit';
      switch (a) {
        case 'stand': setMode(seated ? 'wake' : 'idle', seated ? { startle: false } : {}); pet.nextAt = T + 3; break;
@@ -1294,7 +1356,7 @@ index 487bebe..3a92fe8 100644
        case 'jump': setMode('crouch', { jumpV: 720, jumpVx: pet.facing * 40 }); break;
        case 'hop': setMode('crouch', { jumpV: 480, jumpVx: 0 }); break;
        case 'look': setMode('look'); break;
-@@ -630,7 +734,9 @@ export function createPet(els, opts) {
+@@ -630,7 +736,9 @@ export function createPet(els, opts) {
      const target = clamp(x, minX(), maxX());
      pet.expr = null;
      if (Math.abs(target - pet.x) < 2) { onEvent('arrived', { walkId, x: Math.round(pet.x) }); return true; }
@@ -1305,7 +1367,7 @@ index 487bebe..3a92fe8 100644
      return true;
    }
  
-@@ -651,6 +757,8 @@ export function createPet(els, opts) {
+@@ -651,6 +759,8 @@ export function createPet(els, opts) {
    }
  
    function decide() {
@@ -1314,7 +1376,7 @@ index 487bebe..3a92fe8 100644
      const calm = roam === 'calm';
      const opts2 = [['walk', calm ? 10 : 28], ['run', calm ? 0 : 12], ['look', 14], ['jump', calm ? 2 : 8], ['sit', 16], ['expr', 12], ['wait', calm ? 30 : 10]]
        .filter(o => o[1] > 0 && (o[0] !== pet.lastAct || o[0] === 'wait'));
-@@ -674,8 +782,35 @@ export function createPet(els, opts) {
+@@ -674,8 +784,101 @@ export function createPet(els, opts) {
      }
    }
  
@@ -1326,6 +1388,8 @@ index 487bebe..3a92fe8 100644
 +   * forever once taken, so the pace holds while the window is away.
 +   */
 +  function readHz() {
++    // 刚测过刷新率就钉住：页面帧循环被压到 15/30 fps，那不是屏幕帧率，别把读数拉回去
++    if (hzPinned) return;
 +    const now = performance.now();
 +    if (hzAt) {
 +      const gap = now - hzAt;
@@ -1342,15 +1406,79 @@ index 487bebe..3a92fe8 100644
 +    hzReady = true;
 +  }
 +  /** What 「随刷新率」 multiplies the walk and its steps by: the screen measured against 60 Hz. */
-+  const syncK = () => (roam === 'sync' ? clamp(hz / 60, SYNC_MIN, SYNC_MAX) : 1);
++  const syncK = () => (pet.pace ? 1 : (roam === 'sync' ? clamp(hz / 60, SYNC_MIN, SYNC_MAX) : 1));
++
++  /* ---------- 测试刷新率 ---------- */
++  /**
++   * 「测试刷新率」怎么跑：共几段（左→右算一段，右→左再算一段），一段跑完每帧走几个像素，
++   * 以及量屏幕时数多久的帧。一帧走 1 px 的「帧」是指屏幕真实刷新的一帧：1 px 乘刷新率就是
++   * 这段路的速度，所以跑完的耗时（连同量到的帧数）直接说出屏幕到底多快。
++   */
++  const HZ_SCAN_LEGS = 4, HZ_SCAN_PX = 1, HZ_PROBE_MS = 900, HZ_PROBE_MIN = 40;
++  /** 正在跑的测试：段数/已跑段数/这一段的目标 x、起点 x、量到的读数，以及结束时回话的 resolve。 */
++  let scan = null;
++  /** 刚量过屏幕就钉住读数：页面帧循环被压到 15/30 fps，那不是屏幕的帧率，别让它把读数拉回去。 */
++  let hzPinned = false;
++
++  /** 读数落到真实刷新率上（24/30/…/360），离得都远的按原值四舍五入。 */
++  function snapHz(raw) {
++    const near = HZ_STEPS.find((s) => Math.abs(s - raw) <= s * HZ_TOLERANCE);
++    return near ?? Math.round(raw);
++  }
++
++  /** 数一小会儿真实帧：单开一条 rAF 只数字、不画东西，不受页面帧率上限影响。 */
++  function probeHz() {
++    return new Promise((resolve) => {
++      let frames = 0, t0 = 0;
++      const tick = () => {
++        const now = performance.now();
++        if (!frames) t0 = now;
++        frames++;
++        const ms = now - t0;
++        if (ms < HZ_PROBE_MS || frames <= HZ_PROBE_MIN) { requestAnimationFrame(tick); return; }
++        resolve({ frames: frames - 1, ms, raw: (frames - 1) / (ms / 1000) });
++      };
++      requestAnimationFrame(tick);
++    });
++  }
++
++  /** 一段跑完 / 被打断 / 被叫停：把节奏放回去、读数钉住，然后回话。 */
++  function scanEnd(ok, why) {
++    const s = scan;
++    if (!s) return null;
++    scan = null;
++    pet.pace = 0;
++    if (ok) { hzPinned = true; hz = snapHz(s.raw || hz); hzReady = true; }
++    const out = {
++      ok, reason: why, hz: Math.round(hz), raw: s.raw || 0, frames: s.frames || 0,
++      probeMs: s.probeMs || 0, legs: s.done, ms: s.ms || 0, px: Math.round(s.px || 0), x0: Math.round(s.x0),
++    };
++    s.resolve(out);
++    return out;
++  }
++
++  /** 每帧推进一步：跑到段头就换向，段数跑完就收尾。 */
++  function stepHzScan(dt) {
++    const s = scan;
++    if (!s) return;
++    s.ms += dt * 1000;
++    s.px += Math.abs(pet.speed || 0) * dt;
++    const atEnd = Math.abs(pet.x - s.target) < 3 || pet.mode === 'idle';
++    if (!atEnd) { if (pet.mode !== 'run') walkTo(s.target, true, 0); return; }
++    s.done += 1;
++    if (s.done >= s.legs) { scanEnd(true, null); return; }
++    s.target = s.done % 2 === 1 ? s.right : s.left;   // 段序：左→右、右→左 交替
++    walkTo(s.target, true, 0);
++  }
 +
    function step(dt) {
      T += dt; pet.modeT += dt;
 +    readHz();
++    stepHzScan(dt);
      const m = pet.mode, mt = pet.modeT;
      let sqT = 0, strideT = 0, liftT = 0, leanT = 0, sitT = 0, bobT = 0, rate = 0, lookT = [0, 0], tiltT = 0;
      let tk = 160, tc = 12, drowseT = 0;
-@@ -697,6 +832,13 @@ export function createPet(els, opts) {
+@@ -697,6 +900,13 @@ export function createPet(els, opts) {
  
      switch (m) {
        case 'idle': {
@@ -1364,7 +1492,7 @@ index 487bebe..3a92fe8 100644
          lookT = track();
          if (pointer.inside && !press && pdx * pet.facing < -50 && pm < 600) {
            pet.turnAcc += dt;
-@@ -709,9 +851,16 @@ export function createPet(els, opts) {
+@@ -709,9 +919,16 @@ export function createPet(els, opts) {
        case 'walk': case 'run': {
          const run = m === 'run', d = pet.target - pet.x, dist = Math.abs(d), dir = Math.sign(d) || pet.facing;
          pet.facing = dir;
@@ -1384,7 +1512,7 @@ index 487bebe..3a92fe8 100644
          leanT = run ? (dist < 50 && pet.speed > 120 ? -6 : 11) : 4;
          if (leanT < 0 && !pet.skid) { pet.skid = true; sfx.skid(); }
          const ramp = Math.min(1, mt / (run ? .35 : .25));
-@@ -1090,6 +1239,23 @@ export function createPet(els, opts) {
+@@ -1090,6 +1307,42 @@ export function createPet(els, opts) {
      get skin() { return skin; },
      setRoam(r) { roam = r; if (r !== 'off') pet.nextAt = T + 1; },
      get roam() { return roam; },
@@ -1405,6 +1533,25 @@ index 487bebe..3a92fe8 100644
 +    pickFreeX,
 +    /** The display's refresh rate as the frame loop reads it: what 「随刷新率」 walks to. */
 +    get hz() { return hz; },
++    /**
++     * 刷新率测试：一帧一步横穿桌面来回跑 legs 段，跑完 resolve 出读数；被打断/叫停则 ok:false。
++     */
++    hzScan(o = {}) {
++      if (scan) return Promise.resolve({ ok: false, reason: 'busy' });
++      const legs = clamp(Math.round(o.legs || HZ_SCAN_LEGS), 2, 12);
++      return probeHz().then((r) => new Promise((resolve) => {
++        scan = {
++          legs, done: 0, x0: pet.x, right: maxX(), left: minX(),
++          target: pet.x > (minX() + maxX()) / 2 ? minX() : maxX(),
++          raw: r.raw, frames: r.frames, probeMs: r.ms, px: 0, ms: 0, resolve,
++        };
++        pet.pace = HZ_SCAN_PX * (r.raw || 60);   // 1 px / 屏幕帧 → px/s
++        hold = Math.max(hold, T + 30);   // 闭包里直接改 hold（holdRoam 是对外的方法）
++        walkTo(scan.target, true, 0);
++      }));
++    },
++    stopHzScan() { return !!scanEnd(false, 'stopped'); },
++    get scanning() { return !!scan; },
      /** Outside orders keep free roaming quiet for `seconds`. */
      holdRoam(seconds) { hold = Math.max(hold, T + seconds); },
      talk() { pet.talkK = 1; },
