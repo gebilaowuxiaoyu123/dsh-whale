@@ -56,6 +56,9 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
 - 🛡️ **双系统（Windows + Ubuntu）引导安全**：Ubuntu 侧 i915 稳定化 + GPU 看门狗（挂死自动救回会话，
   不用再长按电源键）；Windows 侧一键体检/保障（关快速启动与自动重启、复原被篡改的 bootmgr、ubuntu 置顶）
   —— 见 [`docs/dualboot-boot-safety.md`](docs/dualboot-boot-safety.md)
+- 🖥️ **桌面卡顿 / 黑框白框排查**：动态壁纸 + 多个整屏透明叠加窗下，出现「黑框白框、整屏黑一下再逐步恢复、
+  手感掉帧」时的实测方法、结论与可逆对策（关 MPO、全屏时隐藏桌宠、壁纸守护收紧）——
+  见 [`docs/desktop-rendering-perf.md`](docs/desktop-rendering-perf.md)；一键体检 `tools/desktop-render-report.ps1`
 
 ## 📁 目录结构
 
@@ -66,6 +69,7 @@ dsh-whale/
 ├── docs/
 │   ├── linux-adaptation-plan.md    # ★ Linux 适配规划：实机基线 / 风险登记 / DoD / 测试方案
 │   ├── coopanion-integration.md    # ★ Coopanion 桌宠集成说明（安装 / 踩坑记录 / 使用要点）
+│   ├── desktop-rendering-perf.md   # ★ 桌面渲染排查：黑框白框 / 整屏黑一下 / 帧率手感（实测与对策）
 │   └── dualboot-boot-safety.md     # ★ 双系统引导安全：事故取证 / 结论 / 两端口径与保障
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
 ├── dsh-whale-shell-extension/      # ★ GNOME Shell 扩展版（Wayland 悬浮首选，当前主力迭代）
@@ -88,6 +92,7 @@ dsh-whale/
 │   ├── coopanion-feature-test.mjs  # 桌宠改造自检：补丁是否打上 + 构建产物是否跟上（36 项）
 │   ├── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
 │   ├── coopanion-hzscan-test.mjs   # 「测试刷新率」自检：一帧一步/段序/读数/用时（20 项）
+│   ├── desktop-render-report.ps1   # 桌面渲染体检（只读）：屏幕 Hz / GPU 占用榜 / MPO / 驱动重置 / 挂件档位
 │   ├── freeze-fix/                 # ★ Ubuntu 侧：GPU 挂死取证与防护（i915 稳定化 / GPU 看门狗 / 修 fstab+引导）
 │   └── boot-safety/                # ★ Windows 侧：双系统引导体检 + 保障（关自动修复 / 复原 bootmgr / ubuntu 置顶）
 ├── patches/

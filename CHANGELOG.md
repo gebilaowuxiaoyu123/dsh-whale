@@ -8,6 +8,36 @@
 
 ---
 
+## [桌面渲染排查：黑框白框 / 整屏黑一下 / 帧率手感] - 2026-10-11
+
+> 现象（用户原话）：桌面帧率感觉有点低；打开 FlClash、向日葵之类的有概率刷成黑框或者白框；
+> 有时候也会突然卡顿一下整个桌面变黑后过一段时间逐步恢复。
+
+### 结论（本机实测）
+- **面板没降频**：桌宠页面用 `requestAnimationFrame` 实测 **120.5 Hz**（240 帧 / 2.01 s，帧间隔中位 8.30 ms）。
+- **显卡被动态壁纸占住**：Unity 应用壁纸 `MisideStartWallpaper` 常驻 **44–47%** 的 3D 引擎，
+  加 `dwm.exe` 5–14%、两个桌宠 2.5–23%，核显 3D 合计长期 **67–92%**。
+- **不是显卡驱动崩**：系统日志里没有任何 4101/4102 驱动重置事件 → 「整屏黑一下再恢复」
+  是 **DWM 合成重置**（窗口层级 / 覆盖平面 / 显示拓扑一变，DWM 就要整屏重建合成）。
+- **黑框白框**：`HKLM\...\Dwm\OverlayTestMode` **原本未设置 = MPO 开着**，和「分层 + 整屏透明 + 置顶」
+  的窗口组合是已知冲突；向日葵另外还带一个虚拟显示器驱动 `OrayIddDriver`。
+
+### 变更
+- 新增 `tools/desktop-render-report.ps1`：只读体检 —— 屏幕 Hz / GPU 占用榜（按进程）/ MPO / 
+  HAGS / 驱动重置事件 / 我们两个挂件的当前档位。
+- 新增 [`docs/desktop-rendering-perf.md`](docs/desktop-rendering-perf.md)：实测数据、判读、改动与回滚方法。
+- **本机改动（重启后生效）**：`OverlayTestMode = 5` 关掉 MPO（原值「未设置」，已记录到
+  `%USERPROFILE%\dsh-whale-backups\mpo-before-20261011-134732.txt`）；
+  控制台「习惯」页勾上「全屏时自动隐藏」→ `window.hideWhenFullscreen = true`。
+
+### 说明
+- 两处改动都**可逆**：删掉 `OverlayTestMode` 即回 Windows 默认；桌宠那项是普通设置开关。
+- 壁纸那个 Unity 程序没有帧率/分辨率开关（`boot.config` 只有线程配置），Lively 对应用类壁纸也不提供
+  帧率/画质开关 → 壁纸的 GPU 成本只能靠「该藏就藏」（`wallpaper-power-guard.ps1`）省，
+  文档里给了把 `-CoverRatio` 从 0.9 收到 0.75 的建议。
+
+---
+
 ## [Coopanion 升级到上游 v0.1.20（重新移植全部自研功能）] - 2026-10-10
 
 > 上游在 **v0.1.19 / v0.1.20** 重构了前端：原来的 `web/pet-core.js` 被拆成 **`web/kit/body.js`（模拟引擎）**、
