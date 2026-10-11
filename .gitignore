@@ -13,3 +13,6 @@ run-err.log
 .DS_Store
 Thumbs.db
 third-party/
+
+# 本地排查备份（不提交）
+.dsh-backup/

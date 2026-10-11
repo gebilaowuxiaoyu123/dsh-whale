@@ -11,8 +11,8 @@
 #      ③ 全程写日志到 $XDG_STATE_HOME/dsh-whale/logs/autostart.log
 #
 #  用法（在 .desktop 的 Exec 里）：
-#    /home/wukai/dsh-whale/tools/autostart-pet.sh live2d
-#    /home/wukai/dsh-whale/tools/autostart-pet.sh dsh
+#    $HOME/dsh-whale/tools/autostart-pet.sh live2d
+#    $HOME/dsh-whale/tools/autostart-pet.sh dsh
 #  手动测试：
 #    bash tools/autostart-pet.sh live2d --now    # 跳过等待，立刻起
 # ============================================================================
@@ -36,6 +36,17 @@ wait_ready() {
     # 会话总线出现
     if [[ ! -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ]]; then sleep 2; continue; fi
     # mutter 能应答（说明合成器已就绪；这正是 GPU 挂死时卡住的那个接口）
+    # 通知服务（gnome-shell 接管 org.freedesktop.Notifications）也要等：
+    # 登录初期它还没接管时启动桌宠，日志里会刷
+    #   libnotify-WARNING **: Failed to connect to proxy
+    #   notify_notification_show: The name org.freedesktop.Notifications was not provided
+    # 最多多等 20 秒；仍等不到就不阻塞启动。
+    if [[ $i -le 10 ]] && command -v busctl >/dev/null 2>&1; then
+      if ! timeout 3 busctl --user status org.freedesktop.Notifications >/dev/null 2>&1; then
+        sleep 2
+        continue
+      fi
+    fi
     if command -v busctl >/dev/null 2>&1; then
       if timeout 5 busctl --user call org.gnome.Mutter.DisplayConfig \
            /org/gnome/Mutter/DisplayConfig org.gnome.Mutter.DisplayConfig \

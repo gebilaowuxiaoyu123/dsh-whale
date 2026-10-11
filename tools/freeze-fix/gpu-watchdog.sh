@@ -18,7 +18,12 @@
 #                       → 你重新登录即可，比强制关机安全得多
 #    ACTION=log        只记录，不动手（想先观察一段时间时用）
 #    ACTION=reboot     systemctl reboot -f（会话恢复失败时的兜底，仍比硬断电干净）
-#    ESCALATE=yes      先 gdm，60 秒后仍不健康 → 自动 reboot（推荐，默认 yes）
+#    ESCALATE=yes      gdm 重启后仍起不来时：再重启一次 gdm；两次都不行才 reboot -f
+#                      （默认 yes。**绝不因为「用户会话不见了」就重启整机** —— 见 gdm_alive 注释）
+#
+#  多厂商：两个触发关键字集都监听（本仓库两台机器共用 ——
+#    Intel MTL + Wayland / NVIDIA Legion + X11）。判定始终是「内核异常 + mutter 真冻结」
+#    双条件，单个厂商的良性日志（如 Xid 13）不会单独触发恢复。
 #
 #  用法：
 #    sudo bash tools/freeze-fix/gpu-watchdog.sh            # 安装 + 启动
@@ -79,8 +84,21 @@ PROBE_TIMEOUT="${PROBE_TIMEOUT:-8}"
 GRACE="${GRACE:-20}"
 USER_NAME="${USER_NAME:-wukai}"
 LOG="${LOG:-/var/log/gpu-watchdog.log}"
+# 同一次挂死会连发多条内核日志（seqno 递增），冷却期内不重复恢复，避免连环重启
+RECOVER_COOLDOWN="${RECOVER_COOLDOWN:-180}"
+LAST_RECOVER=0
 
 log(){ echo "$(date '+%F %T') $*" | tee -a "$LOG" >/dev/null; echo "$(date '+%F %T') $*"; }
+
+# 平台识别：本仓库两台机器共用（Intel MTL + Wayland / NVIDIA Legion + X11），
+# 启动时把厂商打出来，日志一眼能看出这台该盯哪类关键字。
+detect_platform(){
+  local v
+  v=$(lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' \
+      | grep -oE '\[(8086|10de|1002):[0-9a-f]{4}\]' | sed 's/\[//;s/\]//' \
+      | cut -d: -f1 | sort -u | tr '\n' ' ')
+  echo "${v:-未知}"
+}
 
 user_uid(){ id -u "$USER_NAME" 2>/dev/null || echo 1000; }
 user_bus(){ echo "unix:path=/run/user/$(user_uid)/bus"; }
@@ -92,6 +110,15 @@ mutter_alive(){
   timeout "$PROBE_TIMEOUT" busctl --address="$addr" call \
     org.gnome.Mutter.DisplayConfig /org/gnome/Mutter/DisplayConfig \
     org.gnome.Mutter.DisplayConfig GetCurrentState >/dev/null 2>&1
+}
+
+# gdm 自身是否还活着。
+# **restart gdm 之后绝不能再用 mutter_alive 判断**：restart gdm 会把用户会话一起
+# 销毁，用户总线上的 org.gnome.Mutter.DisplayConfig 必然不应答，于是「60s 后仍不健康」
+# 永远成立 → 100% 走到 systemctl reboot -f。本机此前反复「莫名奇妙关机」就是这么来的。
+gdm_alive(){
+  systemctl is-active --quiet gdm 2>/dev/null || return 1
+  pgrep -f '/usr/bin/gnome-shell' >/dev/null 2>&1
 }
 
 notify_user(){
@@ -119,12 +146,15 @@ recover(){
 }
 
 log "===== 看门狗启动 ACTION=$ACTION ESCALATE=$ESCALATE GRACE=${GRACE}s ====="
-log "监听内核日志：GPU HANG / Resetting chip / TLB invalidation timeout"
+log "平台：显卡厂商代码 = $(detect_platform)（8086=Intel / 10de=NVIDIA / 1002=AMD）"
+log "监听内核日志：i915(GPU HANG / Resetting chip / TLB invalidation timeout) 与 NVRM(GPU has fallen off the bus / Xid)"
 
 # -k 内核日志；-f 跟随；-n0 只看新行；--output=cat 去掉前缀
 journalctl -k -f -n 0 --output=cat 2>/dev/null | while IFS= read -r line; do
   case "$line" in
-    *"GPU HANG"*|*"Resetting chip for stopped heartbeat"*|*"TLB invalidation response timed out"*)
+    # Intel i915：TLB 超时 / 心跳停止复位 / GPU HANG
+    # NVIDIA：GPU 掉总线 / NVRM Xid（Xid 本身可能是良性的，靠下面的 mutter 冻结门槛过滤）
+    *"GPU HANG"*|*"Resetting chip for stopped heartbeat"*|*"TLB invalidation response timed out"*|*"GPU has fallen off the bus"*|*"NVRM: Xid"*)
       log "TRIGGER 捕获 GPU 异常：$(echo "$line" | cut -c1-120)"
       sleep "$GRACE"
       if mutter_alive; then
@@ -132,14 +162,27 @@ journalctl -k -f -n 0 --output=cat 2>/dev/null | while IFS= read -r line; do
         continue
       fi
       log "FROZEN mutter 无响应（DisplayConfig 探测超时）→ 确认冻结"
+      now=$(date +%s)
+      if (( now - LAST_RECOVER < RECOVER_COOLDOWN )); then
+        log "SKIP 距上次恢复仅 $((now - LAST_RECOVER))s（同一轮挂死的后续日志），不重复动作"
+        continue
+      fi
+      LAST_RECOVER=$now
       recover
       if [[ "$ESCALATE" == "yes" && "$ACTION" != "log" && "$ACTION" != "reboot" ]]; then
         sleep 60
-        if ! mutter_alive; then
-          log "ESCALATE 重启 gdm 后 60s 仍不健康 → systemctl reboot -f"
-          sync; systemctl reboot -f
+        if gdm_alive; then
+          log "OK gdm 已拉起（登录界面已重建）→ 不做整机重启，重新登录即可"
         else
-          log "OK 会话已恢复正常"
+          log "ESCALATE gdm 重启后 60s 仍未拉起 → 再重启一次 gdm（仍不动整机）"
+          systemctl restart gdm
+          sleep 30
+          if gdm_alive; then
+            log "OK 第二次重启 gdm 后已拉起 → 不做整机重启"
+          else
+            log "ESCALATE-2 gdm 两次都起不来（图形栈真挂了）→ 最后手段 systemctl reboot -f"
+            sync; systemctl reboot -f
+          fi
         fi
       fi
       ;;
@@ -175,7 +218,7 @@ echo
 echo "===== [3] 安装 systemd 服务 ====="
 cat > "$UNIT" <<EOF
 [Unit]
-Description=GPU 挂死看门狗（检测 i915 GPU HANG + mutter 无响应，自动恢复图形会话）
+Description=GPU 挂死看门狗（i915 GPU HANG / TLB 超时 · NVRM Xid + mutter 无响应 → 自动恢复图形会话）
 Documentation=file://$(cd "$(dirname "$0")" && pwd)/README.md
 After=multi-user.target network.target
 Wants=multi-user.target

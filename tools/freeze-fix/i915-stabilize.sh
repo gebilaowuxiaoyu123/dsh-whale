@@ -23,7 +23,6 @@
 #    sudo bash tools/freeze-fix/i915-stabilize.sh --check      # 只看现状
 # ============================================================================
 set -uo pipefail
-[[ $EUID -eq 0 ]] || { echo "需要 root：sudo bash $0 $*"; exit 1; }
 
 MODE="apply"
 case "${1:-}" in
@@ -38,6 +37,41 @@ GRUB=/etc/default/grub
 MARK="# freeze-fix: i915 稳定性参数"
 BASE='i915.enable_psr=0 i915.enable_dc=0 i915.enable_fbc=0 i915.reset=1'
 AGGR='i915.enable_guc=2'
+
+# ---------------------------------------------------------------- 平台守卫
+# 本仓库两台机器共用（Intel MTL + Wayland / NVIDIA Legion + X11）。
+# i915 内核参数只在「Intel 核显由 i915 驱动接管」时有意义：NVIDIA-only 机器写进
+# GRUB 只是噪音，而且 --check 的「PSR 未禁用」警告会误导排查方向。
+# 注意：**--revert 不做守卫** —— 万一哪台机器需要清理旧参数，必须允许执行。
+gpu_vendors() {
+  lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' \
+    | grep -oE '\[(8086|10de|1002):[0-9a-f]{4}\]' | sed 's/\[//;s/\]//' \
+    | cut -d: -f1 | sort -u | tr '\n' ' '
+}
+if [[ "$MODE" != "revert" ]]; then
+  if ! lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' | grep -q '\[8086:'; then
+    echo "⏭  本机没有 Intel 显卡（显卡厂商代码: $(gpu_vendors)）→ 跳过 i915 稳定性参数。"
+    echo "   PSR/DC/FBC 这些参数只对 i915 有意义；NVIDIA 机器请往 nvidia/NVRM 方向排查。"
+    exit 0
+  fi
+  if ! ls -d /sys/bus/pci/drivers/i915/*/ >/dev/null 2>&1; then
+    echo "⏭  有 Intel 显卡，但 i915 驱动未接管它（可能用 xe 驱动）→ 跳过。"
+    exit 0
+  fi
+  fwfam=$(journalctl -k -b --no-pager 2>/dev/null \
+    | grep -oE 'i915/[a-z0-9]+_(guc|huc)' | sed 's|i915/||;s|_.*||' | sort -u | tr '\n' ' ')
+  if [[ "$MODE" != "check" ]]; then
+    echo "  平台: Intel 核显（i915 已接管，固件家族 [${fwfam:-未知}]）"
+  else
+    echo "  平台: Intel 核显（i915 已接管，固件家族 [${fwfam:-未知}]，本机对照用）"
+  fi
+fi
+
+# root 检查放在平台判定之后：--check 是只读的，不需要 root；
+# 「平台不适用」也应先于「需要 root」告知用户，不让人白跑 sudo。
+if [[ "$MODE" != "check" ]]; then
+  [[ $EUID -eq 0 ]] || { echo "需要 root：sudo bash $0 $*"; exit 1; }
+fi
 
 echo "===== 现状 ====="
 echo "  kernel : $(uname -r)"

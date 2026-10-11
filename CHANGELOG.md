@@ -36,6 +36,87 @@
   帧率/画质开关 → 壁纸的 GPU 成本只能靠「该藏就藏」（`wallpaper-power-guard.ps1`）省，
   文档里给了把 `-CoverRatio` 从 0.9 收到 0.75 的建议。
 
+## [修复：齿轮按钮 / 置顶开关后上浮 / 两只桌宠贴底 + 双机适配] - 2026-10-10
+
+> 这一轮全部来自实机排查（都插过探针取证），并把仓库从「只在本机成立」改成**两台机器共用**。
+
+### 修复（第三轮：悬停按钮「点了没反应」）
+- **控制台勾了「测试刷新率」，鲸鱼旁边却不出按钮**：选择器**上限 6 个**，满了以后
+  其余按钮是 `disabled` + 点击直接 `return` —— 点了既没反应也没提示，看起来就像功能坏了。
+  → 满位时改为给出明确提示（「最多 6 个：先点掉一个亮着的，再点它」），按钮不再 disabled；
+  提示文案也写清「点亮哪一个就出现哪一个」。
+- **世界侧白名单**（`PET_ACTIONS`）已补 `'hz'`：**必须重启 core 才生效**（core 直接跑 TS 源码）。
+  实测把 `hoverButtons` 写成 `chat,voice,roam,theme,sound,hz` 后返回
+  `{"ok":true,"result":"桌宠已更新,已写回 config.json"}`，`hz` 被接受。
+
+### 修复（第二轮：真因全部定位）
+- **齿轮打不开控制台的真因**：`app/main.cjs` 里 `settings.once('ready-to-show', () => () => settings.show())`
+  **多套了一层箭头函数** —— 只返回函数、从不执行，窗口以 `show:false` 创建后永远没人 `show()`。
+  上游原本正确，是本轮加诊断时手滑改坏的。已改回真正的调用 + 3 秒兜底。
+- **为什么"程序坞里有个 coo、鼠标悬上去一直转圈"**：Electron 44 上主进程
+  `ELECTRON_OZONE_PLATFORM_HINT` 与 `appendSwitch('ozone-platform')` **都无效**，主进程跑成原生
+  Wayland，设置窗只在程序坞留个条目、内容永远画不出来（GNOME 判"未响应"）。
+  → `tools/petctl.sh` 显式给主进程加 `--ozone-platform=x11`（脚本注释里早有"主进程另行补参数"
+  一句，但从来没做），`app/main.cjs` 再加一道"没带参数就自己补上重启一次"的兜底。
+  **实测**：设置窗变成真正的 X 窗口（客户窗口 1180x800 逻辑像素），控制台 SPA 完整渲染
+  （侧栏 开始/习惯/装扮/语音输入/系统提示词/用量与成本/对话 + 习惯页全部控件）。
+- **控制台「悬停按钮」清单重复了一遍**：加 `hz` 时把整份 `ACTIONS` 复制了一份 → 界面出现
+  两排同款按钮（第一排 8 个、第二排 6 个）。已去重，并补上 `hz: '测试刷新率'` 标签
+  （之前直接显示成 `hz`）。
+- **世界侧白名单漏了 `hz`**：`src/config.ts` 的 `PET_ACTIONS` 没有 `hz`，`world.ts:430` 按白名单
+  过滤 → 在控制台勾了「测试刷新率」会被世界静默丢掉。已补。
+- **DSH 小鲸鱼离屏底还有一条缝**：贴图底部自带 6 逻辑像素透明内边距，"窗口底=屏底"并不等于
+  "鲸鱼可见像素贴屏底"。裸像素实测缝隙 12 物理像素 → `BOTTOM_M` 0 → -6 压掉内边距，
+  复测 **0 物理像素**（源码模式与 AppImage 双份都验过）。
+- **「测试刷新率」扫描的四个真 bug**：① 初始目标取"较近的一边"→ 应恒为最左；
+  ② 准备段（先跑到最左）被算成一段、路程也计进去；③ `atEnd` 把 `pet.mode==='idle'` 也算到站，
+  刚换目标那一帧就误判 → 段数瞬间耗光；④ `pet.pace` 只用来取消倍率、并未接管速度，
+  且每段还有 0.35s 加速斜坡 → "一帧一步"与"用时=路程÷刷新率"都不成立。全部修掉，
+  叫停原因也统一成 `cancelled`。
+
+### 修复
+- **点聊天框的齿轮打不开设置界面**（真因是 `show()` 从没被调用，与 GPU 无关）
+  上游原本是 `settings.once('ready-to-show', () => settings.show())`；本轮给 `openSettings`
+  加诊断时手滑写成了 `() => () => settings.show()` —— **多套了一层箭头函数**，
+  `ready-to-show` 触发时只是「返回」了一个函数，从来没有执行它。窗口以 `show: false`
+  创建，于是永远亮不出来：进程在、程序坞里有条目、页面也在后台加载，但用户看到的是
+  「点了没反应 / 只在程序坞里转圈」。
+  → 改回真正的调用，并加 3 秒兜底（`ready-to-show` 万一不来也把窗口亮出来）；
+  复用已存在窗口的分支补上「尺寸跑歪就纠回 1180x800 + 提到最前 + 确保映射」，
+  真出错就销毁重建。代码注释里写明「这里必须是调用」以及错误写法，防止再犯。
+  **实测**：点击后主进程 CDP 页面数 `0 → 1`，URL = `http://127.0.0.1:17788/#/home`
+  （控制台 SPA 已加载并完成路由跳转）。
+  另一层与真因无关、但确实存在的加固保留：GPU 崩溃（`exit_code=139`）时渲染进程起不来，
+  主进程因此加了软件渲染兜底 + `render-process-gone` 自动重载。
+
+- **「置顶显示」关一次再开，桌宠停在半空**
+  不置顶期间窗口是 NORMAL，mutter 会把它夹回 workArea（底边只到 Dock 上沿，高出 ~71px）；
+  光把类型改回 DOCK 不会把位置退回来 → `applyOnTop()` 里切回置顶时重新 `cover()` 贴底。
+  并给 `tools/aot-toggle-test.mjs` 加了「开关一次后窗口仍贴在屏幕底」判据（现 6/6）。
+- **DSH 小鲸鱼离屏幕底留一条缝**：`BOTTOM_M` 6 → 0（原来空出 12 物理像素）→ 实测距屏底 0 像素。
+- **看门狗误整机重启**（真正在造「莫名奇妙关机」）：`restart gdm` 会销毁用户会话，
+  60 秒后再探「用户会话里的 mutter」必然失败 → 100% 落到 `systemctl reboot -f`。
+  改为探 gdm 自身 + 恢复冷却 180s + 两次 gdm 都起不来才动整机。
+- **电池下闲置 15 分钟自动挂起** → `sleep-inactive-battery-type` 改为 `nothing`（原值已备份）。
+- **hanabi 动态壁纸吃 92% CPU / 53W** → `pause-on-battery` 从 1（低于阈值才停）改 2（电池下即停）：
+  功耗 53.4W → 37.2W，剩余时间 36.9 → 52.5 分钟。
+
+### 两台机器共用（队友那台 Ubuntu 22.04 + Legion + RTX 5070 / X11）
+- `tools/freeze-fix/*`：`install-guc-firmware.sh` 加平台判定（非 Intel / 非 MTL 直接跳过）；
+  `i915-stabilize.sh` 同样守卫（但 `--revert` 永远放行）；`gpu-watchdog.sh` 补 NVRM 关键字
+  （`GPU has fallen off the bus` / `NVRM: Xid`，仍由「内核异常 + mutter 真冻结」双条件把关）；
+  `diagnose.sh` 按平台分岔（NVIDIA 机器改查驱动与 Xid）；`apply-all.sh` 跳过措辞修正。
+- 去掉所有写死家目录：`dsh-whale-desktop-linux/main.js`、Coopanion `host/electron-main.cjs`、
+  `dsh-whale-pets-tray/extension.js` 统一改为「环境变量 → ~/dsh-whale → 仓库相对/向上查找」。
+- Coopanion 侧改动重新折进 `patches/coopanion/0001-dsh-pet-features.patch`（12 文件 868 行，与工作区逐字一致）。
+
+### 未完成（唯一一项）
+- **「随刷新率」走动 + 悬停按钮「测试刷新率」**（原六个自研功能里的最后两个）。
+  上游把 `web/kit/body.js` 并回了 `web/pet-core.js`，补丁无法原样套用；实现要点见
+  [`docs/coopanion-integration.md`](docs/coopanion-integration.md)（含读数吸附表、
+  rAF 探针、「一帧一步」段序、`hzPinned` 钉住读数等）。
+  `coopanion-feature-test` 剩余 11 项失败全部属于它，不是回归。
+
 ---
 
 ## [Coopanion 升级到上游 v0.1.20（重新移植全部自研功能）] - 2026-10-10
@@ -777,6 +858,7 @@
 
 ### 验证
 - Coopanion 端到端 **26/26**、触屏 **21/21**、功能与补丁一致性 **15/15**，补丁无漂移
+- **齿轮按钮实测**：点桌宠气泡里的齿轮 → 主进程新建页面 `http://127.0.0.1:17788/#/home`（控制台真的打开）
 - 端到端实测 🐋 开关：`petToggle('live2d')` → `live2d=stopped` → 再点 → `live2d=running`
 - DSH 新构建已验证：`{"hasBridge":true,"ctlButtons":["🎨","📊","✂️","🐋"],"hasWhaleBtn":true}`
 

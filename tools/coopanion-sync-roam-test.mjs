@@ -22,7 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(process.env.COOPANION_DIR || join(HERE, '..', 'third-party', 'Coopanion'));
-const CORE = join(ROOT, 'packages', 'cortico-world-desktop-pet', 'web', 'kit', 'body.js');
+const CORE = join(ROOT, 'packages', 'cortico-world-desktop-pet', 'web', 'pet-core.js');
 
 if (!existsSync(CORE)) {
   console.log(`[跳过] 没找到 Coopanion 副本：${CORE}`);

@@ -426,10 +426,10 @@ async function main() {
             await sleep(35);
         }
         await touchUp(send);
-        // 只等很短时间就量：放手后宠物会 walkTo(home) 往回走，
-        // 等 900ms 再量就只能看到它已经走回去一段（实测只刺 35px，阈值 40）——
-        // 那是测试时序问题，不是“拖拽不灵”。
-        await sleep(250);
+        // **放手后要立刻量**：宠物随即会 walkTo(home) 往回走，而 Dock 感知那套还会
+        // 让它「冲刺」回空闲带（倍率 1.9x）。等 250ms 再量，走得快的时候已经回到原位，
+        // 看起来像「拖拽不灵」，实际是测试时序 —— 实测就是被这步误判过。
+        await sleep(60);
         const inkB = inkBBox(winGeom());
         const cxA = inkA.bbox ? (inkA.bbox[0] + inkA.bbox[2]) / 2 : 0;
         const cxB = inkB.bbox ? (inkB.bbox[0] + inkB.bbox[2]) / 2 : 0;

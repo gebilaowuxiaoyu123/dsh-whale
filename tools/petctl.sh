@@ -111,8 +111,13 @@ start_live2d() {
   #     The SUID sandbox helper binary was found, but is not configured correctly.
   #   症状就是「开机自启过了、但 Live2D 没出来」。DSH 那条一直带着，这条之前漏了。
   # 环境变量让子 Electron（--pet-host）也走 XWayland；主进程另行补命令行参数。
+  # 这里就是那个「另行」：--ozone-platform=x11 必须**显式传给主进程**。
+  # 本机 Electron 44 上，ELECTRON_OZONE_PLATFORM_HINT 与
+  # app.commandLine.appendSwitch('ozone-platform') **都实测无效**，主进程会跑成原生
+  # Wayland —— 此时设置窗（控制台）只在程序坞里留个条目、内容永远画不出来，GNOME
+  # 判定「未响应」，鼠标悬上去一直转圈。实机取证：强制 x11 后同一窗口正常渲染。
   setsid nohup env ELECTRON_OZONE_PLATFORM_HINT=x11 \
-    "$ELECTRON_BIN" "$COOP_DIR" --no-sandbox --disable-setuid-sandbox \
+    "$ELECTRON_BIN" "$COOP_DIR" --no-sandbox --disable-setuid-sandbox --ozone-platform=x11 \
     >>"$L2D_LOG" 2>&1 &
   local pid=$!
   echo $pid > "$L2D_PID"

@@ -34,6 +34,17 @@ try {
         // 控制 Live2D 鲸鱼娘桌宠（开关/重启/查状态），由主进程调 tools/petctl.sh
         petToggle: (which) => ipcRenderer.invoke('dshw-pet-toggle', String(which || 'live2d')),
         petStatus: (which) => ipcRenderer.invoke('dshw-pet-status', String(which || 'live2d')),
+        // Dock 占位（主进程用 tools/dock-zone.cjs 算好）：增强层靠它把鲸鱼挪出 Dock 区
+        dockZone: () => ipcRenderer.invoke('dshw-dock-zone'),
+        // 几何诊断（测试/排障用）
+        geom: () => ipcRenderer.invoke('dshw-debug-geom'),
+        setBounds: (b) => ipcRenderer.invoke('dshw-debug-bounds', b),
+        onDockZone: (cb) => {
+            if (typeof cb !== 'function') return () => {};
+            const h = (_e, z) => { try { cb(z); } catch (_e2) { /* 单个回调出错不影响其它 */ } };
+            ipcRenderer.on('dshw-dock-zone', h);
+            return () => { try { ipcRenderer.removeListener('dshw-dock-zone', h); } catch (_e2) {} };
+        },
     });
 } catch (_e) { /* 忽略 */ }
 
