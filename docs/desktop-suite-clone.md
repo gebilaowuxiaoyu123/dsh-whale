@@ -112,3 +112,22 @@ powershell -File tools\desktop-suite-doctor.ps1 -Action restore `
 5. **补丁要按版本钉死**：Coopanion 前端在 v0.1.19/v0.1.20 重构过（`web/pet-core.js` → `web/kit/body.js`），
    上游一漂补丁就整段打不上 —— 所以 `tools/setup-coopanion.ps1` 里 `$CoopanionTag`/`$CorticoCommit` 是钉死的，
    改版本必须同时重新生成补丁（`git -C <Coopanion> diff --no-color --output=patches\coopanion\0001-dsh-pet-features.patch`）。
+6. **`.gitignore` 的 `!` 反向规则会盖掉前面的全局忽略**：为了让 desktop-suite 里的**自家源码**入库，用了白名单
+   （`!/desktop-suite/dsh-whale/**`），结果把 `node_modules/` 也一起放行了 —— 一次提交差点把 **15008 个依赖文件**
+   推上公开仓库。白名单之后必须**再把不该入库的重新忽略一遍**（本仓库在 `/desktop-suite/dsh-whale/**` 之后补了
+   `node_modules/`、`dist/`、`*.log`）。**提交前一定自查**：
+   `git diff --cached --name-only | Select-String 'node_modules|\.env$|electron\.exe'`（应当没有输出）。
+7. **pnpm 在国内会静默卡在默认 registry 上**：`pnpm install` 能安静地卡十几分钟没输出；
+   换 `--registry=https://registry.npmmirror.com` 后本机 **8.6 秒**装完。
+   Electron 的二进制会被 pnpm 10+ 的 postinstall 策略拦下不下载 → 进 `node_modules/electron` 手动跑
+   `node install.js`（配 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`），装完 `dist/electron.exe` 应约 234 MB。
+8. **从终端启动的 GUI 程序会被终端一起带走**：Coopanion 用 `Start-Process` 从 shell 里起来后，
+   那条终端被回收时它也跟着退出了（日志里看不到任何退出原因）。要稳定就用**无控制台**方式起：
+   `wscript.exe` 跑一个 `.vbs`（`CreateObject("WScript.Shell").Run """<exe>"" ""<dir>"" --background", 0, False`），
+   或者干脆走它自己的自启项。
+9. **恢复被误删的源码**：如果 `packages/`、`vendor/`、`node_modules/` 被误删，`git -C desktop-suite/coopanion` 里
+   还留着上游对象库 —— 用 `git ls-files --deleted` 列出被删路径后**只还原这些**（`git checkout -- <paths>`，
+   分批传避免命令行过长），**别** `checkout .`（会把我们改过的文件一起还原掉）；子模块用它自己的对象库：
+   `git --git-dir=<co>/\.git/modules/vendor/cortico --work-tree=<co>/vendor/cortico checkout -f f944984`。
+   我们自己的魔改则在 `patches/coopanion/0001-dsh-pet-features.patch` 里，重打时**限定 `--include=packages/*`**
+   （`git apply` 是原子的：已打过的 5 个文件会让整份补丁失败）。
