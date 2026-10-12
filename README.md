@@ -102,6 +102,12 @@ dsh-whale/
 │                                   #   ← 同时是桌面版的**唯一功能实现来源**
 ├── third-party/                    # 第三方项目源码，**不入库**（已被根 .gitignore 忽略）
 │   └── Coopanion/                  #   Coopanion 桌宠（AGPL-3.0-or-later，用 tools/setup-coopanion.ps1 复原）
+├── desktop-suite/                  # 本机桌面美化程序统一工作目录（**整体不入库**，只留 README 与忽略规则）
+│   ├── README.md                   #   搬迁记录 / 改过的绝对路径引用 / 回滚方法（唯一入库文件）
+│   ├── pogget/                     #   Pogget（原 E:\Pogget.exe + E:\.pogget_config）
+│   ├── xspace/                     #   XSpace 竞赛通知桌面栏（原 C:\xspace_widget）
+│   ├── xspace-notes/               #   XNoteWidget 工程与资料（原 C:\xspace_notes + 两个 html）
+│   └── miside-wallpaper/           #   MiSide Unity 应用壁纸 + 自研壁纸守护（原桌面 MisideStartWallpapaer）
 ├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
 │   ├── main.js                     #   主进程：本地服务(3090)+窗口(默认不置顶)/托盘/自启+插件宿主
 │   ├── host-shim.js                #   DSH 宿主契约适配层：让插件本体在本机 HTTP 服务里运行

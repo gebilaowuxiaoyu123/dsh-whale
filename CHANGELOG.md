@@ -8,6 +8,48 @@
 
 ---
 
+## [桌面美化工作目录统一到 desktop-suite] - 2026-10-13
+
+> 需求（用户原话）：这几个插件的工作文件夹全部移动到当前这个 dsh-whale 文件夹下，而不是让它们天各一方。
+
+### 结论：可以，但必须「进忽略目录」
+- dsh-whale 是**公开仓库**：Pogget 是第三方专有软件、MiSide 壁纸是同人素材、XSpace 是 500 MB 构建产物，
+  直接入库 = 体积暴涨 + 版权风险。做法：新建 `desktop-suite/`，**整目录 gitignore，只放行一个 README**。
+- **Coopanion 不动**（本来就在 `third-party/Coopanion/`；挪它要连带改 setup 脚本、补丁路径、自启项、
+  测试脚本与文档，零收益）。
+
+### 搬迁内容（原件已送回收站，可还原）
+
+| 新位置 | 原位置 | 体量 |
+|---|---|---|
+| `desktop-suite/pogget/` | `E:\Pogget.exe` + `E:\.pogget_config` | 3.3 MB / 36 文件 |
+| `desktop-suite/xspace/` | `C:\xspace_widget\` | 504.4 MB / 1649 文件 |
+| `desktop-suite/xspace-notes/` | `C:\xspace_notes\` + `C:\xspace_home.html` + `C:\xspacenews,html` | 418.4 MB / 1007 文件 |
+| `desktop-suite/miside-wallpaper/` | 桌面 `MisideStartWallpapaer\` | 129.7 MB / 220 文件 |
+
+### 同步改掉的绝对路径引用
+1. `HKCU\...\CurrentVersion\Run` → `MyCoolApp`（Pogget 新路径）
+2. 同上 → `XSpaceWidget`（XSpace 新 exe 路径）
+3. 启动文件夹 `wallpaper-power-guard.vbs` 里的守护脚本路径
+4. Lively 库条目 `misidestart_miside\LivelyInfo.json` 的 `FileName`（**按字节替换**，保住文件原有编码）
+5. 已核实**无需改动**：`WallpaperLayout.json` 按库 id 引用；守护脚本只按进程名找窗口、日志在 `%LOCALAPPDATA%`；
+   桌面/开始菜单无指向它们的快捷方式
+
+### 验证（搬完逐个从新路径起回来）
+- Pogget / XSpace / Lively / 壁纸进程 / 壁纸守护 **全部从新路径运行**；
+- XSpace 两个可视窗口（`Fetcher`、`XSpace竞赛通知桌面栏`）正常，13 个 WebView2 子进程在线；
+- Pogget 把日志写进**新** `.pogget_config\logs`（也没有在 C 盘根乱建配置）；
+- Lively 壁纸记录指向库 id `misidestart_miside`，壁纸进程 pid 已换新，守护日志 `SHOWN pid=<新 pid>`。
+
+### 配套改动
+- 新增 `.vscode/settings.json`：把 `desktop-suite/`、`third-party/` 排除出**文件监视**与**全局搜索**
+  （1 GB / 2600+ 文件，不排会拖慢 VS Code）。
+- 引用备份：`%USERPROFILE%\dsh-whale-backups\desktop-suite-move-<时间戳>\`（自启项快照 + 改前的两个 JSON + vbs + Pogget 配置）。
+- 唯一残留：桌面 `MisideStartWallpapaer\` 是个**空壳目录**（内容全部已进回收站，但目录被某个进程当作
+  当前工作目录占用，删/改名均失败）→ **重启后删掉即可**。
+
+---
+
 ## [桌面渲染排查：黑框白框 / 整屏黑一下 / 帧率手感] - 2026-10-11
 
 > 现象（用户原话）：桌面帧率感觉有点低；打开 FlClash、向日葵之类的有概率刷成黑框或者白框；

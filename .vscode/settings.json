@@ -1,0 +1,11 @@
+{
+  "// 说明": "本仓库只跟踪源码。desktop-suite/ 与 third-party/ 是本机的第三方程序/构建产物（约 1 GB），排除出监视与搜索，避免拖慢编辑器。",
+  "files.watcherExclude": {
+    "**/desktop-suite/**": true,
+    "**/third-party/**": true
+  },
+  "search.exclude": {
+    "**/desktop-suite/**": true,
+    "**/third-party/**": true
+  }
+}

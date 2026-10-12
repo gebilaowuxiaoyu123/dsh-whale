@@ -16,3 +16,7 @@ third-party/
 
 # 本地排查备份（不提交）
 .dsh-backup/
+
+# 本机桌面美化程序（Pogget / XSpace / MiSide 壁纸）—— 只留本机，不入库（只放行目录说明）
+/desktop-suite/*
+!/desktop-suite/README.md
