@@ -12,7 +12,7 @@
 #   ./tools/setup-coopanion.sh -u -r
 #
 # 环境变量：
-#   COOPANION_DIR    安装目录，默认 <仓库根>/third-party/Coopanion
+#   COOPANION_DIR    安装目录，默认 <仓库根>/desktop-suite/coopanion
 #   ELECTRON_MIRROR  Electron 二进制镜像，默认 https://npmmirror.com/mirrors/electron/
 #
 # 运行要求：Linux x64、Node.js >= 22、pnpm、git，能访问 GitHub 与 npm 源。
@@ -47,7 +47,7 @@ done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$HERE")"
-[ -n "$DIR" ] || DIR="${COOPANION_DIR:-$REPO_ROOT/third-party/Coopanion}"
+[ -n "$DIR" ] || DIR="${COOPANION_DIR:-$REPO_ROOT/desktop-suite/coopanion}"
 mkdir -p "$(dirname "$DIR")"
 DIR="$(cd "$(dirname "$DIR")" && pwd)/$(basename "$DIR")"
 

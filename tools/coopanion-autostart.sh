@@ -13,12 +13,12 @@
 #   ./tools/coopanion-autostart.sh uninstall   # 撤销自启
 #
 # 环境变量：
-#   COOPANION_DIR   Coopanion 安装目录，默认 <仓库根>/third-party/Coopanion
+#   COOPANION_DIR   Coopanion 安装目录，默认 <仓库根>/desktop-suite/coopanion
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$HERE")"
-DIR="${COOPANION_DIR:-$REPO_ROOT/third-party/Coopanion}"
+DIR="${COOPANION_DIR:-$REPO_ROOT/desktop-suite/coopanion}"
 ACTION="${1:-install}"
 ENTRY="$HOME/.config/autostart/coopanion.desktop"
 

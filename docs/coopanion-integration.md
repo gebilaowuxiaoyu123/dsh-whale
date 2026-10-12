@@ -18,7 +18,7 @@
 | **惯例** | 仓库根 `.gitignore` 已忽略 `third-party/`（见提交 `0959ff0 chore: gitignore third-party`）|
 | **体积** | 含子模块与 `node_modules`，远超仓库合理体积 |
 
-因此：**源码放在 `third-party/Coopanion/`（不进入版本库）**，本仓库只保留「安装脚本 + 本文档」，
+因此：**源码放在 `desktop-suite/coopanion/`（不进入版本库）**，本仓库只保留「安装脚本 + 本文档」，
 任何时候都能一键复原。
 
 ## 一键安装
@@ -74,21 +74,21 @@ patches/coopanion/0001-dsh-pet-features.patch
 | **「与 DSH 挂件同步」按钮（两个桌宠共用一把 Key）** | `console/features/home/index.ts` | 「开始」页的 key 输入框旁多一个按钮：**不按不同步，按一下两边都同步** —— 填了就先把这把存进 Coopanion（走它自己的保存+测试，测不过就不推）再推给挂件，留空就以已保存的那把为准拉过去。跨源调挂件的 `127.0.0.1:3090/dsh-whale/key-sync/*`（挂件那头放行了 CORS 预检；挂件没在跑时只提示，不动本地）|
 | **悬停按钮「测试刷新率」** | `web/kit/body.js`、`web/pet-app.js`、`web/ui.js`（图标）、`src/config.ts`、`console/features/pet/index.ts`、`console/features/pet/strings.ts`（文案） | 「一帧一步」横穿桌面来回跑两趟来量屏幕：先跑到最左，再以 1 px/屏幕帧从左到右、右到左共 4 段，跑完冒气泡报读数（`屏幕约 120 Hz · 实测 120.3 Hz · 4 段 1766 px 用时 14.8 秒`），说完慢悠悠走回原位。测速探针临时不设帧率上限地数 0.9 s 真实帧（页面帧循环被压到 15/30 fps，量不出屏幕），读数写回并钉住 `hz` |
 
-> 改动要**手工改源码**时：改完用 `git -C third-party/Coopanion diff --no-color --output=patches/coopanion/0001-dsh-pet-features.patch`
+> 改动要**手工改源码**时：改完用 `git -C desktop-suite/coopanion diff --no-color --output=patches/coopanion/0001-dsh-pet-features.patch`
 > 重新生成补丁，否则下次更新会把你的改动冲掉。`tools\coopanion-feature-test.mjs` 会检查这一致性。
 
 ## 手动步骤（等价）
 
 ```bash
 # 源码与会话都钉在补丁对应的版本上（v0.1.19/v0.1.20 重构过前端，漂了就打不上）
-git clone --depth 1 --branch v0.1.20 https://github.com/Pal-AI-Lab/Coopanion.git third-party/Coopanion
-git -C third-party/Coopanion submodule update --init --depth 1 vendor/cortico
-git -C third-party/Coopanion/vendor/cortico fetch --depth 1 origin f9449842a8ed93cfc0e3fd5a554e00c2aa5973f5
-git -C third-party/Coopanion/vendor/cortico checkout -q --detach f9449842a8ed93cfc0e3fd5a554e00c2aa5973f5
-pnpm --dir third-party/Coopanion install
-pnpm --dir third-party/Coopanion run build:cortico
-git -C third-party/Coopanion apply patches/coopanion/0001-dsh-pet-features.patch
-pnpm --dir third-party/Coopanion start
+git clone --depth 1 --branch v0.1.20 https://github.com/Pal-AI-Lab/Coopanion.git desktop-suite/coopanion
+git -C desktop-suite/coopanion submodule update --init --depth 1 vendor/cortico
+git -C desktop-suite/coopanion/vendor/cortico fetch --depth 1 origin f9449842a8ed93cfc0e3fd5a554e00c2aa5973f5
+git -C desktop-suite/coopanion/vendor/cortico checkout -q --detach f9449842a8ed93cfc0e3fd5a554e00c2aa5973f5
+pnpm --dir desktop-suite/coopanion install
+pnpm --dir desktop-suite/coopanion run build:cortico
+git -C desktop-suite/coopanion apply patches/coopanion/0001-dsh-pet-features.patch
+pnpm --dir desktop-suite/coopanion start
 ```
 
 ## 踩坑记录（本机实测）
@@ -108,7 +108,7 @@ Error: Electron failed to install correctly.
 
 ```powershell
 $env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
-cd third-party\Coopanion\node_modules\electron
+cd desktop-suite\coopanion\node_modules\electron
 node install.js
 ```
 
@@ -124,7 +124,7 @@ node install.js
 `git clone --depth 1` 不会拉子模块，`vendor/cortico` 会是空目录，需补：
 
 ```powershell
-git -C third-party/Coopanion submodule update --init --depth 1 vendor/cortico
+git -C desktop-suite/coopanion submodule update --init --depth 1 vendor/cortico
 ```
 
 ### 4. 改了前端却不重构 = 看不到新功能 ⚠️
@@ -215,7 +215,7 @@ node tools/coopanion-hzscan-test.mjs     # 「测试刷新率」：一帧一步 
   桌宠仍在桌面图标之上（看视频/全屏时不再挡在前面）；勾上就回到「浮在所有窗口之上」
 - **快速开调试界面**：双击 Coo → 输入框左边的小齿轮
 - **退出**：右键托盘图标 → 退出（**关掉设置窗口不会退出程序**）
-- **数据目录**：`third-party/Coopanion/build/data`（从源码跑时；记忆 / 设置 / 日志都在这里，重装不丢）
+- **数据目录**：`desktop-suite/coopanion/build/data`（从源码跑时；记忆 / 设置 / 日志都在这里，重装不丢）
 
 ## 与本仓库其它形态的关系
 
@@ -227,6 +227,6 @@ node tools/coopanion-hzscan-test.mjs     # 「测试刷新率」：一帧一步 
 | 定位 | 只显示 DeepSeek 余额 / 每日用量的小挂件 | 会聊天、能操作电脑的通用桌宠 |
 | 技术 | 自研 Electron 主进程 + 插件宿主（`host-shim`） | Cortico 框架（TypeScript + Electron） |
 | 许可 | MIT | AGPL-3.0-or-later |
-| 数据 | `~/.dsh/`（与 DSH 插件共用账本） | `third-party/Coopanion/data/` |
+| 数据 | `~/.dsh/`（与 DSH 插件共用账本） | `desktop-suite/coopanion/data/` |
 
 两者可以同时运行 —— 都是屏幕上的独立悬浮窗，互不干扰。

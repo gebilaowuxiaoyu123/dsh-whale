@@ -3,7 +3,7 @@
  * 桌面版增强层 端到端测试（CDP）
  * ============================================================================
  * 前置：以远程调试端口启动桌面版
- *   cd dsh-whale-desktop-linux
+ *   cd desktop-suite/dsh-whale/dsh-whale-desktop-linux
  *   DSHW_DEBUG=1 ./node_modules/electron/dist/electron --no-sandbox \
  *     --ozone-platform=x11 --remote-debugging-port=9222 .
  *   node ../tools/desktop-enhance-test.mjs

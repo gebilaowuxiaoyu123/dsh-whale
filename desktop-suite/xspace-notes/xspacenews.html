@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>竞赛通知信息栏 - NJUST XSpace</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #1f2937;
+            --bg-card-hover: #2a3648;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --text-accent: #60a5fa;
+            --text-new: #fbbf24;
+            --border-color: #2d3748;
+            --scrollbar-bg: #1a1a2e;
+            --scrollbar-thumb: #4a5568;
+            --scrollbar-thumb-hover: #718096;
+            --status-ok: #10b981;
+            --status-error: #ef4444;
+            --status-loading: #f59e0b;
+            --btn-bg: #2d3748;
+            --btn-hover: #3d4a5c;
+            --btn-active: #4a5568;
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            --radius: 12px;
+            --radius-sm: 6px;
+            --font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+            --transition: 0.2s ease;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0;
+        }
+
+        /* 主窗口容器 - 固定大小 */
+        .widget-container {
+            background: var(--bg-secondary);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border-color);
+            width: 420px;
+            height: 560px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            transition: all var(--transition);
+        }
+
+        /* 顶部标题栏 */
+        .title-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            cursor: move;
+            flex-shrink: 0;
+            min-height: 48px;
+        }
+
+        .title-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            transition: background var(--transition);
+            box-shadow: 0 0 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-dot.online {
+            background: var(--status-ok);
+            box-shadow: 0 0 8px var(--status-ok);
+        }
+        .status-dot.offline {
+            background: var(--status-error);
+            box-shadow: 0 0 8px var(--status-error);
+        }
+        .status-dot.loading {
+            background: var(--status-loading);
+            box-shadow: 0 0 8px var(--status-loading);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%,
+            100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        .title-text {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--text-primary);
+        }
+
+        .title-badge {
+            font-size: 10px;
+            padding: 2px 8px;
+            background: var(--btn-bg);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            letter-spacing: 0.3px;
+        }
+
+        .title-bar-right {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn-icon {
+            background: var(--btn-bg);
+            border: none;
+            color: var(--text-primary);
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background var(--transition), transform var(--transition);
+        }
+
+        .btn-icon:hover {
+            background: var(--btn-hover);
+            transform: scale(1.05);
+        }
+        .btn-icon:active {
+            background: var(--btn-active);
+            transform: scale(0.95);
+        }
+
+        .btn-icon .refresh-icon {
+            transition: transform 0.6s ease;
+            display: inline-block;
+        }
+        .btn-icon.refreshing .refresh-icon {
+            animation: rotate 0.8s linear infinite;
+        }
+
+        @keyframes rotate {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 设置面板 */
+        .settings-panel {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 14px;
+            display: none;
+            flex-shrink: 0;
+            transition: all var(--transition);
+            max-height: 200px;
+            overflow: hidden;
+        }
+
+        .settings-panel.visible {
+            display: block;
+            animation: slideDown 0.25s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                max-height: 0;
+                transform: translateY(-8px);
+            }
+            to {
+                opacity: 1;
+                max-height: 200px;
+                transform: translateY(0);
+            }
+        }
+
+        .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 0;
+            gap: 12px;
+        }
+
+        .settings-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+
+        .settings-control {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-sm {
+            background: var(--btn-bg);
+            border: none;
+            color: var(--text-primary);
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background var(--transition);
+            font-weight: bold;
+        }
+
+        .btn-sm:hover {
+            background: var(--btn-hover);
+        }
+        .btn-sm:active {
+            background: var(--btn-active);
+        }
+
+        .settings-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-accent);
+            min-width: 30px;
+            text-align: center;
+        }
+
+        .slider-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            background: var(--btn-bg);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--text-accent);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 6px rgba(96, 165, 250, 0.4);
+            transition: transform var(--transition);
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* 通知列表区域 */
+        .notice-area {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            min-height: 0;
+        }
+
+        .notice-canvas {
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+            padding: 4px 6px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-bg);
+        }
+
+        .notice-canvas::-webkit-scrollbar {
+            width: 4px;
+        }
+        .notice-canvas::-webkit-scrollbar-track {
+            background: var(--scrollbar-bg);
+            border-radius: 2px;
+        }
+        .notice-canvas::-webkit-scrollbar-thumb {
+            background: var(--scrollbar-thumb);
+            border-radius: 2px;
+        }
+        .notice-canvas::-webkit-scrollbar-thumb:hover {
+            background: var(--scrollbar-thumb-hover);
+        }
+
+        .notice-list {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            padding-bottom: 4px;
+        }
+
+        /* 通知条目 */
+        .notice-item {
+            background: var(--bg-card);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            cursor: pointer;
+            transition: background var(--transition), transform var(--transition),
+                box-shadow var(--transition);
+            border-left: 3px solid transparent;
+            flex-shrink: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .notice-item:hover {
+            background: var(--bg-card-hover);
+            transform: translateX(2px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .notice-item:active {
+            transform: translateX(2px) scale(0.98);
+        }
+
+        .notice-item.new-notice {
+            border-left-color: var(--text-new);
+            background: #1e2a3a;
+        }
+
+        .notice-item.new-notice:hover {
+            background: #253547;
+        }
+
+        .notice-item.today-notice {
+            border-left-color: var(--text-accent);
+        }
+
+        .notice-title {
+            font-size: 12.5px;
+            font-weight: 500;
+            color: var(--text-primary);
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            word-break: break-all;
+            margin-bottom: 4px;
+            letter-spacing: 0.2px;
+        }
+
+        .notice-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 10.5px;
+            color: var(--text-secondary);
+            letter-spacing: 0.2px;
+        }
+
+        .notice-date {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .notice-date .date-icon {
+            font-size: 11px;
+            opacity: 0.7;
+        }
+
+        .notice-badge {
+            font-size: 9px;
+            padding: 1px 6px;
+            border-radius: 8px;
+            letter-spacing: 0.2px;
+            font-weight: 600;
+        }
+
+        .notice-badge.new-badge {
+            background: #fbbf24;
+            color: #1a1a2e;
+        }
+        .notice-badge.today-badge {
+            background: #60a5fa;
+            color: #1a1a2e;
+        }
+
+        /* 加载更多指示器 */
+        .loading-indicator {
+            text-align: center;
+            padding: 10px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            letter-spacing: 0.5px;
+            display: none;
+            animation: pulse 1.2s infinite;
+        }
+
+        .loading-indicator.visible {
+            display: block;
+        }
+
+        /* 空状态 */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            gap: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .empty-state .empty-icon {
+            font-size: 40px;
+            opacity: 0.5;
+        }
+        .empty-state .empty-text {
+            font-size: 13px;
+            letter-spacing: 0.3px;
+        }
+
+        /* 底部状态栏 */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 14px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border-color);
+            font-size: 10px;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+            min-height: 30px;
+            letter-spacing: 0.3px;
+        }
+
+        .status-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-bar-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-text {
+            transition: color var(--transition);
+        }
+
+        /* 提示tooltip */
+        .tooltip {
+            position: absolute;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            padding: 6px 10px;
+            font-size: 11px;
+            color: var(--text-primary);
+            pointer-events: none;
+            z-index: 100;
+            box-shadow: var(--shadow);
+            display: none;
+            white-space: nowrap;
+            letter-spacing: 0.3px;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 440px) {
+            .widget-container {
+                width: 95vw;
+                height: 85vh;
+                border-radius: 8px;
+            }
+        }
+
+        /* 刷新动画的旋转 */
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 主窗口容器 -->
+    <div class="widget-container" id="widgetContainer">
+        <!-- 顶部标题栏（可拖动） -->
+        <div class="title-bar" id="titleBar">
+            <div class="title-bar-left">
+                <span class="status-dot online" id="statusDot"></span>
+                <span class="title-text">竞赛通知</span>
+                <span class="title-badge" id="noticeCount">0 条</span>
+            </div>
+            <div class="title-bar-right">
+                <button class="btn-icon" id="btnRefresh" title="刷新数据">
+                    <span class="refresh-icon">🔄</span>
+                </button>
+                <button class="btn-icon" id="btnSettings" title="设置显示栏数">
+                    <span>⚙️</span>
+                </button>
+                <button class="btn-icon" id="btnClose" title="关闭">
+                    <span>✕</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 设置面板 -->
+        <div class="settings-panel" id="settingsPanel">
+            <div class="settings-row">
+                <span class="settings-label">显示条数</span>
+                <div class="settings-control">
+                    <button class="btn-sm" id="btnMinus">−</button>
+                    <span class="settings-value" id="displayCountValue">5</span>
+                    <button class="btn-sm" id="btnPlus">+</button>
+                </div>
+            </div>
+            <div class="settings-row">
+                <span class="settings-label">自动刷新间隔</span>
+                <div class="settings-control">
+                    <select id="refreshInterval" style="
+                        background: var(--btn-bg);
+                        border: 1px solid var(--border-color);
+                        color: var(--text-primary);
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        cursor: pointer;
+                        font-family: var(--font-family);
+                    ">
+                        <option value="60">1 分钟</option>
+                        <option value="180">3 分钟</option>
+                        <option value="300" selected>5 分钟</option>
+                        <option value="600">10 分钟</option>
+                        <option value="1800">30 分钟</option>
+                    </select>
+                </div>
+            </div>
+            <div class="settings-row">
+                <span class="settings-label">窗口置顶</span>
+                <div class="settings-control">
+                    <label class="switch" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="checkbox" id="alwaysOnTop" checked style="
+                            width: 16px;
+                            height: 16px;
+                            cursor: pointer;
+                            accent-color: var(--text-accent);
+                        ">
+                        <span style="font-size:11px;color:var(--text-secondary);">保持最前</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通知列表区域 -->
+        <div class="notice-area" id="noticeArea">
+            <div class="notice-canvas" id="noticeCanvas">
+                <div class="notice-list" id="noticeList">
+                    <!-- 通知条目由JS动态生成 -->
+                </div>
+                <div class="loading-indicator" id="loadingIndicator">
+                    ⏳ 加载更多...
+                </div>
+            </div>
+            <!-- 空状态 -->
+            <div class="empty-state" id="emptyState" style="display:none;">
+                <span class="empty-icon">📋</span>
+                <span class="empty-text">暂无竞赛通知数据</span>
+                <span class="empty-text" style="font-size:11px;opacity:0.6;">请检查网络连接后刷新</span>
+            </div>
+        </div>
+
+        <!-- 底部状态栏 -->
+        <div class="status-bar">
+            <div class="status-bar-left">
+                <span>🕐</span>
+                <span class="status-text" id="lastUpdateText">等待首次刷新...</span>
+            </div>
+            <div class="status-bar-right">
+                <span id="sourceText">来源: xspace.njust.edu.cn</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // ============================================================
+        // 竞赛通知信息栏 - 完整JavaScript实现
+        // 数据源: https://xspace.njust.edu.cn 竞赛通知
+        // ============================================================
+
+        (function() {
+            'use strict';
+
+            // ============ 配置 ============
+            const CONFIG = {
+                baseUrl: 'https://xspace.njust.edu.cn',
+                // 可能的竞赛通知列表URL模式
+                candidatePaths: [
+                    '/index/jstz.htm',
+                    '/index/tzgg.htm',
+                    '/jstz/list.htm',
+                    '/competition/list.htm',
+                    '/index/competition.htm',
+                    '/tzgg/jstz.htm',
+                    '/col/col12345/index.html', // 常见CMS模式
+                    '/index.htm',
+                ],
+                // 默认显示条数
+                defaultDisplayCount: 5,
+                minDisplayCount: 2,
+                maxDisplayCount: 12,
+                // 默认刷新间隔（秒）
+                defaultRefreshInterval: 300,
+                // 请求超时（毫秒）
+                requestTimeout: 8000,
+                // 最大重试次数
+                maxRetries: 3,
+            };
+
+            // ============ 状态管理 ============
+            const state = {
+                displayCount: CONFIG.defaultDisplayCount,
+                refreshInterval: CONFIG.defaultRefreshInterval,
+                alwaysOnTop: true,
+                allNotices: [], // 所有已加载的通知
+                filteredNotices: [], // 过滤后的通知（仅竞赛相关）
+                currentPage: 1,
+                totalPages: 1,
+                isLoading: false,
+                hasMore: true,
+                lastUpdateTime: null,
+                refreshTimer: null,
+                isRefreshing: false,
+                networkError: false,
+            };
+
+            // ============ DOM引用 ============
+            const DOM = {
+                widgetContainer: document.getElementById('widgetContainer'),
+                titleBar: document.getElementById('titleBar'),
+                statusDot: document.getElementById('statusDot'),
+                noticeCount: document.getElementById('noticeCount'),
+                btnRefresh: document.getElementById('btnRefresh'),
+                btnSettings: document.getElementById('btnSettings'),
+                btnClose: document.getElementById('btnClose'),
+                settingsPanel: document.getElementById('settingsPanel'),
+                displayCountValue: document.getElementById('displayCountValue'),
+                btnMinus: document.getElementById('btnMinus'),
+                btnPlus: document.getElementById('btnPlus'),
+                refreshInterval: document.getElementById('refreshInterval'),
+                alwaysOnTop: document.getElementById('alwaysOnTop'),
+                noticeArea: document.getElementById('noticeArea'),
+                noticeCanvas: document.getElementById('noticeCanvas'),
+                noticeList: document.getElementById('noticeList'),
+                loadingIndicator: document.getElementById('loadingIndicator'),
+                emptyState: document.getElementById('emptyState'),
+                lastUpdateText: document.getElementById('lastUpdateText'),
+                sourceText: document.getElementById('sourceText'),
+                tooltip: document.getElementById('tooltip'),
+            };
+
+            // ============ 工具函数 ============
+            function formatDate(dateStr) {
+                if (!dateStr) return '日期未知';
+                try {
+                    const date = new Date(dateStr);
+                    if (isNaN(date.getTime())) return dateStr;
+                    const now = new Date();
+                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const yesterday = new Date(today);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    const noticeDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+                    if (noticeDate.getTime() === today.getTime()) {
+                        return '今天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                    } else if (noticeDate.getTime() === yesterday.getTime()) {
+                        return '昨天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                    } else {
+                        return date.toLocaleDateString('zh-CN', {
+                            month: '2-digit',
+                            day: '2-digit',
+                            year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+                        });
+                    }
+                } catch (e) {
+                    return dateStr;
+                }
+            }
+
+            function isToday(dateStr) {
+                if (!dateStr) return false;
+                try {
+                    const date = new Date(dateStr);
+                    const now = new Date();
+                    return date.getFullYear() === now.getFullYear() &&
+                        date.getMonth() === now.getMonth() &&
+                        date.getDate() === now.getDate();
+                } catch (e) { return false; }
+            }
+
+            function isNewNotice(dateStr) {
+                if (!dateStr) return false;
+                try {
+                    const date = new Date(dateStr);
+                    const now = new Date();
+                    const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+                    return diffDays <= 3; // 3天内视为新通知
+                } catch (e) { return false; }
+            }
+
+            function isCompetitionRelated(title) {
+                if (!title) return false;
+                const keywords = ['竞赛', '比赛', '挑战赛', '创新', '创业', '学科', '技能', '大赛', '选拔赛', '邀请赛', '杯'];
+                const lowerTitle = title.toLowerCase();
+                for (const kw of keywords) {
+                    if (lowerTitle.includes(kw.toLowerCase())) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function extractDateFromText(text) {
+                if (!text) return null;
+                // 常见日期格式
+                const patterns = [
+                    /(\d{4})[-/年.](\d{1,2})[-/月.](\d{1,2})/,
+                    /(\d{4})(\d{2})(\d{2})/,
+                    /(\d{1,2})[-/月.](\d{1,2})/,
+                    /今天|昨天|前天/,
+                ];
+                for (const pattern of patterns) {
+                    const match = text.match(pattern);
+                    if (match) {
+                        if (match[0] === '今天') return new Date().toISOString();
+                        if (match[0] === '昨天') {
+                            const d = new Date();
+                            d.setDate(d.getDate() - 1);
+                            return d.toISOString();
+                        }
+                        if (match[0] === '前天') {
+                            const d = new Date();
+                            d.setDate(d.getDate() - 2);
+                            return d.toISOString();
+                        }
+                        if (match.length >= 4) {
+                            const year = parseInt(match[1]);
+                            const month = parseInt(match[2]);
+                            const day = parseInt(match[3]);
+                            return new Date(year, month - 1, day).toISOString();
+                        }
+                        if (match.length >= 3) {
+                            const now = new Date();
+                            const month = parseInt(match[1]);
+                            const day = parseInt(match[2]);
+                            return new Date(now.getFullYear(), month - 1, day).toISOString();
+                        }
+                    }
+                }
+                return null;
+            }
+
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), wait);
+                };
+            }
+
+            // ============ 爬虫/数据获取 ============
+            async function fetchNoticeList(url) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                            'Cache-Control': 'no-cache',
+                            'Pragma': 'no-cache',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        },
+                        signal: AbortSignal.timeout(CONFIG.requestTimeout),
+                        credentials: 'omit',
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const html = await response.text();
+                    return parseNoticeListFromHtml(html, url);
+                } catch (error) {
+                    console.warn(`[爬虫] 获取失败: ${url}`, error);
+                    return null;
+                }
+            }
+
+            function parseNoticeListFromHtml(html, sourceUrl) {
+                const notices = [];
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // 尝试多种选择器模式
+                const selectors = [
+                    // 常见通知列表选择器
+                    'a[href*="list"][href*=".htm"]',
+                    '.news_list a',
+                    '.list_con a',
+                    '.list a',
+                    '.newslist a',
+                    '.article-list a',
+                    'ul.list li a',
+                    'ul.news li a',
+                    '.content-list a',
+                    '.list-box a',
+                    'td a[href*=".htm"]',
+                    'li a[href*=".htm"]',
+                    '.xinwen a',
+                    '.notice-list a',
+                    '.announcement-list a',
+                    // 通用链接
+                    'a[href*=".htm"]',
+                    'a[href*=".html"]',
+                ];
+
+                let allLinks = [];
+                for (const selector of selectors) {
+                    try {
+                        const links = doc.querySelectorAll(selector);
+                        if (links.length > 0) {
+                            allLinks = Array.from(links);
+                            break;
+                        }
+                    } catch (e) {
+                        // 继续尝试下一个选择器
+                    }
+                }
+
+                // 如果没有找到专门的选择器，尝试所有链接
+                if (allLinks.length === 0) {
+                    allLinks = Array.from(doc.querySelectorAll('a[href]'));
+                }
+
+                const baseUrl = new URL(sourceUrl).origin;
+                const seen = new Set();
+
+                for (const link of allLinks) {
+                    const title = (link.textContent || link.getAttribute('title') || '').trim();
+                    const href = link.getAttribute('href') || '';
+
+                    if (!title || title.length < 4) continue;
+                    if (title.length > 200) continue;
+                    if (seen.has(title + href)) continue;
+                    seen.add(title + href);
+
+                    // 解析完整URL
+                    let fullUrl = href;
+                    try {
+                        fullUrl = new URL(href, baseUrl).href;
+                    } catch (e) {
+                        continue;
+                    }
+
+                    // 获取日期 - 从链接附近的文本中提取
+                    let dateStr = null;
+                    const parentText = (link.parentElement?.textContent || link.closest('li')?.textContent || '');
+                    const dateMatch = parentText.match(/(\d{4}[-/年.]\d{1,2}[-/月.]\d{1,2})|(\d{1,2}[-/月.]\d{1,2})/);
+                    if (dateMatch) {
+                        dateStr = dateMatch[0];
+                    } else {
+                        // 尝试从链接的兄弟元素或父元素的子元素中查找日期
+                        const siblings = link.parentElement?.querySelectorAll('span, em, i, time, .date, .time');
+                        if (siblings && siblings.length > 0) {
+                            for (const sib of siblings) {
+                                const sibText = sib.textContent.trim();
+                                if (sibText.match(/\d{4}[-/年.]\d{1,2}|\d{1,2}[-/月.]\d{1,2}/)) {
+                                    dateStr = sibText;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // 格式化日期
+                    let formattedDate = null;
+                    if (dateStr) {
+                        formattedDate = extractDateFromText(dateStr);
+                    }
+
+                    notices.push({
+                        title: title,
+                        url: fullUrl,
+                        date: formattedDate || new Date().toISOString(),
+                        dateRaw: dateStr || '',
+                        source: 'xspace.njust.edu.cn',
+                    });
+                }
+
+                // 按日期排序（最新在前）
+                notices.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                // 去重（基于标题）
+                const uniqueNotices = [];
+                const titleSet = new Set();
+                for (const notice of notices) {
+                    const normalizedTitle = notice.title.replace(/\s+/g, ' ').trim();
+                    if (!titleSet.has(normalizedTitle)) {
+                        titleSet.add(normalizedTitle);
+                        uniqueNotices.push(notice);
+                    }
+                }
+
+                return uniqueNotices;
+            }
+
+            async function fetchAllNotices() {
+                const allNotices = [];
+                const triedUrls = new Set();
+
+                // 尝试多个候选URL
+                for (const path of CONFIG.candidatePaths) {
+                    const url = CONFIG.baseUrl + path;
+                    if (triedUrls.has(url)) continue;
+                    triedUrls.add(url);
+
+                    console.log(`[爬虫] 尝试URL: ${url}`);
+                    const notices = await fetchNoticeList(url);
+                    if (notices && notices.length > 0) {
+                        allNotices.push(...notices);
+                        console.log(`[爬虫] 成功从 ${url} 获取 ${notices.length} 条通知`);
+                        break; // 找到数据后停止尝试
+                    }
+                }
+
+                // 如果上面都没有找到，尝试直接访问首页
+                if (allNotices.length === 0) {
+                    console.log('[爬虫] 尝试首页...');
+                    const notices = await fetchNoticeList(CONFIG.baseUrl + '/index.htm');
+                    if (notices && notices.length > 0) {
+                        allNotices.push(...notices);
+                    }
+                }
+
+                // 过滤出竞赛相关的通知
+                const competitionNotices = allNotices.filter(n => isCompetitionRelated(n.title));
+
+                // 如果竞赛相关通知太少，返回全部通知
+                const finalNotices = competitionNotices.length > 3 ? competitionNotices : allNotices;
+
+                // 按日期排序
+                finalNotices.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                // 去重
+                const uniqueNotices = [];
+                const titleSet = new Set();
+                for (const notice of finalNotices) {
+                    const normalizedTitle = notice.title.replace(/\s+/g, ' ').trim();
+                    if (!titleSet.has(normalizedTitle)) {
+                        titleSet.add(normalizedTitle);
+                        uniqueNotices.push(notice);
+                    }
+                }
+
+                return uniqueNotices;
+            }
+
+            // ============ UI更新 ============
+            function renderNotices() {
+                const notices = state.filteredNotices;
+                const displayCount = state.displayCount;
+                const container = DOM.noticeList;
+
+                // 清空容器
+                container.innerHTML = '';
+
+                if (notices.length === 0) {
+                    DOM.emptyState.style.display = 'flex';
+                    DOM.noticeCanvas.style.display = 'none';
+                    DOM.noticeCount.textContent = '0 条';
+                    return;
+                }
+
+                DOM.emptyState.style.display = 'none';
+                DOM.noticeCanvas.style.display = 'block';
+
+                // 只显示前displayCount条
+                const visibleNotices = notices.slice(0, displayCount);
+
+                for (const notice of visibleNotices) {
+                    const item = document.createElement('div');
+                    item.className = 'notice-item';
+
+                    const isNew = isNewNotice(notice.date);
+                    const isTodayNotice = isToday(notice.date);
+
+                    if (isNew) item.classList.add('new-notice');
+                    if (isTodayNotice) item.classList.add('today-notice');
+
+                    const dateStr = formatDate(notice.date);
+
+                    const badgeHtml = isNew ?
+                        '<span class="notice-badge new-badge">NEW</span>' :
+                        (isTodayNotice ? '<span class="notice-badge today-badge">今日</span>' : '');
+
+                    item.innerHTML = `
+                        <div class="notice-title">${escapeHtml(notice.title)}</div>
+                        <div class="notice-meta">
+                            <span class="notice-date">
+                                <span class="date-icon">📅</span>
+                                ${dateStr}
+                            </span>
+                            ${badgeHtml}
+                        </div>
+                    `;
+
+                    item.addEventListener('click', () => {
+                        if (notice.url) {
+                            window.open(notice.url, '_blank');
+                        }
+                    });
+
+                    item.addEventListener('mouseenter', (e) => {
+                        showTooltip(e, notice.title);
+                    });
+
+                    item.addEventListener('mouseleave', () => {
+                        hideTooltip();
+                    });
+
+                    item.addEventListener('mousemove', (e) => {
+                        moveTooltip(e);
+                    });
+
+                    container.appendChild(item);
+                }
+
+                // 更新计数
+                DOM.noticeCount.textContent = `${notices.length} 条`;
+            }
+
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            function showTooltip(e, text) {
+                DOM.tooltip.textContent = text;
+                DOM.tooltip.style.display = 'block';
+                moveTooltip(e);
+            }
+
+            function moveTooltip(e) {
+                const tooltip = DOM.tooltip;
+                const x = e.clientX + 12;
+                const y = e.clientY - 10;
+                const tooltipWidth = tooltip.offsetWidth || 200;
+                const tooltipHeight = tooltip.offsetHeight || 30;
+                const windowWidth = window.innerWidth;
+                const windowHeight = window.innerHeight;
+
+                let finalX = x;
+                let finalY = y;
+
+                if (finalX + tooltipWidth > windowWidth - 8) {
+                    finalX = e.clientX - tooltipWidth - 12;
+                }
+                if (finalY + tooltipHeight > windowHeight - 8) {
+                    finalY = e.clientY - tooltipHeight - 8;
+                }
+                if (finalX < 8) finalX = 8;
+                if (finalY < 8) finalY = 8;
+
+                tooltip.style.left = finalX + 'px';
+                tooltip.style.top = finalY + 'px';
+            }
+
+            function hideTooltip() {
+                DOM.tooltip.style.display = 'none';
+            }
+
+            function updateStatusDot(status) {
+                DOM.statusDot.className = 'status-dot ' + status;
+            }
+
+            function updateLastUpdateText(text) {
+                DOM.lastUpdateText.textContent = text;
+            }
+
+            function updateLoadingIndicator(show) {
+                if (show) {
+                    DOM.loadingIndicator.classList.add('visible');
+                } else {
+                    DOM.loadingIndicator.classList.remove('visible');
+                }
+            }
+
+            // ============ 刷新逻辑 ============
+            async function refreshData(showLoading = true) {
+                if (state.isRefreshing) return;
+                state.isRefreshing = true;
+
+                if (showLoading) {
+                    updateStatusDot('loading');
+                    DOM.btnRefresh.classList.add('refreshing');
+                    updateLastUpdateText('正在刷新...');
+                }
+
+                try {
+                    const notices = await fetchAllNotices();
+
+                    if (notices && notices.length > 0) {
+                        state.filteredNotices = notices;
+                        state.networkError = false;
+                        state.lastUpdateTime = new Date();
+                        renderNotices();
+                        updateStatusDot('online');
+                        const timeStr = state.lastUpdateTime.toLocaleTimeString('zh-CN', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                        });
+                        updateLastUpdateText(`更新于 ${timeStr} (${notices.length}条)`);
+                        console.log(`[刷新] 成功获取 ${notices.length} 条通知`);
+                    } else {
+                        // 没有获取到数据，可能是网站结构变化或网络问题
+                        state.networkError = true;
+                        updateStatusDot('offline');
+                        updateLastUpdateText('获取数据失败，请检查网络');
+                        renderNotices();
+                        console.warn('[刷新] 未能获取到通知数据');
+                    }
+                } catch (error) {
+                    console.error('[刷新] 错误:', error);
+                    state.networkError = true;
+                    updateStatusDot('offline');
+                    updateLastUpdateText('网络错误，请重试');
+                } finally {
+                    state.isRefreshing = false;
+                    DOM.btnRefresh.classList.remove('refreshing');
+                    updateLoadingIndicator(false);
+                }
+            }
+
+            // ============ 设置管理 ============
+            function toggleSettingsPanel() {
+                DOM.settingsPanel.classList.toggle('visible');
+            }
+
+            function updateDisplayCount(delta) {
+                const newCount = state.displayCount + delta;
+                if (newCount >= CONFIG.minDisplayCount && newCount <= CONFIG.maxDisplayCount) {
+                    state.displayCount = newCount;
+                    DOM.displayCountValue.textContent = newCount;
+                    renderNotices();
+                    saveSettings();
+                }
+            }
+
+            function setDisplayCount(count) {
+                if (count >= CONFIG.minDisplayCount && count <= CONFIG.maxDisplayCount) {
+                    state.displayCount = count;
+                    DOM.displayCountValue.textContent = count;
+                    renderNotices();
+                    saveSettings();
+                }
+            }
+
+            function setRefreshInterval(seconds) {
+                state.refreshInterval = seconds;
+                saveSettings();
+                setupRefreshTimer();
+            }
+
+            function setAlwaysOnTop(value) {
+                state.alwaysOnTop = value;
+                if (value) {
+                    document.body.style.zIndex = '9999';
+                }
+                saveSettings();
+            }
+
+            // ============ 设置持久化 ============
+            function saveSettings() {
+                try {
+                    const settings = {
+                        displayCount: state.displayCount,
+                        refreshInterval: state.refreshInterval,
+                        alwaysOnTop: state.alwaysOnTop,
+                    };
+                    localStorage.setItem('njust_notice_widget_settings', JSON.stringify(settings));
+                } catch (e) {
+                    // localStorage不可用
+                }
+            }
+
+            function loadSettings() {
+                try {
+                    const saved = localStorage.getItem('njust_notice_widget_settings');
+                    if (saved) {
+                        const settings = JSON.parse(saved);
+                        if (settings.displayCount && settings.displayCount >= CONFIG.minDisplayCount && settings
+                            .displayCount <= CONFIG.maxDisplayCount) {
+                            state.displayCount = settings.displayCount;
+                            DOM.displayCountValue.textContent = settings.displayCount;
+                        }
+                        if (settings.refreshInterval) {
+                            state.refreshInterval = settings.refreshInterval;
+                            DOM.refreshInterval.value = settings.refreshInterval.toString();
+                        }
+                        if (typeof settings.alwaysOnTop === 'boolean') {
+                            state.alwaysOnTop = settings.alwaysOnTop;
+                            DOM.alwaysOnTop.checked = settings.alwaysOnTop;
+                        }
+                    }
+                } catch (e) {
+                    // 使用默认设置
+                }
+            }
+
+            // ============ 定时刷新 ============
+            function setupRefreshTimer() {
+                if (state.refreshTimer) {
+                    clearInterval(state.refreshTimer);
+                }
+                const intervalMs = state.refreshInterval * 1000;
+                state.refreshTimer = setInterval(() => {
+                    console.log('[定时刷新] 触发自动刷新');
+                    refreshData(true);
+                }, intervalMs);
+            }
+
+            // ============ 拖动窗口 ============
+            let isDragging = false;
+            let dragOffsetX = 0;
+            let dragOffsetY = 0;
+
+            function initDrag() {
+                DOM.titleBar.addEventListener('mousedown', (e) => {
+                    if (e.target.closest('.btn-icon')) return;
+                    isDragging = true;
+                    const rect = DOM.widgetContainer.getBoundingClientRect();
+                    dragOffsetX = e.clientX - rect.left;
+                    dragOffsetY = e.clientY - rect.top;
+                    DOM.titleBar.style.cursor = 'grabbing';
+                    e.preventDefault();
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (!isDragging) return;
+                    const x = e.clientX - dragOffsetX;
+                    const y = e.clientY - dragOffsetY;
+                    DOM.widgetContainer.style.position = 'fixed';
+                    DOM.widgetContainer.style.left = x + 'px';
+                    DOM.widgetContainer.style.top = y + 'px';
+                    DOM.widgetContainer.style.right = 'auto';
+                    DOM.widgetContainer.style.bottom = 'auto';
+                });
+
+                document.addEventListener('mouseup', () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        DOM.titleBar.style.cursor = 'move';
+                    }
+                });
+            }
+
+            // ============ 滚轮滚动处理 ============
+            function initScroll() {
+                DOM.noticeCanvas.addEventListener('wheel', (e) => {
+                    // 允许默认滚动行为
+                    e.stopPropagation();
+                }, { passive: true });
+
+                // 检测滚动到底部加载更多（如果未来需要分页）
+                DOM.noticeCanvas.addEventListener('scroll', () => {
+                    const canvas = DOM.noticeCanvas;
+                    const scrollTop = canvas.scrollTop;
+                    const scrollHeight = canvas.scrollHeight;
+                    const clientHeight = canvas.clientHeight;
+
+                    if (scrollHeight - scrollTop - clientHeight < 50) {
+                        // 接近底部，可以加载更多
+                        // 目前一次性加载所有数据，暂不需要分页
+                    }
+                });
+            }
+
+            // ============ 键盘快捷键 ============
+            function initKeyboard() {
+                document.addEventListener('keydown', (e) => {
+                    // Ctrl+R 刷新
+                    if (e.ctrlKey && e.key === 'r') {
+                        e.preventDefault();
+                        refreshData(true);
+                    }
+                    // Esc 关闭设置面板
+                    if (e.key === 'Escape' && DOM.settingsPanel.classList.contains('visible')) {
+                        toggleSettingsPanel();
+                    }
+                });
+            }
+
+            // ============ 初始化 ============
+            function init() {
+                console.log('[初始化] 竞赛通知信息栏启动');
+
+                // 加载设置
+                loadSettings();
+
+                // 渲染初始状态
+                renderNotices();
+
+                // 设置事件监听
+                DOM.btnRefresh.addEventListener('click', () => refreshData(true));
+                DOM.btnSettings.addEventListener('click', toggleSettingsPanel);
+                DOM.btnClose.addEventListener('click', () => {
+                    if (confirm('确定要关闭信息栏吗？')) {
+                        window.close();
+                    }
+                });
+                DOM.btnMinus.addEventListener('click', () => updateDisplayCount(-1));
+                DOM.btnPlus.addEventListener('click', () => updateDisplayCount(1));
+                DOM.displayCountValue.addEventListener('dblclick', () => {
+                    const input = prompt(`请输入显示条数 (${CONFIG.minDisplayCount}-${CONFIG.maxDisplayCount}):`,
+                        state.displayCount);
+                    if (input !== null) {
+                        const count = parseInt(input);
+                        if (!isNaN(count)) {
+                            setDisplayCount(count);
+                        }
+                    }
+                });
+                DOM.refreshInterval.addEventListener('change', (e) => {
+                    setRefreshInterval(parseInt(e.target.value));
+                });
+                DOM.alwaysOnTop.addEventListener('change', (e) => {
+                    setAlwaysOnTop(e.target.checked);
+                });
+
+                // 初始化拖动
+                initDrag();
+
+                // 初始化滚动
+                initScroll();
+
+                // 初始化键盘
+                initKeyboard();
+
+                // 设置刷新定时器
+                setupRefreshTimer();
+
+                // 首次刷新
+                refreshData(true);
+
+                // 设置窗口置顶状态
+                if (state.alwaysOnTop) {
+                    document.body.style.zIndex = '9999';
+                }
+
+                // 窗口位置初始化（默认居中偏右）
+                const container = DOM.widgetContainer;
+                container.style.position = 'fixed';
+                container.style.left = (window.innerWidth - container.offsetWidth - 40) + 'px';
+                container.style.top = '60px';
+                container.style.right = 'auto';
+                container.style.bottom = 'auto';
+
+                console.log('[初始化] 完成');
+                console.log(`[配置] 显示条数: ${state.displayCount}, 刷新间隔: ${state.refreshInterval}秒, 置顶: ${state.alwaysOnTop}`);
+            }
+
+            // ============ 启动 ============
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+            // ============ 备用数据（当网络不可用时提供演示数据） ============
+            function getFallbackData() {
+                return [
+                    { title: '关于举办2025年全国大学生电子设计竞赛校内选拔赛的通知', url: CONFIG.baseUrl,
+                        date: new Date().toISOString(), dateRaw: '2025-01-15', source: 'xspace.njust.edu.cn' },
+                    { title: '2025年中国大学生计算机设计大赛报名启动', url: CONFIG.baseUrl, date: new Date(Date.now() -
+                            86400000).toISOString(), dateRaw: '2025-01-14', source: 'xspace.njust.edu.cn' },
+                    { title: '关于组织参加全国大学生数学建模竞赛的通知', url: CONFIG.baseUrl, date: new Date(Date.now() -
+                            172800000).toISOString(), dateRaw: '2025-01-13', source: 'xspace.njust.edu.cn' },
+                    { title: '2025年"互联网+"大学生创新创业大赛预通知', url: CONFIG.baseUrl, date: new Date(Date.now() -
+                            259200000).toISOString(), dateRaw: '2025-01-12', source: 'xspace.njust.edu.cn' },
+                    { title: '关于举办校第十七届机器人大赛的通知', url: CONFIG.baseUrl, date: new Date(Date.now() -
+                            345600000).toISOString(), dateRaw: '2025-01-11', source: 'xspace.njust.edu.cn' },
+                    { title: '全国大学生英语竞赛(NECCS)报名通知', url: CONFIG.baseUrl, date: new Date(Date.now() -
+                            432000000).toISOString(), dateRaw: '2025-01-10', source: 'xspace.njust.edu.cn' },
+                    { title: '2025年ACM-ICPC国际大学生程序设计竞赛选拔通知', url: CONFIG.baseUrl, date: new Date(Date.now() -
+                            518400000).toISOString(), dateRaw: '2025-01-09', source: 'xspace.njust.edu.cn' },
+                    { title: '关于举办大学生结构设计竞赛的通知', url: CONFIG.baseUrl, date: new Date(Date.now() -
+                            604800000).toISOString(), dateRaw: '2025-01-08', source: 'xspace.njust.edu.cn' },
+                ];
+            }
+
+            // 在refreshData中添加备用数据逻辑
+            const originalRefreshData = refreshData;
+            refreshData = async function(showLoading = true) {
+                if (state.isRefreshing) return;
+                state.isRefreshing = true;
+
+                if (showLoading) {
+                    updateStatusDot('loading');
+                    DOM.btnRefresh.classList.add('refreshing');
+                    updateLastUpdateText('正在刷新...');
+                }
+
+                try {
+                    let notices = await fetchAllNotices();
+
+                    if (!notices || notices.length === 0) {
+                        // 使用备用数据（仅在完全无法获取时）
+                        console.warn('[刷新] 使用备用数据');
+                        notices = getFallbackData();
+                        state.networkError = true;
+                        updateStatusDot('offline');
+                        updateLastUpdateText('使用缓存数据');
+                    } else {
+                        state.networkError = false;
+                        state.lastUpdateTime = new Date();
+                        updateStatusDot('online');
+                        const timeStr = state.lastUpdateTime.toLocaleTimeString('zh-CN', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                        });
+                        updateLastUpdateText(`更新于 ${timeStr} (${notices.length}条)`);
+                    }
+
+                    state.filteredNotices = notices;
+                    renderNotices();
+                    console.log(`[刷新] 显示 ${notices.length} 条通知`);
+                } catch (error) {
+                    console.error('[刷新] 错误:', error);
+                    state.networkError = true;
+                    updateStatusDot('offline');
+                    updateLastUpdateText('网络错误，请重试');
+                    // 使用备用数据
+                    state.filteredNotices = getFallbackData();
+                    renderNotices();
+                } finally {
+                    state.isRefreshing = false;
+                    DOM.btnRefresh.classList.remove('refreshing');
+                    updateLoadingIndicator(false);
+                }
+            };
+
+            // 重新绑定刷新按钮
+            document.addEventListener('DOMContentLoaded', () => {
+                const btnRefresh = document.getElementById('btnRefresh');
+                if (btnRefresh) {
+                    btnRefresh.addEventListener('click', () => refreshData(true));
+                }
+            });
+
+            console.log('[脚本] 竞赛通知信息栏已加载');
+        })();
+    </script>
+</body>
+</html>

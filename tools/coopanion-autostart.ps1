@@ -16,7 +16,7 @@
   install（默认）登记自启 / uninstall 撤销自启 / status 只看当前状态
 
 .PARAMETER Dir
-  Coopanion 安装目录，默认 <仓库根>\third-party\Coopanion
+  Coopanion 安装目录，默认 <仓库根>\desktop-suite\coopanion
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\coopanion-autostart.ps1
@@ -38,7 +38,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if (-not $Dir) { $Dir = Join-Path $repoRoot 'third-party\Coopanion' }
+if (-not $Dir) { $Dir = Join-Path $repoRoot 'desktop-suite\coopanion' }
 $Dir = [System.IO.Path]::GetFullPath($Dir)
 
 $exe = Join-Path $Dir 'node_modules\electron\dist\electron.exe'

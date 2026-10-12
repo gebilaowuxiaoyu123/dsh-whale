@@ -1,0 +1,8 @@
+# XSpace 工程：构建产物不入库（源码与资料入库）
+bin/
+obj/
+_shots/
+dist/
+*.zip
+*.user
+.vs/

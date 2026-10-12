@@ -17,6 +17,34 @@ third-party/
 # 本地排查备份（不提交）
 .dsh-backup/
 
-# 本机桌面美化程序（Pogget / XSpace / MiSide 壁纸）—— 只留本机，不入库（只放行目录说明）
+# ── desktop-suite：本机桌面插件集散地 ────────────────────────────────────────
+# 默认整目录不入库：这里放的是**本机实体**（第三方程序、运行时数据、构建产物）。
+# 第三方不入库，但"我们自己的源码 + 拉取/打补丁脚本"要入库 —— 这样别的设备
+# clone 之后能自动拉第三方、并自动把魔改打回去（见 docs/desktop-suite-clone.md）。
 /desktop-suite/*
 !/desktop-suite/README.md
+# 放行自家插件源码：DSH 小鲸鱼各形态（Windows / Linux / GNOME / 网页插件 / 托盘）
+!/desktop-suite/dsh-whale/
+!/desktop-suite/dsh-whale/**
+# ⚠️ 上面的 ! 反向规则会盖掉全局忽略，所以这里要把"不该入库的"再忽略一次
+/desktop-suite/dsh-whale/**/node_modules/
+/desktop-suite/dsh-whale/**/dist/
+/desktop-suite/dsh-whale/**/*.log
+# 放行自家 XSpace 工程（MIT，构建产物仍忽略）
+!/desktop-suite/xspace/
+!/desktop-suite/xspace/**
+!/desktop-suite/xspace-notes/
+!/desktop-suite/xspace-notes/**
+/desktop-suite/xspace/**/bin/
+/desktop-suite/xspace/**/obj/
+/desktop-suite/xspace/**/_shots/
+/desktop-suite/xspace/**/node_modules/
+/desktop-suite/xspace-notes/**/bin/
+/desktop-suite/xspace-notes/**/obj/
+/desktop-suite/xspace-notes/**/node_modules/
+/desktop-suite/**/*.zip
+# 第三方插件：整包不入库（用 tools/setup-*.ps1 自动拉取 + 自动打魔改补丁）
+/desktop-suite/coopanion/
+/desktop-suite/pogget/
+/desktop-suite/miside-wallpaper/
+/third-party/

@@ -24,7 +24,7 @@
   安装完成后直接启动桌宠。
 
 .PARAMETER Dir
-  安装目录，默认 <仓库根>\third-party\Coopanion。
+  安装目录，默认 <仓库根>\desktop-suite\coopanion。
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\setup-coopanion.ps1 -Run
@@ -44,7 +44,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if (-not $Dir) { $Dir = Join-Path $repoRoot 'third-party\Coopanion' }
+if (-not $Dir) { $Dir = Join-Path $repoRoot 'desktop-suite\coopanion' }
 $Dir = [System.IO.Path]::GetFullPath($Dir)
 
 function Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }

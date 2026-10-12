@@ -78,7 +78,7 @@ Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\Dwm" -Name OverlayTe
 ### 3.2 桌宠「全屏时自动隐藏」打开
 
 控制台（`http://127.0.0.1:17788/#/pet`「习惯」页）里勾上「全屏时自动隐藏」→ 落盘
-`third-party/Coopanion/build/data/home/companion/config.json` 的
+`desktop-suite/coopanion/build/data/home/companion/config.json` 的
 `worlds['desktop-pet'].window.hideWhenFullscreen = true`。
 玩游戏 / 看全屏视频 / 向日葵全屏接管时桌宠先躲起来，少一个整屏透明层去和别的东西抢覆盖平面。
 

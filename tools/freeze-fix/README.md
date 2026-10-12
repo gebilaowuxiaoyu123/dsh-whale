@@ -48,7 +48,7 @@ bash /home/wukai/dsh-whale/tools/freeze-fix/apply-all.sh --check
    并新增 Boot0002：名字叫 "Windows Boot Manager"、却指向 \EFI\ubuntu\grubx64.efi
 ```
 
-**诱因（持续压力源）**：`dsh-whale-widget` 的 GPU 进程在 reset 后每 30 秒崩溃重启一次
+**诱因（持续压力源）**：`desktop-suite/dsh-whale/dsh-whale-widget` 的 GPU 进程在 reset 后每 30 秒崩溃重启一次
 （`GPU process exited unexpectedly: exit_code=512`），`code.desktop` 同样掉 GPU 进程；
 另外 hanabi 动态壁纸扩展的 `gjs` 进程长期占用 **94% CPU**。
 

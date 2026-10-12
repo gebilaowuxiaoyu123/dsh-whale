@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dshw-integ-'));
 process.env.DSH_HOME = TMP_HOME;
 
-const { startPlugin } = require(path.join(REPO, 'dsh-whale-desktop', 'host-shim.js'));
+const { startPlugin } = require(path.join(REPO, 'desktop-suite/dsh-whale/dsh-whale-desktop', 'host-shim.js'));
 
 let pass = 0;
 let fail = 0;
@@ -30,7 +30,7 @@ function ok(cond, label, extra) {
 }
 
 const plugin = await startPlugin({
-  appDir: path.join(REPO, 'dsh-whale-desktop'),
+  appDir: path.join(REPO, 'desktop-suite/dsh-whale/dsh-whale-desktop'),
   dshHome: TMP_HOME,
   credFile: path.join(TMP_HOME, '.credentials.yaml'),
   logger: { warn() {}, log() {}, error() {} },

@@ -3,7 +3,7 @@
 > 对比对象：上游 `MeteorNOX/DeepSeek-Balance-Whale-Widget` 的 `For–WinDesktop` 分支 =
 > `ds-desktop-whale` **v2.0.0**（Tauri v2 + Rust 2.8 万行 + 原生前端 1.75 万行，**仅 Windows**）。
 >
-> 重要前提：本仓库的 `dsh-whale-desktop/`（Windows）与 `dsh-whale-desktop-linux/`（Linux）
+> 重要前提：本仓库的 `desktop-suite/dsh-whale/dsh-whale-desktop/`（Windows）与 `desktop-suite/dsh-whale/dsh-whale-desktop-linux/`（Linux）
 > **是同一套代码**（差异只有开机自启分支与构建目标）。因此不存在「本仓库 Windows 版更强」的问题；
 > 真正的差距来自「我们复用 DSH 插件本体」vs「官方那条线是独立重写」。
 
@@ -49,9 +49,9 @@
 
 ## 三、实施方式（关键约定）
 
-`dsh-whale-widget/` 是上游插件的**原样 vendored 副本**（便于 diff 与追溯）。因此：
+`desktop-suite/dsh-whale/dsh-whale-widget/` 是上游插件的**原样 vendored 副本**（便于 diff 与追溯）。因此：
 
-- **桌面版特有功能一律走增强层**：`dsh-whale-desktop-linux/assets/desktop-enhance.js`
+- **桌面版特有功能一律走增强层**：`desktop-suite/dsh-whale/dsh-whale-desktop-linux/assets/desktop-enhance.js`
   （由主进程在插件脚本之后注入；Windows 版同路径）。上游升级插件时不会冲突。
 - 若要改的确实是**插件共有**的能力（例如气泡组、台词轮播、账单图表、多币种），
   优先三条路：

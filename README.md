@@ -15,10 +15,10 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
 
 | 形态 | 目录 | 说明 |
 |---|---|---|
-| **GNOME Shell 扩展** | `dsh-whale-shell-extension/` | GNOME 45–47，**Wayland 桌面悬浮首选**：直接画在 Shell 层，天然置顶悬浮、可满屏拖动 |
-| **Windows 桌面挂件** | `dsh-whale-desktop/` | 无边框透明悬浮窗（**默认不置顶**：应用窗口会盖住它，它仍在桌面图标之上；托盘可开「置顶显示」），鲨鱼浮在桌面、可满桌面拖动 |
-| **Linux 桌面挂件** | `dsh-whale-desktop-linux/` | 适配 Ubuntu 22.04 / 24.04 amd64（x86_64），AppImage/deb |
-| **DSH 网页版插件** | `dsh-whale-widget/` | 上游 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（MIT）**v0.3.17** 的原样 vendored 副本，随 dsh web 自动启用 |
+| **GNOME Shell 扩展** | `desktop-suite/dsh-whale/dsh-whale-shell-extension/` | GNOME 45–47，**Wayland 桌面悬浮首选**：直接画在 Shell 层，天然置顶悬浮、可满屏拖动 |
+| **Windows 桌面挂件** | `desktop-suite/dsh-whale/dsh-whale-desktop/` | 无边框透明悬浮窗（**默认不置顶**：应用窗口会盖住它，它仍在桌面图标之上；托盘可开「置顶显示」），鲨鱼浮在桌面、可满桌面拖动 |
+| **Linux 桌面挂件** | `desktop-suite/dsh-whale/dsh-whale-desktop-linux/` | 适配 Ubuntu 22.04 / 24.04 amd64（x86_64），AppImage/deb |
+| **DSH 网页版插件** | `desktop-suite/dsh-whale/dsh-whale-widget/` | 上游 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（MIT）**v0.3.17** 的原样 vendored 副本，随 dsh web 自动启用 |
 
 三者都**完全本地运行**：直接调 DeepSeek API 拉余额，不依赖 dsh web、不用打开浏览器。
 其中两个桌面版共用同一套实现与记账逻辑；网页版插件是上游独立实现，功能更全（见下文）。
@@ -72,12 +72,18 @@ dsh-whale/
 │   ├── desktop-rendering-perf.md   # ★ 桌面渲染排查：黑框白框 / 整屏黑一下 / 帧率手感（实测与对策）
 │   └── dualboot-boot-safety.md     # ★ 双系统引导安全：事故取证 / 结论 / 两端口径与保障
 ├── .github/workflows/build.yml     # CI：自动构建 Windows + Linux 产物
-├── dsh-whale-shell-extension/      # ★ GNOME Shell 扩展版（Wayland 悬浮首选，当前主力迭代）
-│   ├── extension.js                #   扩展主逻辑（ESM / GNOME 45+，含交互/动画/记账/令牌）
-│   ├── metadata.json               #   uuid dsh-whale@local
-│   ├── assets/                     #   鲸鱼 PNG + 12 个音效（6 套音色主题）
-│   ├── install.sh / desktop-menu.sh / dsh-whale-widget.desktop
-│   └── README.md                   #   扩展版专属说明（交互/菜单/配置）
+├── desktop-suite/                  # ★ 桌面插件集散地：每个插件一个包，彼此平级互不依赖
+│   ├── dsh-whale/                  #   ① DSH 小鲸鱼的各形态
+│   │   ├── dsh-whale-desktop/      #      Windows 挂件（Electron，下方有详述）
+│   │   ├── dsh-whale-desktop-linux/#      Linux 挂件（AppImage/deb）
+│   │   ├── dsh-whale-shell-extension/ #   GNOME Shell 扩展版（Wayland 悬浮首选，当前主力迭代）
+│   │   ├── dsh-whale-widget/       #      DSH 网页版插件（vendored 上游 MIT v0.3.17，也是桌面版的唯一功能来源）
+│   │   └── dsh-whale-pets-tray/    #      托盘小扩展
+│   ├── coopanion/                  #   ② Coopanion 桌宠（AGPL-3.0，不入库；tools/setup-coopanion.ps1 自动拉+打魔改）
+│   ├── xspace/   xspace-notes/     #   ③④ 自家 .NET 工程（MIT，源码入库、构建产物忽略）
+│   ├── pogget/                     #   ⑤ Pogget 桌面容器（第三方专有，不入库）
+│   ├── miside-wallpaper/           #   ⑥ MiSide 壁纸 + 自研省电守护（第三方素材，不入库）
+│   └── README.md                   #   入库策略 / 各包来源与许可 / 迁移记录 / 换机还原
 ├── tools/
 │   ├── ledger-compat-test.mjs      # 账本兼容性测试（桌面版 ↔ 插件共用账本）
 │   ├── desktop-plugin-integration-test.mjs  # 桌面版运行插件本体的端到端集成测试（路由/鉴权）
@@ -85,7 +91,7 @@ dsh-whale/
 │   ├── desktop-button-audit.mjs    # 按钮全覆盖检查（逐面板验证可见按钮可命中/可交互）
 │   ├── desktop-always-on-top-test.mjs # 「置顶显示」开关自检（读写 + 落盘 + 恢复原值）
 │   ├── desktop-apikey-window-test.mjs # 「改 API Key」入口 + 一键同步自检（页面/打码/保存/同步往返，33 项）
-│   ├── setup-coopanion.ps1         # Coopanion 桌宠一键安装/更新（Windows；源码放 third-party/，不入库）
+│   ├── setup-coopanion.ps1         # Coopanion 桌宠一键安装/更新（Windows；源码放 desktop-suite/coopanion，不入库）
 │   ├── setup-coopanion.sh          # Coopanion 桌宠一键安装/更新（Linux）
 │   ├── coopanion-autostart.ps1     # Coopanion 开机自启 登记/撤销/查看（Windows，自启不弹调试界面）
 │   ├── coopanion-autostart.sh      # Coopanion 开机自启 登记/撤销/查看（Linux，XDG）
@@ -93,22 +99,14 @@ dsh-whale/
 │   ├── coopanion-sync-roam-test.mjs # 「随刷新率」走动自检：读数/速度/不滑步（19 项）
 │   ├── coopanion-hzscan-test.mjs   # 「测试刷新率」自检：一帧一步/段序/读数/用时（20 项）
 │   ├── desktop-render-report.ps1   # 桌面渲染体检（只读）：屏幕 Hz / GPU 占用榜 / MPO / 驱动重置 / 挂件档位
+│   ├── desktop-suite-doctor.ps1    # ★ 桌面套件体检/接线/还原（换设备或搬完目录跑这个）
+│   ├── wallpaper-power-guard.ps1   # 壁纸省电守护（被遮住/空闲/电池时隐藏壁纸；部署到 miside-wallpaper/）
 │   ├── freeze-fix/                 # ★ Ubuntu 侧：GPU 挂死取证与防护（i915 稳定化 / GPU 看门狗 / 修 fstab+引导）
 │   └── boot-safety/                # ★ Windows 侧：双系统引导体检 + 保障（关自动修复 / 复原 bootmgr / ubuntu 置顶）
 ├── patches/
-│   └── coopanion/                  # 对 Coopanion 源码的改造补丁（AGPL 源码不入库，只存 diff）
-│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗 + 置顶显示开关 + Linux 覆盖层 + 控制台一键同步 Key + 测试刷新率
-├── dsh-whale-widget/               # DSH 网页版插件源码（第三方 MIT，vendored 上游 v0.3.17）
-│                                   #   ← 同时是桌面版的**唯一功能实现来源**
-├── third-party/                    # 第三方项目源码，**不入库**（已被根 .gitignore 忽略）
-│   └── Coopanion/                  #   Coopanion 桌宠（AGPL-3.0-or-later，用 tools/setup-coopanion.ps1 复原）
-├── desktop-suite/                  # 本机桌面美化程序统一工作目录（**整体不入库**，只留 README 与忽略规则）
-│   ├── README.md                   #   搬迁记录 / 改过的绝对路径引用 / 回滚方法（唯一入库文件）
-│   ├── pogget/                     #   Pogget（原 E:\Pogget.exe + E:\.pogget_config）
-│   ├── xspace/                     #   XSpace 竞赛通知桌面栏（原 C:\xspace_widget）
-│   ├── xspace-notes/               #   XNoteWidget 工程与资料（原 C:\xspace_notes + 两个 html）
-│   └── miside-wallpaper/           #   MiSide Unity 应用壁纸 + 自研壁纸守护（原桌面 MisideStartWallpapaer）
-├── dsh-whale-desktop/              # Windows 桌面挂件（Electron）
+│   └── coopanion/                  # 对 Coopanion 源码的改造补丁（AGPL 源码不入库，只在仓库里存 diff）
+│       └── 0001-dsh-pet-features.patch  # 调试入口按钮 + 随刷新率走动 + 开机自启不弹窗 + 置顶显示开关 + Linux 覆盖层 + 控制台一键同步 Key + 测试刷新率（18 个文件）
+├── desktop-suite/dsh-whale/dsh-whale-desktop/              # Windows 桌面挂件（Electron）
 │   ├── main.js                     #   主进程：本地服务(3090)+窗口(默认不置顶)/托盘/自启+插件宿主
 │   ├── host-shim.js                #   DSH 宿主契约适配层：让插件本体在本机 HTTP 服务里运行
 │   ├── preload.js                  #   像素级点击穿透
@@ -117,7 +115,7 @@ dsh-whale/
 │   ├── start-widget.ps1            #   启动脚本
 │   ├── install-autostart.ps1       #   注册开机自启（计划任务）
 │   └── uninstall-autostart.ps1
-└── dsh-whale-desktop-linux/        # Linux 桌面挂件（Ubuntu 22.04/24.04 amd64）
+└── desktop-suite/dsh-whale/dsh-whale-desktop-linux/        # Linux 桌面挂件（Ubuntu 22.04/24.04 amd64）
     ├── main.js                     #   同 Windows 版，开机自启改 XDG autostart
     ├── host-shim.js                #   同 Windows 版
     ├── preload.js / widget.js / assets/
@@ -137,7 +135,7 @@ dsh-whale/
 │  无边框透明置顶窗口 ← 加载 → /dsh-whale/widget.js（插件提供）   │
 │                                                              │
 │  main.js  主进程本地 HTTP 服务 (127.0.0.1:3090)                │
-│    ├─ 插件路由优先：dsh-whale-widget/lib/index.js（23 条路由）  │
+│    ├─ 插件路由优先：desktop-suite/dsh-whale/dsh-whale-widget/lib/index.js（23 条路由）  │
 │    │    ← host-shim.js 提供 DSH 宿主契约（webServer/credentials）│
 │    ├─ 未命中则走内置实现（回退网，插件不可用时挂件仍可用）        │
 │    └─ 桌面版特有：/setup、apikey、autostart、first-run-done     │
@@ -175,13 +173,13 @@ dsh-whale/
 **安装（Ubuntu 24.04 / GNOME 46 已测，45–47 通用）**
 
 ```bash
-cd dsh-whale-shell-extension
+cd desktop-suite/dsh-whale/dsh-whale-shell-extension
 ./install.sh                     # 复制到 ~/.local/share/gnome-shell/extensions/
 # 注销 → 重新登录（Wayland 需重载 Shell 才会扫描新扩展）
 gnome-extensions enable dsh-whale@local
 ```
 
-**交互与菜单**（详细说明见 `dsh-whale-shell-extension/README.md`）
+**交互与菜单**（详细说明见 `desktop-suite/dsh-whale/dsh-whale-shell-extension/README.md`）
 
 | 操作 | 效果 |
 |---|---|
@@ -199,7 +197,7 @@ gnome-extensions enable dsh-whale@local
 
 **运行**
 ```powershell
-cd dsh-whale-desktop
+cd desktop-suite/dsh-whale/dsh-whale-desktop
 node_modules\electron\dist\electron.exe .     # 或运行 start-widget.ps1
 ```
 
@@ -213,7 +211,7 @@ powershell -ExecutionPolicy Bypass -File uninstall-autostart.ps1  # 取消
 ```powershell
 npm install
 npx electron-builder --win portable
-# 产物：dist\dsh-whale-widget-<版本>.exe（单个文件，拷到任意 Windows 电脑双击运行）
+# 产物：dist\desktop-suite/dsh-whale/dsh-whale-widget-<版本>.exe（单个文件，拷到任意 Windows 电脑双击运行）
 ```
 > 新电脑首次运行自动弹配置窗；exe 未签名时 SmartScreen 提示「更多信息 → 仍要运行」。
 
@@ -237,13 +235,13 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-ge
 
 **构建**
 ```bash
-cd dsh-whale-desktop-linux
+cd desktop-suite/dsh-whale/dsh-whale-desktop-linux
 ./build-linux.sh          # 产出 dist/*.AppImage 与 *.deb
 ```
 
 **运行 / 安装**
 ```bash
-chmod +x dist/*.AppImage && ./dist/dsh-whale-widget-1.0.0-x64.AppImage
+chmod +x dist/*.AppImage && ./dist/desktop-suite/dsh-whale/dsh-whale-widget-1.0.0-x64.AppImage
 # 或
 sudo dpkg -i dist/*.deb
 ```
@@ -256,12 +254,12 @@ sudo dpkg -i dist/*.deb
 ./uninstall-autostart.sh
 ```
 
-## 🔌 DSH 网页版插件（dsh-whale-widget）
+## 🔌 DSH 网页版插件（desktop-suite/dsh-whale/dsh-whale-widget）
 
-随 `dsh web` 自动启用（标准 DSH bundle 插件）。安装方式见 `dsh-whale-widget/README.md`：
+随 `dsh web` 自动启用（标准 DSH bundle 插件）。安装方式见 `desktop-suite/dsh-whale/dsh-whale-widget/README.md`：
 
 ```powershell
-dsh plugin --profile web add link:C:\...\dsh-whale\dsh-whale-widget
+dsh plugin --profile web add link:C:\...\dsh-whale\desktop-suite/dsh-whale/dsh-whale-widget
 ```
 
 > **该目录为上游第三方源码的原样 vendored 副本**（MIT，保留 `LICENSE` 与素材来源说明 `PROVENANCE.md`）：
@@ -290,7 +288,7 @@ dsh plugin --profile web add link:C:\...\dsh-whale\dsh-whale-widget
 - 🖥️ **桌面版同步**：两个桌面版通过 `host-shim.js` **直接运行本插件本体**，功能与网页版一致
 - 🔧 新增维护脚本 `tools/`（CI 不变量自检，可本地跑 `node tools/ci-audit.mjs --no-pack`，当前 5/5 通过）
 
-> 🔗 **桌面版直接复用本插件**：两个桌面版（`dsh-whale-desktop*`）已通过 `host-shim.js`
+> 🔗 **桌面版直接复用本插件**：两个桌面版（`desktop-suite/dsh-whale/dsh-whale-desktop*`）已通过 `host-shim.js`
 > **直接运行本插件本体**，因此功能和网页版插件完全一致（23 条路由），且本目录是
 > **唯一实现来源** —— 以后更新插件，桌面版自动同步，无需再逐条适配。详见上文「🏗️ 架构」。
 
@@ -325,8 +323,8 @@ dsh plugin --profile web add link:C:\...\dsh-whale\dsh-whale-widget
 
 ```bash
 # 桌面版开发（Windows 或 Linux 任一）
-cd dsh-whale-desktop          # Windows
-# cd dsh-whale-desktop-linux  # Linux
+cd desktop-suite/dsh-whale/dsh-whale-desktop          # Windows
+# cd desktop-suite/dsh-whale/dsh-whale-desktop-linux  # Linux
 npm install
 npm start                      # electron .
 ```
@@ -340,7 +338,7 @@ npm start                      # electron .
 
 | 问题 | 解决 |
 |---|---|
-| GNOME Wayland 下 Electron 悬浮窗不显示/不悬浮 | 改用本仓库 **GNOME Shell 扩展版**（`dsh-whale-shell-extension`） |
+| GNOME Wayland 下 Electron 悬浮窗不显示/不悬浮 | 改用本仓库 **GNOME Shell 扩展版**（`desktop-suite/dsh-whale/dsh-whale-shell-extension`） |
 | 接/拔外接显示器后鲸鱼「不见了」 | 已知问题：扩展暂未处理显示器热插拔的几何变化；注销重登，或把鲸鱼拖回屏内。修复计划见 **[docs/linux-adaptation-plan.md](docs/linux-adaptation-plan.md)** |
 | 触屏上打不开菜单 | 已知限制：菜单目前只有右键入口，触屏长按入口在适配计划中（见 **[docs/linux-adaptation-plan.md](docs/linux-adaptation-plan.md)**） |
 | 余额显示「未配置 DEEPSEEK_API_KEY」 | 在 `~/.dsh/.credentials.yaml` 填写或在挂件菜单 API Key 框填入 `sk-...` 并保存 |
@@ -360,7 +358,7 @@ npm start                      # electron .
 ## 📄 许可证
 
 - 本项目（桌面挂件 Windows/Linux 版、GNOME 扩展版、文档、CI）：**MIT**
-- `dsh-whale-widget/`：第三方插件，**MIT**，版权归原项目作者，见其 `LICENSE`
+- `desktop-suite/dsh-whale/dsh-whale-widget/`：第三方插件，**MIT**，版权归原项目作者，见其 `LICENSE`
 
 ---
 

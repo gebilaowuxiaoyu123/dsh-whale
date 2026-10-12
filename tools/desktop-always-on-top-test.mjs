@@ -15,7 +15,7 @@
  * 并核对落盘文件 ~/.dsh/.dshw-window.json。
  *
  * 用法：
- *   1) 先让挂件跑起来（普通启动即可，不需要调试端口）：dsh-whale-desktop\start-widget.ps1
+ *   1) 先让挂件跑起来（普通启动即可，不需要调试端口）：desktop-suite/dsh-whale/dsh-whale-desktop\start-widget.ps1
  *   2) node tools/desktop-always-on-top-test.mjs
  *      PORT=3091 可换端口；DSH_HOME 可换数据目录。
  *
@@ -55,7 +55,7 @@ const fileValue = () => {
 console.log('===== DSH 桌面挂件 · 置顶显示 自检 =====\n');
 if (!(await reachable())) {
   console.log(`[跳过] 127.0.0.1:${PORT} 上没有挂件在跑。`);
-  console.log('       先启动：dsh-whale-desktop\\start-widget.ps1（Windows）/ ./start-linux.sh（Linux）');
+  console.log('       先启动：desktop-suite/dsh-whale/dsh-whale-desktop\\start-widget.ps1（Windows）/ ./start-linux.sh（Linux）');
   process.exit(0);
 }
 

@@ -44,7 +44,7 @@
 | 项 | 状态 |
 |---|---|
 | vendored 插件版本 | **v0.3.16**（不再是 v0.2.10；已含 v0.3.11 / v0.3.15 两个安全修复） |
-| 桌面版实现 | 新增 `dsh-whale-desktop{,-linux}/host-shim.js`（238 行）：把插件本体 `lib/index.js` 直接跑在 Electron 本地服务里 → **插件目录是唯一功能实现来源**，桌面版与网页插件功能对齐（23 条 `/dsh-whale/*` 路由） |
+| 桌面版实现 | 新增 `desktop-suite/dsh-whale/dsh-whale-desktop{,-linux}/host-shim.js`（238 行）：把插件本体 `lib/index.js` 直接跑在 Electron 本地服务里 → **插件目录是唯一功能实现来源**，桌面版与网页插件功能对齐（23 条 `/dsh-whale/*` 路由） |
 | 点击穿透判定 | `preload.js` 已由“硬编码 4 个类名”改为按 CSS `pointer-events` 语义**通用判定**（插件 v0.3.16 有 300+ 个 `.dshwv-*` 类名） |
 | 本地服务安全 | 插件在宿主缺少 `connection` 服务时会**启用自带「回环 + 同源」校验保护全部路由（含写接口）**，并跳过依赖 DSH 会话的功能 → 原先 3090 服务 `ACAO: *` 的风险**已由插件侧缓解** |
 | 回退网 | 插件加载失败时自动回退到 `main.js` 内置路由实现 |
@@ -267,7 +267,7 @@
 | T9 | 长稳测试 | 24h 挂机 + `Vitals` 采样（CPU/内存/线程） | 无持续增长 |
 | T10 | 回滚验证 | disable → 删目录 → 重装 `install.sh` | 数据（账本/凭据/偏好）不丢 |
 | T11 | **点击穿透平台验证（决定性）** | 用最小复现：Electron 透明窗 + `setIgnoreMouseEvents(true,{forward:true})`，渲染进程打印 `mousemove`；在 X11 会话与 XWayland 各跑一次，用**真实鼠标**移过窗口 | 渲染进程能收到 `mousemove` → 穿透可唤醒；收不到 → 桌面版在 Linux 不可交互，须走 §2 的降级分支 |
-| T12 | 桌面版真实鼠标端到端 | 运行 `dsh-whale-desktop-linux`，用**真实鼠标**逐面板点按（不用 CDP） | 全部按钮可点、面板可关，结论与 T11 一致 |
+| T12 | 桌面版真实鼠标端到端 | 运行 `desktop-suite/dsh-whale/dsh-whale-desktop-linux`，用**真实鼠标**逐面板点按（不用 CDP） | 全部按钮可点、面板可关，结论与 T11 一致 |
 
 > ⚠️ **现有自动化测试的盲区（重要）**：`tools/desktop-ui-smoke-test.mjs` 与 `tools/desktop-button-audit.mjs`
 > 通过 **CDP（DevTools 协议）**注入事件，而 CDP 直接把事件送进渲染进程，**绕过了合成器层面的输入区域**。

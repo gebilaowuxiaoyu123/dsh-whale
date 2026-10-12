@@ -4,8 +4,8 @@
  *
  * 背景
  * ----
- * 两个桌面版（dsh-whale-desktop / dsh-whale-desktop-linux）与网页版插件
- * （dsh-whale-widget）**共用同一个账本文件** `~/.dsh/.dshw-usage.json`。
+ * 两个桌面版（desktop-suite/dsh-whale/dsh-whale-desktop / desktop-suite/dsh-whale/dsh-whale-desktop-linux）与网页版插件
+ * （desktop-suite/dsh-whale/dsh-whale-widget）**共用同一个账本文件** `~/.dsh/.dshw-usage.json`。
  *
  * 插件自 v0.3.16（lib/accounting.mjs）起改为新格式：
  *   { accounting: { version:1, active, books: { "<scope>-<币种>": { currency, days:{...}, lastAt } } } }
@@ -63,10 +63,10 @@ function extractLedgerModule(dirName) {
   return require(out);
 }
 
-const desktop = extractLedgerModule('dsh-whale-desktop');
-const desktopLinux = extractLedgerModule('dsh-whale-desktop-linux');
+const desktop = extractLedgerModule('desktop-suite/dsh-whale/dsh-whale-desktop');
+const desktopLinux = extractLedgerModule('desktop-suite/dsh-whale/dsh-whale-desktop-linux');
 const widget = await import(
-  pathToFileURL(path.join(REPO, 'dsh-whale-widget', 'lib', 'accounting.mjs')).href
+  pathToFileURL(path.join(REPO, 'desktop-suite/dsh-whale/dsh-whale-widget', 'lib', 'accounting.mjs')).href
 );
 
 const KEY = 'sk-compat-test-0123456789abcdef';
@@ -83,7 +83,7 @@ console.log('day1  = ' + desktop.beijingDay(DAY1) + '   day2 = ' + desktop.beiji
 console.log('[1] 两个平台的记账实现必须一致（防止只改一个平台）');
 ok(
   desktop.observeBalance.toString() === desktopLinux.observeBalance.toString(),
-  'dsh-whale-desktop 与 -linux 的 observeBalance 实现相同'
+  'desktop-suite/dsh-whale/dsh-whale-desktop 与 -linux 的 observeBalance 实现相同'
 );
 ok(
   desktop.ledgerScope(KEY) === scope && desktopLinux.ledgerScope(KEY) === scope,

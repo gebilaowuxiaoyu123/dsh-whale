@@ -1,24 +1,44 @@
-# 🧩 desktop-suite —— 本机桌面美化程序（**整目录不入库**）
+# 🧩 desktop-suite —— 本机桌面插件集散地
 
-本机那套「桌面美化」的统一工作目录。除仓库本体的两个桌宠外，其余全部收在这里，
-免得散在 `C:\` 根、`E:\` 根、桌面各处。
+把本机那套「桌面美化 / 桌面管理」插件**统一成一棵目录树**：**每个插件各自一个包，彼此平级、互不依赖**。
+原本散在 `E:\` 根、`C:\` 根、桌面、`third-party\`、仓库根的东西，现在全在这里。
 
-> ⚠️ 本目录在 `.gitignore` 里是 **`/desktop-suite/*` 忽略、只放行本 README**。
-> 里面是第三方程序 / 同人素材 / 构建产物（约 1 GB），**不要** `git add -f`，也别往里放隐私文件。
+**入库策略（重要）**
+
+| 内容 | 是否入库 | 为什么 |
+|---|---|---|
+| 自家源码（`dsh-whale/*`、`xspace/`、`xspace-notes/`）、魔改补丁、脚本、文档 | ✅ 入库 | 换设备 clone 下来就有 |
+| 第三方程序本体（`coopanion/`、`pogget/`、`miside-wallpaper/`）与运行时数据 | ❌ 不入库 | 体积大、单文件超 GitHub 100 MB 上限、pnpm 符号链接 git 还原不了、运行时里含真实 API Key |
+
+第三方不随仓库分发，**但仓库带着“自动拉 + 自动打魔改”的能力**：clone 之后跑
+`tools\desktop-suite-doctor.ps1` 体检、`tools\setup-coopanion.ps1` 自动拉 Coopanion 并把 **18 个文件的魔改**打回去。
+完整换机流程见 [`../docs/desktop-suite-clone.md`](../docs/desktop-suite-clone.md)。
 
 ## 目录
 
-| 子目录 | 搬之前在哪 | 体量 | 怎么启动 |
-|---|---|---|---|
-| `pogget/` | `E:\Pogget.exe` + `E:\.pogget_config` | 3.3 MB / 36 文件 | HKCU Run `MyCoolApp`（Pogget 自己也会写这条自启） |
-| `xspace/` | `C:\xspace_widget\` | 504.4 MB / 1649 文件 | HKCU Run `XSpaceWidget` → `xspace\XSpaceWidget\bin\Debug\net9.0-windows\win-x64\XSpaceWidget.exe` |
-| `xspace-notes/` | `C:\xspace_notes\` + `C:\xspace_home.html` + `C:\xspacenews,html` | 418.4 MB / 1007 文件 | 不自动启动（`XNoteWidget` 工程 + 资料） |
-| `miside-wallpaper/` | 桌面 `MisideStartWallpapaer\` | 129.7 MB / 220 文件 | 由 **Lively Wallpaper** 承载（Lively 随开机自启）；守护由「启动」文件夹的 `wallpaper-power-guard.vbs` 拉起 |
+```
+desktop-suite/
+├── dsh-whale/              ← ① DSH 小鲸鱼的各个形态打包成一个包（自家源码）
+│   ├── desktop-suite/dsh-whale/dsh-whale-desktop/           Windows 桌面挂件（Electron）
+│   ├── desktop-suite/dsh-whale/dsh-whale-desktop-linux/     Linux 桌面挂件（AppImage/deb）
+│   ├── desktop-suite/dsh-whale/dsh-whale-shell-extension/   GNOME Shell 扩展（Wayland 悬浮首选）
+│   ├── desktop-suite/dsh-whale/dsh-whale-widget/            DSH 网页版插件（vendored 上游 MIT 副本）
+│   └── desktop-suite/dsh-whale/dsh-whale-pets-tray/         托盘小扩展
+├── coopanion/              ← ② Coopanion 桌宠（AGPL，不入库；脚本自动拉 + 打魔改）
+├── xspace/                 ← ③ XSpace 竞赛通知桌面栏（自家 .NET，MIT）
+├── xspace-notes/           ← ④ XNoteWidget 工程 + 资料（自家 .NET，MIT）
+├── pogget/                 ← ⑤ Pogget 桌面容器（第三方专有，不入库；离线包还原）
+└── miside-wallpaper/       ← ⑥ MiSide Unity 应用壁纸 + 自研壁纸守护（第三方素材，不入库）
+```
 
-两个桌宠**不在这里**，因为它们本来就在仓库里：
-
-- **DSH 小鲸鱼**：仓库根 `dsh-whale-desktop/`（Electron，Windows 版）+ `dsh-whale-desktop-linux/`
-- **Coopanion**：`third-party/Coopanion/`（AGPL，源码不入库，只把改造留在 `patches/`）
+| 包 | 搬之前在哪 | 怎么启动 / 还原 |
+|---|---|---|
+| `dsh-whale/desktop-suite/dsh-whale/dsh-whale-desktop` | 仓库根 `desktop-suite/dsh-whale/dsh-whale-desktop/` | 计划任务 `DSH Whale Desktop Widget` → `start-widget.ps1` |
+| `coopanion/` | `desktop-suite\coopanion/` | HKCU Run `electron.app.Electron` → `node_modules\electron\dist\electron.exe` + `--background`；装一次跑 `tools\setup-coopanion.ps1` |
+| `xspace/` | `C:\xspace_widget\` | HKCU Run `XSpaceWidget` → `xspace\XSpaceWidget\bin\Debug\net9.0-windows\win-x64\XSpaceWidget.exe` |
+| `xspace-notes/` | `C:\xspace_notes\` + 两个散在 C 盘根的 html | 不自动启动（`XNoteWidget` 工程+资料） |
+| `pogget/` | `E:\Pogget.exe` + `E:\.pogget_config` | HKCU Run `MyCoolApp` |
+| `miside-wallpaper/` | 桌面 `MisideStartWallpapaer\` | 由 Lively 承载；守护由启动文件夹 `wallpaper-power-guard.vbs` 拉起 |
 
 ## 搬迁时改掉的绝对路径引用（2026-10-13）
 
@@ -26,10 +46,14 @@
 
 | # | 位置 | 改成 |
 |---|---|---|
-| 1 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `MyCoolApp` | `"...\desktop-suite\pogget\Pogget.exe"` |
-| 2 | 同上 → `XSpaceWidget` | `"...\desktop-suite\xspace\XSpaceWidget\bin\Debug\net9.0-windows\win-x64\XSpaceWidget.exe"` |
-| 3 | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\wallpaper-power-guard.vbs` | `-File "...\desktop-suite\miside-wallpaper\wallpaper-power-guard.ps1"` |
-| 4 | Lively 壁纸库 `...\Library\wallpapers\misidestart_miside\LivelyInfo.json` 的 `FileName` | `...\desktop-suite\miside-wallpaper\MisideStartWallpaper.exe` |
+| 1 | 计划任务 `DSH Whale Desktop Widget` | `...\desktop-suite/dsh-whale/dsh-whale-desktop\start-widget.ps1` |
+| 2 | `HKCU\...\Run` → `electron.app.Electron` | `...\desktop-suite\coopanion\node_modules\electron\dist\electron.exe` + `...\desktop-suite\coopanion --background` |
+| 3 | 同上 → `MyCoolApp` | `"...\desktop-suite\pogget\Pogget.exe"` |
+| 4 | 同上 → `XSpaceWidget` | `"...\desktop-suite\xspace\XSpaceWidget\bin\Debug\net9.0-windows\win-x64\XSpaceWidget.exe"` |
+| 5 | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\wallpaper-power-guard.vbs` | `-File "...\desktop-suite\miside-wallpaper\wallpaper-power-guard.ps1"` |
+| 6 | Lively 壁纸库 `...\Library\wallpapers\misidestart_miside\LivelyInfo.json` 的 `FileName` | `...\desktop-suite\miside-wallpaper\MisideStartWallpaper.exe` |
+
+> 这六处不用手改：`tools\desktop-suite-doctor.ps1 -Action wire` 会按**本机实际存在的插件**全部对齐。
 
 **不需要改的**（已核实）：
 
@@ -46,7 +70,7 @@
 | XSpace | `%LOCALAPPDATA%\XSpaceWidget`（WebView2 用户数据） |
 | MiSide 壁纸 | `HKCU\Software\MisideStart`（Unity PlayerPrefs） |
 | Lively 本体 | `%LOCALAPPDATA%\Programs\Lively Wallpaper`（**正式安装程序、带卸载项，别动**） |
-| 两个桌宠 | `%APPDATA%\dsh-whale-desktop`、`third-party\Coopanion\build\data` |
+| 两个桌宠 | DSH 挂件：`%APPDATA%\desktop-suite/dsh-whale/dsh-whale-desktop`；Coopanion：`desktop-suite\coopanion\build\data`（含 API Key，**不入库**） |
 
 ## 回滚
 

@@ -36,10 +36,10 @@ mkdir -p "$STATE_DIR" "$STATE_DIR/logs"
 if [ -z "${REPO_ROOT:-}" ]; then
   self="$(readlink -f "${BASH_SOURCE[0]}")"
   cand="$(dirname "$(dirname "$self")")"
-  if [ -d "$cand/dsh-whale-desktop-linux" ]; then REPO_ROOT="$cand"; fi
+  if [ -d "$cand/desktop-suite/dsh-whale/dsh-whale-desktop-linux" ]; then REPO_ROOT="$cand"; fi
 fi
 REPO_ROOT="${REPO_ROOT:-$HOME/dsh-whale}"
-COOP_DIR="${COOP_DIR:-$REPO_ROOT/third-party/Coopanion}"
+COOP_DIR="${COOP_DIR:-$REPO_ROOT/desktop-suite/coopanion}"
 
 DSH_LOG="$STATE_DIR/logs/dsh.log"
 L2D_LOG="$STATE_DIR/logs/live2d.log"
@@ -50,7 +50,7 @@ L2D_PID="$STATE_DIR/live2d.pid"
 find_appimage() {
   # 多个候选时取**最新修改**的那份（开发时是新构建，日常是 ~/Applications 的安装副本）
   local c newest="" newest_t=0 t
-  for c in "$REPO_ROOT/dsh-whale-desktop-linux/dist"/*.AppImage \
+  for c in "$REPO_ROOT/desktop-suite/dsh-whale/dsh-whale-desktop-linux/dist"/*.AppImage \
            "$HOME/Applications"/*dsh-whale*.AppImage \
            "$HOME/Applications"/*dsh*widget*.AppImage; do
     [ -x "$c" ] || continue
@@ -72,7 +72,7 @@ alive_group() {
   kill -0 "-$pg" 2>/dev/null
 }
 find_dsh_pids() {
-  pgrep -f 'appimage_extracted_.*/dsh-whale-desktop-linux|dsh-whale-widget-[0-9.]+-x86_64\.AppImage' 2>/dev/null
+  pgrep -f 'appimage_extracted_.*/desktop-suite/dsh-whale/dsh-whale-desktop-linux|desktop-suite/dsh-whale/dsh-whale-widget-[0-9.]+-x86_64\.AppImage' 2>/dev/null
 }
 find_l2d_pids() {
   pgrep -f "${COOP_DIR//\//\\/}/node_modules/electron/dist/electron|--pet-host|--pet-url" 2>/dev/null
@@ -175,12 +175,12 @@ write_autostart() {
     name="DSH 小鲸鱼（开机自启）"
     exec="$REPO_ROOT/tools/petctl.sh dsh start"
     comment="DeepSeek 余额小鲸鱼桌面挂件"
-    icon="$REPO_ROOT/dsh-whale-desktop-linux/assets/whale.png"
+    icon="$REPO_ROOT/desktop-suite/dsh-whale/dsh-whale-desktop-linux/assets/whale.png"
   else
     name="Live2D 鲸鱼娘（开机自启）"
     exec="$REPO_ROOT/tools/autostart-pet.sh live2d"
     comment="Coopanion Live2D 鲸鱼娘桌宠"
-    icon="$REPO_ROOT/third-party/Coopanion/console/assets/icon.png"
+    icon="$REPO_ROOT/desktop-suite/coopanion/console/assets/icon.png"
   fi
   mkdir -p "$AUTOSTART_DIR"
   cat > "$f" <<EOF
@@ -330,7 +330,7 @@ EOF
 
   # ---- DSH 余额挂件的桌面入口（开始菜单）----
   # 图标优先用 AppImage 解包时的 png，其次仓库 assets
-  local dsh_icon="$REPO_ROOT/dsh-whale-desktop-linux/assets/whale.png"
+  local dsh_icon="$REPO_ROOT/desktop-suite/dsh-whale/dsh-whale-desktop-linux/assets/whale.png"
   cat > "$APPLICATIONS_DIR/dsh-whale.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -348,12 +348,12 @@ EOF
   echo "已建开始菜单项：DSH 小鲸鱼 → petctl dsh toggle"
 
   # ---- 清理旧方案残留（旧 GNOME 扩展版入口）----
-  local legacy="$APPLICATIONS_DIR/dsh-whale-widget.desktop"
+  local legacy="$APPLICATIONS_DIR/desktop-suite/dsh-whale/dsh-whale-widget.desktop"
   if [ -f "$legacy" ]; then
     rm -f "$legacy" && echo "已删除旧入口：$legacy"
   fi
   # 旧自启项名字与本工具不同，留着会让 dsh 开机启动两遍
-  local legacy_auto="$AUTOSTART_DIR/dsh-whale-widget.desktop"
+  local legacy_auto="$AUTOSTART_DIR/desktop-suite/dsh-whale/dsh-whale-widget.desktop"
   if [ -f "$legacy_auto" ]; then
     local was_on=no
     grep -q 'X-GNOME-Autostart-enabled=true' "$legacy_auto" 2>/dev/null && was_on=yes
@@ -362,9 +362,9 @@ EOF
       write_autostart dsh >/dev/null && echo "已迁移为：$(autostart_file dsh)"
     fi
   fi
-  if [ -f "$BIN_DIR/dsh-whale-widget" ]; then
-    mv "$BIN_DIR/dsh-whale-widget" "$BIN_DIR/dsh-whale-widget.legacy-disabled" 2>/dev/null \
-      && echo "已停用旧脚本：$BIN_DIR/dsh-whale-widget（改名为 .legacy-disabled，未删除以便回退）"
+  if [ -f "$BIN_DIR/desktop-suite/dsh-whale/dsh-whale-widget" ]; then
+    mv "$BIN_DIR/desktop-suite/dsh-whale/dsh-whale-widget" "$BIN_DIR/desktop-suite/dsh-whale/dsh-whale-widget.legacy-disabled" 2>/dev/null \
+      && echo "已停用旧脚本：$BIN_DIR/desktop-suite/dsh-whale/dsh-whale-widget（改名为 .legacy-disabled，未删除以便回退）"
   fi
   # 旧 GNOME 扩展：禁用（源仍在仓库里，便于回退）
   if command -v gnome-extensions >/dev/null 2>&1; then

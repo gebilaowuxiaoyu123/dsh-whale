@@ -1,11 +1,21 @@
 {
-  "// 说明": "本仓库只跟踪源码。desktop-suite/ 与 third-party/ 是本机的第三方程序/构建产物（约 1 GB），排除出监视与搜索，避免拖慢编辑器。",
+  "// 说明": "本仓库只跟踪源码。desktop-suite/ 里的第三方程序本体、依赖与构建产物（约 2 GB）排除出监视与搜索；自家源码（dsh-whale/、xspace/、xspace-notes/）照常可搜。",
   "files.watcherExclude": {
-    "**/desktop-suite/**": true,
+    "**/desktop-suite/coopanion/**": true,
+    "**/desktop-suite/pogget/**": true,
+    "**/desktop-suite/miside-wallpaper/**": true,
+    "**/desktop-suite/**/bin/**": true,
+    "**/desktop-suite/**/obj/**": true,
+    "**/desktop-suite/**/node_modules/**": true,
     "**/third-party/**": true
   },
   "search.exclude": {
-    "**/desktop-suite/**": true,
+    "**/desktop-suite/coopanion/**": true,
+    "**/desktop-suite/pogget/**": true,
+    "**/desktop-suite/miside-wallpaper/**": true,
+    "**/desktop-suite/**/bin/**": true,
+    "**/desktop-suite/**/obj/**": true,
+    "**/desktop-suite/**/node_modules/**": true,
     "**/third-party/**": true
   }
 }

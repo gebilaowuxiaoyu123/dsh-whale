@@ -1,0 +1,6 @@
+# XNoteWidget 工程：构建产物不入库
+bin/
+obj/
+dist/
+*.user
+.vs/

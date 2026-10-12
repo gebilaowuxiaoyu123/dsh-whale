@@ -12,10 +12,10 @@
  * 用法
  * ----
  * 1) 先以调试模式启动挂件（多一个 --remote-debugging-port）：
- *      cd dsh-whale-desktop
+ *      cd desktop-suite/dsh-whale/dsh-whale-desktop
  *      .\node_modules\electron\dist\electron.exe --remote-debugging-port=9222 .
  *    Linux：
- *      cd dsh-whale-desktop-linux
+ *      cd desktop-suite/dsh-whale/dsh-whale-desktop-linux
  *      ./node_modules/.bin/electron --remote-debugging-port=9222 .
  * 2) 另开一个终端运行本脚本：
  *      node tools/desktop-ui-smoke-test.mjs

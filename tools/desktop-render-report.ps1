@@ -133,7 +133,7 @@ try {
 
 # ---------------------------------------------------------------- 5. 我们的挂件
 Write-Section '我们自己的两个挂件（档位）'
-$petCfg = Join-Path $repoRoot 'third-party\Coopanion\build\data\home\companion\config.json'
+$petCfg = Join-Path $repoRoot 'desktop-suite\coopanion\build\data\home\companion\config.json'
 if (Test-Path $petCfg) {
   try {
     $j = Get-Content $petCfg -Raw -Encoding UTF8 | ConvertFrom-Json

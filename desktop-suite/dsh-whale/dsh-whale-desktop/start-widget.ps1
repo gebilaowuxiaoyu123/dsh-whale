@@ -1,0 +1,15 @@
+﻿# DSH Whale Desktop Widget - launcher (standalone, no dsh web required)
+# The widget is self-contained: it fetches the balance directly from DeepSeek API.
+$ErrorActionPreference = 'Continue'
+
+# 脚本所在目录即挂件目录（原实现硬编码了作者机器的绝对路径，换机后失效）
+$widgetDir   = $PSScriptRoot
+$electronExe = Join-Path $widgetDir 'node_modules\electron\dist\electron.exe'
+
+# Launch the Electron widget if not already running
+$running = Get-CimInstance Win32_Process -Filter "Name='electron.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*desktop-suite/dsh-whale/dsh-whale-desktop*' }
+
+if ((Test-Path $electronExe) -and -not $running) {
+    Start-Process -FilePath $electronExe -ArgumentList '.' -WorkingDirectory $widgetDir
+}

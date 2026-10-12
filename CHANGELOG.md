@@ -2,7 +2,7 @@
 
 > 记录 DSH 小鲸鱼所有形态的版本演进。格式参照 [Keep a Changelog](https://keepachangelog.com/)。
 >
-> - **GNOME Shell 扩展版**（`dsh-whale-shell-extension/`，Wayland 桌面首选，当前主力迭代）：v9 → v12 → … → v31
+> - **GNOME Shell 扩展版**（`desktop-suite/dsh-whale/dsh-whale-shell-extension/`，Wayland 桌面首选，当前主力迭代）：v9 → v12 → … → v31
 >   （v10/v11 为引入初期的一次性内部迭代，未单独建档，已合并体现在 v12 定型）
 > - **桌面版 / DSH 网页插件**（Windows、Ubuntu Linux、dsh-web）：v1.0 + 上游插件跟进至 **v0.3.17**
 
@@ -15,7 +15,7 @@
 ### 结论：可以，但必须「进忽略目录」
 - dsh-whale 是**公开仓库**：Pogget 是第三方专有软件、MiSide 壁纸是同人素材、XSpace 是 500 MB 构建产物，
   直接入库 = 体积暴涨 + 版权风险。做法：新建 `desktop-suite/`，**整目录 gitignore，只放行一个 README**。
-- **Coopanion 不动**（本来就在 `third-party/Coopanion/`；挪它要连带改 setup 脚本、补丁路径、自启项、
+- **Coopanion 不动**（本来就在 `desktop-suite/coopanion/`；挪它要连带改 setup 脚本、补丁路径、自启项、
   测试脚本与文档，零收益）。
 
 ### 搬迁内容（原件已送回收站，可还原）
@@ -47,6 +47,64 @@
 - 引用备份：`%USERPROFILE%\dsh-whale-backups\desktop-suite-move-<时间戳>\`（自启项快照 + 改前的两个 JSON + vbs + Pogget 配置）。
 - 唯一残留：桌面 `MisideStartWallpapaer\` 是个**空壳目录**（内容全部已进回收站，但目录被某个进程当作
   当前工作目录占用，删/改名均失败）→ **重启后删掉即可**。
+
+---
+
+## [桌面插件大一统：desktop-suite 目录树 + 魔改自动适配] - 2026-10-13
+
+> 需求（用户原话）：把这些插件的工作文件夹全部统一；**每个插件各自一个包、彼此隔离**；
+> 别的设备拉仓库时**第三方也能自动拉、我做的魔改自动适配**；不是真的把第三方全塞进远程仓库。
+
+### 新结构（每个包平级、互不依赖）
+
+```
+desktop-suite/
+├── dsh-whale/    desktop-suite/dsh-whale/dsh-whale-desktop / -desktop-linux / -shell-extension / -widget / -pets-tray
+├── coopanion/    xspace/    xspace-notes/    pogget/    miside-wallpaper/
+```
+
+### 为什么第三方二进制不进 git（实测，不是偷懒）
+
+| 原因 | 证据 |
+|---|---|
+| 超 GitHub 单文件上限 | `node_modules/.pnpm/electron@44.4.4/.../electron.exe` = **234.6 MB** > 100 MB |
+| git 存不了 pnpm 的依赖树 | `node_modules/electron` 是**符号链接**，而仓库 `core.symlinks=false` → 会存成文本文件，换机 checkout 出来是坏的 |
+| 会泄漏密钥 | `coopanion/build/data/home/providers/deepseek/.env` 是**真实 DeepSeek Key**；还有 Chromium 的 Trust Tokens |
+
+→ 做法：仓库只带「**自家源码 + 魔改补丁 + 拉取/接线脚本**」，clone 之后一条命令把第三方拉齐并打上魔改。
+
+### 新增
+
+- `tools/desktop-suite-doctor.ps1`：**体检 / 接线 / 还原**。体检会逐个插件报「包在不在 / 在不在跑 / 六处引用对不对」，
+  并读进程 PEB 的 `CurrentDirectory` 找出「谁的当前目录落在包里」（那会让目录改不了名）；
+  `-Action wire` 按**本机实际存在的插件**对齐引用（不存在的跳过）；`-Action restore -PoggetZip/-WallpaperZip` 用离线包还原。
+- `docs/desktop-suite-clone.md`：**换机还原指南** —— 六个包各自怎么还原、魔改怎么自动打回去、六处引用清单、五个实测踩坑。
+- `LICENSE`（仓库此前只有 README 里的 MIT 徽章、**没有 LICENSE 文件**）+ `desktop-suite/xspace/LICENSE`（MIT）+
+  `xspace/README.md` + `xspace/.gitignore` + `xspace-notes/`（同）→ 自家项目补齐开源形态（源码入库、构建产物忽略）。
+- `desktop-suite/README.md`：新结构总览 + 入库策略 + 迁改记录；`.gitignore` 改为「desktop-suite 默认不入库，
+  只放行 README + 自家源码（dsh-whale / xspace / xspace-notes）」。
+
+### 六处绝对路径引用（搬完跟着改，漏一处就启动不起来）
+
+1. 计划任务 `DSH Whale Desktop Widget` → `desktop-suite/dsh-whale/dsh-whale-desktop\start-widget.ps1`
+2. `HKCU\...\Run\electron.app.Electron` → `desktop-suite\coopanion\node_modules\electron\dist\electron.exe` + `--background`
+3. `HKCU\...\Run\MyCoolApp` → `desktop-suite\pogget\Pogget.exe`
+4. `HKCU\...\Run\XSpaceWidget` → `desktop-suite\xspace\XSpaceWidget\bin\Debug\net9.0-windows\win-x64\XSpaceWidget.exe`
+5. 启动文件夹 `wallpaper-power-guard.vbs` → `desktop-suite\miside-wallpaper\wallpaper-power-guard.ps1`
+6. Lively 库 `misidestart_miside\LivelyInfo.json` 的 `FileName`（**按字节替换**，那文件里混了 GBK 字节）
+
+### 搬迁事故与修复（如实记录）
+
+搬 `coopanion` 时 `Move-Item` 在 pnpm 符号链接上中途失败，我**误删了源目录的 `packages/`、`vendor/`、大部分 `node_modules/`**。修复方式：
+
+- 从**本地嵌套 `.git`** 精确还原 593 个被删文件（只列"被删"的路径逐个还原，**不碰已改的文件**）；
+- 用 `.git/modules/vendor/cortico` 就地还原子模块工作区（`f944984`，不联网）；
+- 我们的 **18 个文件魔改**从 `patches/coopanion/0001-dsh-pet-features.patch` 重新打回 —— 因为 `git apply` 是原子的，
+  已被打过的 5 个文件会让整份补丁失败，所以**限定 `--include=packages/*` 子树**应用；
+- 依赖用 `pnpm install` 重建（Electron 走 `ELECTRON_MIRROR` 镜像）。
+
+顺带修掉一个一直存在的问题：**合并进来的那份补丁是给另一套前端布局（`web/pet-core.js`）的，和钉死的 v0.1.20
+（`web/kit/body.js`）对不上**，已把补丁恢复成与 v0.1.20 一致的那份。
 
 ---
 
@@ -148,8 +206,8 @@
   `i915-stabilize.sh` 同样守卫（但 `--revert` 永远放行）；`gpu-watchdog.sh` 补 NVRM 关键字
   （`GPU has fallen off the bus` / `NVRM: Xid`，仍由「内核异常 + mutter 真冻结」双条件把关）；
   `diagnose.sh` 按平台分岔（NVIDIA 机器改查驱动与 Xid）；`apply-all.sh` 跳过措辞修正。
-- 去掉所有写死家目录：`dsh-whale-desktop-linux/main.js`、Coopanion `host/electron-main.cjs`、
-  `dsh-whale-pets-tray/extension.js` 统一改为「环境变量 → ~/dsh-whale → 仓库相对/向上查找」。
+- 去掉所有写死家目录：`desktop-suite/dsh-whale/dsh-whale-desktop-linux/main.js`、Coopanion `host/electron-main.cjs`、
+  `desktop-suite/dsh-whale/dsh-whale-pets-tray/extension.js` 统一改为「环境变量 → ~/dsh-whale → 仓库相对/向上查找」。
 - Coopanion 侧改动重新折进 `patches/coopanion/0001-dsh-pet-features.patch`（12 文件 868 行，与工作区逐字一致）。
 
 ### 未完成（唯一一项）
@@ -182,7 +240,7 @@
 - **`setup-coopanion.ps1 -Update` 不看 `git fetch/checkout` 的退出码**：本机当天 GitHub 直连被掐，
   `fetch` 失败后脚本照样往下跑 → 结果是「源码还是旧版 v0.1.10 + 补丁打不上（只报警）+ 构建照跑」，
   外表完全看不出错。已给脚本加上**版本与子模块的硬校验**，并在补丁打不上时**直接中止**（不再往下构建一个没有功能的产物）。
-- 升级前先备份 `third-party/Coopanion/build/data/home/`（`config.json` + `providers/*/.env` 里的令牌）。
+- 升级前先备份 `desktop-suite/coopanion/build/data/home/`（`config.json` + `providers/*/.env` 里的令牌）。
 
 ---
 
@@ -714,7 +772,7 @@
 
 ### 新增（桌面版增强层 —— 不修改 vendored 插件本体）
 - 新增 `assets/desktop-enhance.js`：由主进程在插件脚本**之后**注入，用于叠加桌面版特有功能。
-  这样 `dsh-whale-widget/` 继续保持**原样 vendored**，上游升级插件时不产生冲突
+  这样 `desktop-suite/dsh-whale/dsh-whale-widget/` 继续保持**原样 vendored**，上游升级插件时不产生冲突
 - **峰谷提前预警**（对齐官方 Windows 独立版、插件本体缺失）：进入/离开高峰前 N 分钟提醒
   （默认 10 分钟，可配），并常驻显示「现在高峰/谷价，还有多久切换」角标
   · 配置：`localStorage['dshwDesktopEnhance']`，或控制台 `window.dshwEnhance.set({leadMinutes:15})`
@@ -727,8 +785,8 @@
   原名不存在会让 `dpkg -i` 被依赖阻断；改为 `libgtk-3-0 | libgtk-3-0t64` 等，兼容 22.04/24.04
 - 补 `homepage`（fpm 生成 deb 必需）、`desktopName` + `linux.syncDesktopName`（修 dock 窗口关联）、
   `build/icon.png` 512×512（此前用默认 Electron 图标）
-- 产物：`dsh-whale-widget-1.0.0-x86_64.AppImage`（126 MB，已实际运行验证）；
-  `dsh-whale-widget-1.0.0-amd64.deb`（101 MB，9 组依赖在 24.04 全部可满足）
+- 产物：`desktop-suite/dsh-whale/dsh-whale-widget-1.0.0-x86_64.AppImage`（126 MB，已实际运行验证）；
+  `desktop-suite/dsh-whale/dsh-whale-widget-1.0.0-amd64.deb`（101 MB，9 组依赖在 24.04 全部可满足）
 
 ---
 
@@ -762,7 +820,7 @@
   形状不变则不重复调用
 
 ### 说明
-- 本轮改动只针对 `dsh-whale-desktop-linux/`；Windows 版沿用官方支持的 forward 方案，不受影响
+- 本轮改动只针对 `desktop-suite/dsh-whale/dsh-whale-desktop-linux/`；Windows 版沿用官方支持的 forward 方案，不受影响
 - 已实机验证：自动重启、X11 窗口建立、`setShape` 生效、23 条插件路由加载
 - **尚未做视觉验收**（鲸鱼是否被裁切、穿透手感、拖动是否跟手），需人工确认
 
@@ -771,11 +829,11 @@
 ## [桌面版 v1.0] - 2026-09-02
 
 ### 新增
-- **Windows 桌面挂件**（`dsh-whale-desktop/`，Electron）：无边框透明置顶悬浮窗、满桌面拖动、
+- **Windows 桌面挂件**（`desktop-suite/dsh-whale/dsh-whale-desktop/`，Electron）：无边框透明置顶悬浮窗、满桌面拖动、
   像素级点击穿透、菜单内改 API Key、开机自启（计划任务）、打包便携 exe
-- **Linux 桌面挂件**（`dsh-whale-desktop-linux/`）：Ubuntu 22.04 / 24.04 amd64，
+- **Linux 桌面挂件**（`desktop-suite/dsh-whale/dsh-whale-desktop-linux/`）：Ubuntu 22.04 / 24.04 amd64，
   AppImage/deb 构建、XDG 开机自启（X11 会话可用）
-- **DSH 网页版插件**（`dsh-whale-widget/`）：随 dsh web 自动启用，每轮对话统计消耗
+- **DSH 网页版插件**（`desktop-suite/dsh-whale/dsh-whale-widget/`）：随 dsh web 自动启用，每轮对话统计消耗
 - 本地直连 `api.deepseek.com/user/balance`；余额差值本地记账 `~/.dsh/.dshw-usage.json`
 - GitHub Actions CI 自动构建 Windows exe + Linux AppImage/deb
 
@@ -787,7 +845,7 @@
     等待提问/授权气泡可点关、死键体检护栏
   - 验证：`tools/ci-audit.mjs --no-pack` **5/5**、`tools/ledger-compat-test.mjs` **25/25**、
     `tools/desktop-plugin-integration-test.mjs` **23/23**（含回环/同源安全栅栏用例）
-  - 两个桌面版经 `host-shim.js` 直接复用本插件（`path.join(appDir,'..','dsh-whale-widget','lib','index.js')`），**自动获得同样更新**
+  - 两个桌面版经 `host-shim.js` 直接复用本插件（`path.join(appDir,'..','desktop-suite/dsh-whale/dsh-whale-widget','lib','index.js')`），**自动获得同样更新**
 - `2026-10-02` chore(third-party)：上游研究克隆的 remote 由失效的 `ghfast.top` 代理改为直连；解除浅克隆（`--unshallow`）并补齐 `For-Codex` / `For-Windows` / `For–WinDesktop` 三个分支
 - `2026-10-02` docs：新增 `docs/linux-adaptation-plan.md` —— Linux 适配实机基线（Ubuntu 24.04.4 / GNOME 46 / Wayland /
   Intel Meteor Lake / 3120×2080@120Hz 缩放 2.0 / 内建触屏）、仓库代码状态（合并远端 v0.3.16 与 host-shim 桌面版）、
@@ -876,14 +934,14 @@
   走 preload 的 `dshwBridge.petToggle` → 主进程 → `tools/petctl.sh`。
 - **托盘菜单**：新增「Live2D 鲸鱼娘（开 / 关）」，失败时弹通知而不是静默。
 - 启动统一走 `petctl.sh`（AppImage 里没有仓库路径，故用候选路径 + `DSHW_PETCTL` 覆盖）。
-- ⚠️ 这两个入口在 **AppImage 里**，改完源码必须重建：`bash dsh-whale-desktop-linux/build-linux.sh`
+- ⚠️ 这两个入口在 **AppImage 里**，改完源码必须重建：`bash desktop-suite/dsh-whale/dsh-whale-desktop-linux/build-linux.sh`
   并把新产物复制到 `~/Applications/`（已实际重建并部署验证）。
 
-### 新增：GNOME 顶栏控制图标 `dsh-whale-pets-tray/`
+### 新增：GNOME 顶栏控制图标 `desktop-suite/dsh-whale/dsh-whale-pets-tray/`
 - 顶栏 🐋 按钮 → 菜单显示两个桌宠状态（● 运行 / ○ 已停），点条目即开/关。
 - 动作全部转发 `petctl.sh`：桌面图标 / 开机自启 / DSH 控制条 / 顶栏，四个入口同一套实现。
 - 状态读取用 `Gio.Subprocess` 异步，不阻塞 Shell 主循环；只在开菜单时刷新，不做轮询。
-- 安装：`bash dsh-whale-pets-tray/install.sh`，**之后必须注销重新登录**
+- 安装：`bash desktop-suite/dsh-whale/dsh-whale-pets-tray/install.sh`，**之后必须注销重新登录**
   （GNOME Shell 只在启动时扫描扩展目录）。
 
 ### 新增：降低 GPU/CPU 持续负载（针对 GPU 挂死的诱因）
@@ -895,7 +953,7 @@
 
 ### 清理
 - 卸载旧 GNOME 扩展 `dsh-whale@local`（悬浮鲸鱼本体），源码仍保留在
-  `dsh-whale-shell-extension/`；旧脚本 `~/.local/bin/dsh-whale-widget` 已改名为
+  `desktop-suite/dsh-whale/dsh-whale-shell-extension/`；旧脚本 `~/.local/bin/desktop-suite/dsh-whale/dsh-whale-widget` 已改名为
   `.legacy-disabled`。
 
 ### 验证

@@ -1,7 +1,7 @@
 # Coopanion（鲸鱼娘桌宠）Linux 完善与 NVIDIA 预制配置
 
 > 上游：`Pal-AI-Lab/Coopanion`（AGPL-3.0-or-later）
-> 本仓库**不 vendor** 上游源码；`third-party/Coopanion/` 是 gitignore 的本地工作副本，
+> 本仓库**不 vendor** 上游源码；`desktop-suite/coopanion/` 是 gitignore 的本地工作副本，
 > 所有改动以补丁形式固化在 `patches/coopanion/0001-dsh-pet-features.patch`。
 > 本机实测环境：Ubuntu 24.04.4 / GNOME 46 / Wayland(有 XWayland) / scaleFactor 2.0 / Intel Meteor Lake（**无 NVIDIA**）。
 
@@ -66,7 +66,7 @@
 bash tools/setup-coopanion.sh
 
 # 启动（带调试端口，桌宠页 CDP 在 9333）
-cd third-party/Coopanion
+cd desktop-suite/coopanion
 COOPANION_DEBUG_PORT=9333 nohup ./node_modules/electron/dist/electron . > /tmp/coopN.log 2>&1 &
 
 # 端到端自检（26 项，含逐按钮真实点击 + 截屏存档）
@@ -80,7 +80,7 @@ node tools/coopanion-feature-test.mjs
 改动上游代码后**必须**重新生成补丁，否则工作副本会悄悄漂移：
 
 ```bash
-git -C third-party/Coopanion diff --no-color \
+git -C desktop-suite/coopanion diff --no-color \
   --output=/home/wukai/dsh-whale/patches/coopanion/0001-dsh-pet-features.patch
 ```
 > ⚠️ 注意 `--output=` 要用**绝对路径**：`git -C` 会把相对路径解析到 Coopanion 仓库根，

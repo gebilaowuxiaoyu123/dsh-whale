@@ -1,0 +1,156 @@
+<Window x:Class="XSpaceWidget.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="设置"
+        FontFamily="Microsoft YaHei UI"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" ResizeMode="NoResize"
+        Width="296" Height="600"
+        PreviewMouseLeftButtonDown="OnMouseDown"
+        PreviewMouseLeftButtonUp="OnMouseUp"
+        PreviewMouseMove="OnMouseMove">
+    <Border Margin="10">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="24" ShadowDepth="3" Direction="270" Opacity="0.5" Color="#000000"/>
+        </Border.Effect>
+        <Border CornerRadius="14" Background="{StaticResource WindowBgBrush}"
+                BorderBrush="{StaticResource WindowBorderBrush}" BorderThickness="1" ClipToBounds="True">
+            <Grid Margin="18,14,18,14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题栏（需 Background 才能接收鼠标事件用于拖动） -->
+                <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="Header_MouseLeftButtonDown">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="设置" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <Button Grid.Column="1" Style="{StaticResource IconButton}" Content="&#xE711;"
+                            ToolTip="关闭" Click="BtnClose_Click" Width="24" Height="24"/>
+                </Grid>
+
+                <!-- 右栏内容 -->
+                <TextBlock Grid.Row="1" Text="右栏内容" Style="{StaticResource SettingLabel}"/>
+                <StackPanel Grid.Row="2" Margin="0,4,0,0">
+                    <RadioButton x:Name="RadioDefault" Content="赛氪竞赛广场（默认）" Tag="xspace"
+                                 GroupName="mode" Checked="ModeRadio_Checked"/>
+                    <RadioButton x:Name="RadioGeneric" Content="自定义网页" Tag="generic"
+                                 GroupName="mode" Margin="0,9,0,0" Checked="ModeRadio_Checked"/>
+                    <TextBlock Text="左栏固定为 X·Space 竞赛通知；右栏默认显示赛氪竞赛广场，每次启动都会回到该默认。"
+                               FontSize="9.5" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,9,0,0"/>
+                </StackPanel>
+
+                <!-- 自定义网页输入区 -->
+                <StackPanel x:Name="GenericPanel" Grid.Row="3" Grid.RowSpan="4" Visibility="Collapsed">
+                    <TextBlock Text="监控网址" Style="{StaticResource SettingLabel}"/>
+                    <TextBox x:Name="GenericUrlBox" TextChanged="GenericInput_Changed"/>
+                    <TextBlock Text="留空则使用默认：https://www.saikr.com/contests"
+                               FontSize="9" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,5,0,0"/>
+                    <TextBlock Text="信息栏标题" Style="{StaticResource SettingLabel}"/>
+                    <TextBox x:Name="GenericTitleBox" TextChanged="GenericInput_Changed"/>
+                    <TextBlock Text="抓取该网页中的列表项作为右栏内容，最新在顶部；改完点击“立即刷新”生效。"
+                               FontSize="9.5" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,8,0,0"/>
+                </StackPanel>
+
+                <!-- 栏数 -->
+                <TextBlock Grid.Row="7" Text="每栏显示条数" Style="{StaticResource SettingLabel}"/>
+                <Grid Grid.Row="8" Margin="0,2,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Slider x:Name="BarCountSlider" Minimum="2" Maximum="12" TickFrequency="1"
+                            IsSnapToTickEnabled="True" ValueChanged="BarCountSlider_ValueChanged"/>
+                    <TextBlock x:Name="BarCountValue" Grid.Column="1" Width="28" TextAlignment="Right"
+                               Foreground="{StaticResource AccentBrush}" FontWeight="Bold"
+                               VerticalAlignment="Center"/>
+                </Grid>
+
+                <!-- 自动刷新 -->
+                <CheckBox x:Name="AutoRefreshCheck" Grid.Row="9" Content="联网自动刷新" Margin="0,8,0,0"
+                          Checked="AutoRefresh_Changed" Unchecked="AutoRefresh_Changed"/>
+                <Grid Grid.Row="10" Margin="22,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="刷新间隔" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5"
+                               VerticalAlignment="Center"/>
+                    <ComboBox x:Name="IntervalCombo" Grid.Column="1" Width="96" SelectionChanged="IntervalCombo_Changed">
+                        <ComboBoxItem Content="5 分钟" Tag="5"/>
+                        <ComboBoxItem Content="10 分钟" Tag="10"/>
+                        <ComboBoxItem Content="15 分钟" Tag="15"/>
+                        <ComboBoxItem Content="30 分钟" Tag="30"/>
+                        <ComboBoxItem Content="60 分钟" Tag="60"/>
+                    </ComboBox>
+                </Grid>
+
+                <!-- 开机自启 -->
+                <CheckBox x:Name="AutoStartCheck" Grid.Row="11" Content="开机自动启动" Margin="0,8,0,0"
+                          Checked="AutoStart_Changed" Unchecked="AutoStart_Changed"/>
+
+                <!-- 置顶 -->
+                <CheckBox x:Name="TopMostCheck" Grid.Row="12" Content="窗口置顶显示" Margin="0,6,0,0"
+                          Checked="TopMost_Changed" Unchecked="TopMost_Changed"/>
+
+                <!-- 记住位置 -->
+                <CheckBox x:Name="RememberPosCheck" Grid.Row="13" Content="记住窗口位置" Margin="0,6,0,0"
+                          Checked="RememberPos_Changed" Unchecked="RememberPos_Changed"/>
+
+                <!-- 底部 -->
+                <StackPanel Grid.Row="14" VerticalAlignment="Bottom">
+                    <Button x:Name="BtnRefreshNow" Height="34" Margin="0,14,0,0" Cursor="Hand"
+                            Click="BtnRefreshNow_Click">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="FontSize" Value="12.5"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="Background" Value="{StaticResource AccentGradientBrush}"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="bd" CornerRadius="9" Background="{TemplateBinding Background}">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bd" Property="Opacity" Value="0.88"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                        <TextBlock Text="立即刷新" FontSize="12.5"/>
+                    </Button>
+                    <TextBlock x:Name="VersionText" Text="" FontSize="9.5"
+                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,10,0,0"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Border>
+</Window>
+
