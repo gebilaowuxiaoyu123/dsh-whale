@@ -31,6 +31,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
@@ -116,8 +117,73 @@
                 <CheckBox x:Name="RememberPosCheck" Grid.Row="13" Content="记住窗口位置" Margin="0,6,0,0"
                           Checked="RememberPos_Changed" Unchecked="RememberPos_Changed"/>
 
+                <!-- 鼠标跟随透明度 -->
+                <StackPanel Grid.Row="14" Margin="0,10,0,0">
+                    <CheckBox x:Name="MouseFadeCheck" Content="鼠标悬停上浮、离开下沉变透明"
+                              Checked="MouseFade_Changed" Unchecked="MouseFade_Changed"/>
+                    <Grid Margin="22,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="离开时" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5"
+                                   VerticalAlignment="Center"/>
+                        <Slider x:Name="OpacityAwaySlider" Grid.Column="1" Minimum="0.05" Maximum="1"
+                                SmallChange="0.05" LargeChange="0.1" ValueChanged="OpacityAway_Changed"/>
+                        <TextBlock x:Name="OpacityAwayValue" Grid.Column="2" Width="38" TextAlignment="Right"
+                                   Foreground="{StaticResource AccentBrush}" FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid Margin="22,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="悬停时" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5"
+                                   VerticalAlignment="Center"/>
+                        <Slider x:Name="OpacityOverSlider" Grid.Column="1" Minimum="0.05" Maximum="1"
+                                SmallChange="0.05" LargeChange="0.1" ValueChanged="OpacityOver_Changed"/>
+                        <TextBlock x:Name="OpacityOverValue" Grid.Column="2" Width="38" TextAlignment="Right"
+                                   Foreground="{StaticResource AccentBrush}" FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid Margin="22,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="过渡时长" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5"
+                                   VerticalAlignment="Center"/>
+                        <Slider x:Name="FadeMsSlider" Grid.Column="1" Minimum="0" Maximum="1000" TickFrequency="20"
+                                IsSnapToTickEnabled="True" ValueChanged="FadeMs_Changed"/>
+                        <TextBlock x:Name="FadeMsValue" Grid.Column="2" Width="58" TextAlignment="Right"
+                                   Foreground="{StaticResource AccentBrush}" FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid Margin="22,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="上浮距离" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5"
+                                   VerticalAlignment="Center"/>
+                        <Slider x:Name="HoverLiftSlider" Grid.Column="1" Minimum="0" Maximum="24" TickFrequency="1"
+                                IsSnapToTickEnabled="True" ValueChanged="HoverLift_Changed"/>
+                        <TextBlock x:Name="HoverLiftValue" Grid.Column="2" Width="38" TextAlignment="Right"
+                                   Foreground="{StaticResource AccentBrush}" FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                    <TextBlock Text="1 = 完全不透明，0.05 = 几乎看不见；过渡时长单位毫秒（0 = 立即切换）；上浮距离 0 = 不做上浮/下沉。"
+                               FontSize="9.5" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="22,5,0,0"/>
+                </StackPanel>
+
                 <!-- 底部 -->
-                <StackPanel Grid.Row="14" VerticalAlignment="Bottom">
+                <StackPanel Grid.Row="15" VerticalAlignment="Bottom">
                     <Button x:Name="BtnRefreshNow" Height="34" Margin="0,14,0,0" Cursor="Hand"
                             Click="BtnRefreshNow_Click">
                         <Button.Style>

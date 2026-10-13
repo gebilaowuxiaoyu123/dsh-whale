@@ -48,6 +48,17 @@ public partial class SettingsWindow : Window
         AutoStartCheck.IsChecked = c.AutoStart;
         TopMostCheck.IsChecked = c.TopMost;
         RememberPosCheck.IsChecked = c.RememberPos;
+
+        // 鼠标跟随透明度
+        MouseFadeCheck.IsChecked = c.MouseFade;
+        OpacityAwaySlider.Value = Math.Clamp(c.OpacityAway, 0.05, 1.0);
+        OpacityOverSlider.Value = Math.Clamp(c.OpacityOver, 0.05, 1.0);
+        FadeMsSlider.Value = Math.Clamp(c.FadeMs, 0, 1000);
+        OpacityAwayValue.Text = OpacityAwaySlider.Value.ToString("0.##");
+        OpacityOverValue.Text = OpacityOverSlider.Value.ToString("0.##");
+        FadeMsValue.Text = (int)FadeMsSlider.Value + " ms";
+        HoverLiftSlider.Value = Math.Clamp(c.HoverLiftPx, 0, 24);
+        HoverLiftValue.Text = HoverLiftSlider.Value.ToString("0") + " px";
     }
 
     private void ModeRadio_Checked(object sender, RoutedEventArgs e)
@@ -73,6 +84,47 @@ public partial class SettingsWindow : Window
         if (_loading) return;
         _settings.Save();
         _main.ApplySettings();
+    }
+
+    // ---- 鼠标跟随透明度 ----
+
+    private void MouseFade_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.Config.MouseFade = MouseFadeCheck.IsChecked == true;
+        SaveAndApply();
+    }
+
+    private void OpacityAway_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loading) return;
+        _settings.Config.OpacityAway = Math.Round(e.NewValue, 2);
+        OpacityAwayValue.Text = e.NewValue.ToString("0.##");
+        SaveAndApply();
+    }
+
+    private void OpacityOver_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loading) return;
+        _settings.Config.OpacityOver = Math.Round(e.NewValue, 2);
+        OpacityOverValue.Text = e.NewValue.ToString("0.##");
+        SaveAndApply();
+    }
+
+    private void FadeMs_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loading) return;
+        _settings.Config.FadeMs = (int)Math.Round(e.NewValue);
+        FadeMsValue.Text = _settings.Config.FadeMs + " ms";
+        SaveAndApply();
+    }
+
+    private void HoverLift_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loading) return;
+        _settings.Config.HoverLiftPx = Math.Round(e.NewValue);
+        HoverLiftValue.Text = _settings.Config.HoverLiftPx + " px";
+        SaveAndApply();
     }
 
     private void BarCountSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

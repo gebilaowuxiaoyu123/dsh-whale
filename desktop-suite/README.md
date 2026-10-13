@@ -14,6 +14,17 @@
 `tools\desktop-suite-doctor.ps1` 体检、`tools\setup-coopanion.ps1` 自动拉 Coopanion 并把 **18 个文件的魔改**打回去。
 完整换机流程见 [`../docs/desktop-suite-clone.md`](../docs/desktop-suite-clone.md)。
 
+## 鼠标悬停上浮 / 离开下沉变透明（Pogget + XSpace）
+
+鼠标不在桌宠上时它变透明并下沉，鼠标靠近时上浮恢复，两边都平滑过渡。两个插件各自带开关与数值：
+
+| 插件 | 开关在哪 | 实现方式 |
+| --- | --- | --- |
+| XSpace | XSpace 自己的「设置」窗口 → *鼠标悬停上浮、离开下沉变透明* | 改的是我们自己的源码（`XSpaceWidget/MainWindow.MouseFade.cs`） |
+| Pogget | `tools/desktop-mouse-fade.ps1`（双击即打开设置界面） | Pogget 是 **闭源第三方**，配置里没有透明/浮起项、UI 自动化也读不到它的控件，所以由这个外部助手承载 |
+
+细节、验证方法、排查见 [`../docs/desktop-mouse-fade.md`](../docs/desktop-mouse-fade.md)。
+
 ## 目录
 
 ```

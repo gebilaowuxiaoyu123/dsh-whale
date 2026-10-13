@@ -27,6 +27,23 @@ public class AppConfig
     /// <summary>是否记住窗口位置。</summary>
     public bool RememberPos { get; set; } = true;
 
+    // ================= 鼠标跟随透明度 =================
+
+    /// <summary>鼠标不在窗口上时自动变透明、移入时恢复（默认关闭）。</summary>
+    public bool MouseFade { get; set; } = false;
+
+    /// <summary>鼠标离开窗口时的不透明度（0.05~1.0）。</summary>
+    public double OpacityAway { get; set; } = 0.35;
+
+    /// <summary>鼠标在窗口上时的不透明度（0.05~1.0）。</summary>
+    public double OpacityOver { get; set; } = 1.0;
+
+    /// <summary>两种不透明度之间平滑过渡的毫秒数（浮起/下沉共用）。</summary>
+    public int FadeMs { get; set; } = 450;
+
+    /// <summary>鼠标悬停时向上浮起的距离（逻辑像素，0 = 不做上浮/下沉）。</summary>
+    public double HoverLiftPx { get; set; } = 8;
+
     /// <summary>上次窗口位置。</summary>
     public double Left { get; set; } = double.NaN;
 

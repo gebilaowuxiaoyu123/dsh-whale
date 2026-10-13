@@ -97,6 +97,7 @@ public partial class MainWindow : Window
         {
             await RefreshAllAsync();
             StartTimer();
+            InitMouseFade();          // 鼠标跟随透明度（设置里可开关）
         };
     }
 
@@ -646,7 +647,7 @@ public partial class MainWindow : Window
         if (!_settings.Config.RememberPos) return;
         if (double.IsNaN(Left) || double.IsNaN(Top)) return;
         _settings.Config.Left = Left;
-        _settings.Config.Top = Top;
+        _settings.Config.Top = double.IsNaN(_restTop) ? Top : _restTop;   // 存"静止位置"，别把悬浮位移存进去
         _settings.Save();
     }
 
