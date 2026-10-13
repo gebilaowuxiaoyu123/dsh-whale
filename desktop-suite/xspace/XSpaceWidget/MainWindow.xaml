@@ -63,12 +63,12 @@
                         <Border Width="11" Height="11" CornerRadius="5.5" Margin="0,0,10,0" VerticalAlignment="Center">
                             <Border.Background>
                                 <RadialGradientBrush>
-                                    <GradientStop Color="#4FC3F7" Offset="0"/>
-                                    <GradientStop Color="#0E7490" Offset="1"/>
+                                    <GradientStop Color="#818CF8" Offset="0"/>
+                                    <GradientStop Color="#4338CA" Offset="1"/>
                                 </RadialGradientBrush>
                             </Border.Background>
                             <Border.Effect>
-                                <DropShadowEffect BlurRadius="9" ShadowDepth="0" Color="#38BDF8" Opacity="0.9"/>
+                                <DropShadowEffect BlurRadius="9" ShadowDepth="0" Color="#6366F1" Opacity="0.45"/>
                             </Border.Effect>
                         </Border>
                         <StackPanel>

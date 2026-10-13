@@ -4,34 +4,37 @@
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
 
-        <!-- ===== 配色（浅色） ===== -->
-        <SolidColorBrush x:Key="AccentBrush" Color="#0284C7"/>
-        <SolidColorBrush x:Key="AccentDeepBrush" Color="#0369A1"/>
+        <!-- ===== 配色（浅色 · 参照 Tailwind 官方色板 slate + indigo/teal） ===== -->
+        <SolidColorBrush x:Key="AccentBrush" Color="#4F46E5"/>          <!-- indigo-600：左栏 -->
+        <SolidColorBrush x:Key="AccentDeepBrush" Color="#4338CA"/>      <!-- indigo-700 -->
         <!-- 右栏强调色 -->
-        <SolidColorBrush x:Key="AccentAltBrush" Color="#7C3AED"/>
-        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1E293B"/>
-        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#64748B"/>
-        <SolidColorBrush x:Key="BarBrush" Color="#14000000"/>
-        <SolidColorBrush x:Key="BarHoverBrush" Color="#2E000000"/>
-        <SolidColorBrush x:Key="WindowBorderBrush" Color="#26000000"/>
-        <SolidColorBrush x:Key="DangerBrush" Color="#DC2626"/>
-        <SolidColorBrush x:Key="OkBrush" Color="#16A34A"/>
-        <SolidColorBrush x:Key="WarnBrush" Color="#D97706"/>
+        <SolidColorBrush x:Key="AccentAltBrush" Color="#0D9488"/>       <!-- teal-600 -->
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#0F172A"/>     <!-- slate-900 -->
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#64748B"/>   <!-- slate-500 -->
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#94A3B8"/>       <!-- slate-400 -->
+        <SolidColorBrush x:Key="BarBrush" Color="#0A0F172A"/>           <!-- slate-900 4%：行底 -->
+        <SolidColorBrush x:Key="BarHoverBrush" Color="#140F172A"/>      <!-- 8% -->
+        <SolidColorBrush x:Key="SoftBrush" Color="#0F0F172A"/>          <!-- 6%：标签默认底 -->
+        <SolidColorBrush x:Key="SoftBorderBrush" Color="#1F0F172A"/>    <!-- 12%：标签默认描边 -->
+        <SolidColorBrush x:Key="WindowBorderBrush" Color="#1A0F172A"/>
+        <SolidColorBrush x:Key="DangerBrush" Color="#DC2626"/>          <!-- red-600 -->
+        <SolidColorBrush x:Key="OkBrush" Color="#059669"/>              <!-- emerald-600 -->
+        <SolidColorBrush x:Key="WarnBrush" Color="#B45309"/>           <!-- amber-700 -->
         <SolidColorBrush x:Key="PanelBrush" Color="#F2FFFFFF"/>
         <!-- Steam 价格视图两栏强调色 -->
-        <SolidColorBrush x:Key="SteamWishBrush" Color="#0D9488"/>
-        <SolidColorBrush x:Key="SteamCartBrush" Color="#D97706"/>
+        <SolidColorBrush x:Key="SteamWishBrush" Color="#0284C7"/>       <!-- sky-600 -->
+        <SolidColorBrush x:Key="SteamCartBrush" Color="#B45309"/>       <!-- amber-700 -->
         <!-- 折扣强调色（价格下方百分比 / 折扣胶囊） -->
-        <SolidColorBrush x:Key="DiscountBrush" Color="#16A34A"/>
+        <SolidColorBrush x:Key="DiscountBrush" Color="#047857"/>        <!-- emerald-700 -->
 
         <LinearGradientBrush x:Key="WindowBgBrush" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#F2FCFDFF" Offset="0"/>
-            <GradientStop Color="#F2E7EEF7" Offset="1"/>
+            <GradientStop Color="#F2F8FAFC" Offset="0"/>
+            <GradientStop Color="#F2EDF1F6" Offset="1"/>
         </LinearGradientBrush>
 
         <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#0EA5E9" Offset="0"/>
-            <GradientStop Color="#0369A1" Offset="1"/>
+            <GradientStop Color="#4F46E5" Offset="0"/>
+            <GradientStop Color="#4338CA" Offset="1"/>
         </LinearGradientBrush>
 
         <!-- ===== 图标按钮 ===== -->
@@ -52,11 +55,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#1F000000"/>
+                                <Setter TargetName="bd" Property="Background" Value="#0F0F172A"/>
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#33000000"/>
+                                <Setter TargetName="bd" Property="Background" Value="#1F0F172A"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -82,7 +85,7 @@
                     <ControlTemplate TargetType="RadioButton">
                         <StackPanel Orientation="Horizontal">
                             <Grid Width="16" Height="16" VerticalAlignment="Center">
-                                <Ellipse x:Name="outer" Stroke="#40000000" StrokeThickness="1.5" Fill="Transparent"/>
+                                <Ellipse x:Name="outer" Stroke="#330F172A" StrokeThickness="1.5" Fill="Transparent"/>
                                 <Ellipse x:Name="dot" Width="8" Height="8" Fill="{StaticResource AccentBrush}" Visibility="Collapsed"/>
                             </Grid>
                             <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"/>
@@ -112,8 +115,8 @@
             <Setter Property="Height" Value="30"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="#14000000"/>
-            <Setter Property="BorderBrush" Value="#33000000"/>
+            <Setter Property="Background" Value="#0A0F172A"/>
+            <Setter Property="BorderBrush" Value="#1F0F172A"/>
             <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -133,8 +136,8 @@
                                                 <Style TargetType="Border">
                                                     <Style.Triggers>
                                                         <Trigger Property="IsMouseOver" Value="True">
-                                                            <Setter Property="Background" Value="#24000000"/>
-                                                            <Setter Property="BorderBrush" Value="#59000000"/>
+                                                            <Setter Property="Background" Value="#140F172A"/>
+                                                            <Setter Property="BorderBrush" Value="#400F172A"/>
                                                         </Trigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -167,7 +170,7 @@
                                    AllowsTransparency="True" Focusable="False"
                                    PopupAnimation="Slide" VerticalOffset="3">
                                 <Border CornerRadius="9" Background="#F2FFFFFF"
-                                        BorderBrush="#33000000" BorderThickness="1"
+                                        BorderBrush="#1F0F172A" BorderThickness="1"
                                         Margin="0,2,0,0"
                                         MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
                                     <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
@@ -196,10 +199,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#3A38BDF8"/>
+                                <Setter TargetName="bd" Property="Background" Value="#3A4F46E5"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#2E38BDF8"/>
+                                <Setter TargetName="bd" Property="Background" Value="#2E4F46E5"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -211,8 +214,8 @@
             <Setter Property="Height" Value="28"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="#14000000"/>
-            <Setter Property="BorderBrush" Value="#33000000"/>
+            <Setter Property="Background" Value="#0A0F172A"/>
+            <Setter Property="BorderBrush" Value="#1F0F172A"/>
             <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}"/>
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>

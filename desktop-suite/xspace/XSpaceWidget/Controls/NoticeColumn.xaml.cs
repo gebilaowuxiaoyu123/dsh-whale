@@ -522,14 +522,24 @@ public partial class NoticeColumn : UserControl
     private static Style BuildChipStyle()
     {
         var style = new Style(typeof(Border));
-        style.Setters.Add(new Setter(Border.BackgroundProperty, Tint(0x1F, 0x0F, 0x17, 0x2A)));
-        style.Triggers.Add(TintTrigger("top", Border.BackgroundProperty, Tint(0xE6, 0xFF, 0xC9, 0x3C)));      // 榜单：金色实底
-        style.Triggers.Add(TintTrigger("deal", Border.BackgroundProperty, Tint(0xE6, 0xFF, 0xC9, 0x3C)));     // 特惠类型：金色实底
-        style.Triggers.Add(TintTrigger("pct", Border.BackgroundProperty, Tint(0xF2, 0x4A, 0xDE, 0x80)));      // 折扣力度：亮绿实底
-        style.Triggers.Add(TintTrigger("free", Border.BackgroundProperty, Tint(0xCC, 0x34, 0xD3, 0x99)));     // 免费：绿色
-        style.Triggers.Add(TintTrigger("form", Border.BackgroundProperty, Tint(0x4A, 0xFB, 0xBF, 0x24)));
-        style.Triggers.Add(TintTrigger("level", Border.BackgroundProperty, Tint(0x3A, 0xA7, 0x8B, 0xFA)));
-        style.Triggers.Add(TintTrigger("team", Border.BackgroundProperty, Tint(0x33, 0x34, 0xD3, 0x99)));
+        // 软标签：浅底（同色系 10~16% 透明）+ 细描边，不用饱和实底（饱和实底在浅色卡片上太抢眼）
+        style.Setters.Add(new Setter(Border.BackgroundProperty, Tint(0x0F, 0x0F, 0x17, 0x2A)));
+        style.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(1)));
+        style.Setters.Add(new Setter(Border.BorderBrushProperty, Tint(0x1F, 0x0F, 0x17, 0x2A)));
+        style.Triggers.Add(TintTrigger("top", Border.BackgroundProperty, Tint(0x29, 0xF5, 0x9E, 0x0B)));    // 榜单：amber-500 16%
+        style.Triggers.Add(TintTrigger("deal", Border.BackgroundProperty, Tint(0x29, 0xF5, 0x9E, 0x0B)));   // 特惠类型
+        style.Triggers.Add(TintTrigger("pct", Border.BackgroundProperty, Tint(0x29, 0x10, 0xB9, 0x81)));    // 折扣力度：emerald
+        style.Triggers.Add(TintTrigger("free", Border.BackgroundProperty, Tint(0x24, 0x10, 0xB9, 0x81)));   // 免费
+        style.Triggers.Add(TintTrigger("form", Border.BackgroundProperty, Tint(0x24, 0xF9, 0x73, 0x16)));   // 形式：orange
+        style.Triggers.Add(TintTrigger("level", Border.BackgroundProperty, Tint(0x24, 0x3B, 0x82, 0xF6)));  // 级别：blue
+        style.Triggers.Add(TintTrigger("team", Border.BackgroundProperty, Tint(0x24, 0x14, 0xB8, 0xA6)));   // 团队：teal
+        style.Triggers.Add(TintTrigger("top", Border.BorderBrushProperty, Tint(0x3D, 0xB4, 0x53, 0x09)));
+        style.Triggers.Add(TintTrigger("deal", Border.BorderBrushProperty, Tint(0x3D, 0xB4, 0x53, 0x09)));
+        style.Triggers.Add(TintTrigger("pct", Border.BorderBrushProperty, Tint(0x3D, 0x04, 0x78, 0x57)));
+        style.Triggers.Add(TintTrigger("free", Border.BorderBrushProperty, Tint(0x3D, 0x04, 0x78, 0x57)));
+        style.Triggers.Add(TintTrigger("form", Border.BorderBrushProperty, Tint(0x3D, 0xC2, 0x41, 0x0C)));
+        style.Triggers.Add(TintTrigger("level", Border.BorderBrushProperty, Tint(0x3D, 0x1D, 0x4E, 0xD8)));
+        style.Triggers.Add(TintTrigger("team", Border.BorderBrushProperty, Tint(0x3D, 0x0F, 0x76, 0x6E)));
         // 折扣胶囊略大一点
         var pctPad = new DataTrigger { Binding = new Binding("Kind"), Value = "pct" };
         pctPad.Setters.Add(new Setter(Border.PaddingProperty, new Thickness(7, 1.5, 7, 1.5)));
@@ -541,14 +551,14 @@ public partial class NoticeColumn : UserControl
     private static Style BuildChipTextStyle()
     {
         var style = new Style(typeof(TextBlock));
-        style.Setters.Add(new Setter(TextBlock.ForegroundProperty, Tint(0xFF, 0x33, 0x41, 0x50)));
-        style.Triggers.Add(TintTrigger("top", TextBlock.ForegroundProperty, Tint(0xFF, 0x3A, 0x2A, 0x06)));      // 金底上用深色字
-        style.Triggers.Add(TintTrigger("deal", TextBlock.ForegroundProperty, Tint(0xFF, 0x3A, 0x2A, 0x06)));
-        style.Triggers.Add(TintTrigger("pct", TextBlock.ForegroundProperty, Tint(0xFF, 0x06, 0x2A, 0x17)));       // 亮绿底上用深色字
-        style.Triggers.Add(TintTrigger("free", TextBlock.ForegroundProperty, Tint(0xFF, 0x06, 0x2A, 0x17)));
-        style.Triggers.Add(TintTrigger("form", TextBlock.ForegroundProperty, Tint(0xFF, 0x92, 0x5B, 0x00)));
-        style.Triggers.Add(TintTrigger("level", TextBlock.ForegroundProperty, Tint(0xFF, 0x6D, 0x28, 0xD9)));
-        style.Triggers.Add(TintTrigger("team", TextBlock.ForegroundProperty, Tint(0xFF, 0x15, 0x80, 0x3D)));
+        style.Setters.Add(new Setter(TextBlock.ForegroundProperty, Tint(0xFF, 0x64, 0x74, 0x8B)));            // slate-500
+        style.Triggers.Add(TintTrigger("top", TextBlock.ForegroundProperty, Tint(0xFF, 0x92, 0x40, 0x0E)));   // amber-800
+        style.Triggers.Add(TintTrigger("deal", TextBlock.ForegroundProperty, Tint(0xFF, 0x92, 0x40, 0x0E)));
+        style.Triggers.Add(TintTrigger("pct", TextBlock.ForegroundProperty, Tint(0xFF, 0x04, 0x78, 0x57)));    // emerald-700
+        style.Triggers.Add(TintTrigger("free", TextBlock.ForegroundProperty, Tint(0xFF, 0x04, 0x78, 0x57)));
+        style.Triggers.Add(TintTrigger("form", TextBlock.ForegroundProperty, Tint(0xFF, 0xC2, 0x41, 0x0C)));  // orange-700
+        style.Triggers.Add(TintTrigger("level", TextBlock.ForegroundProperty, Tint(0xFF, 0x1D, 0x4E, 0xD8))); // blue-700
+        style.Triggers.Add(TintTrigger("team", TextBlock.ForegroundProperty, Tint(0xFF, 0x0F, 0x76, 0x6E)));  // teal-700
         // 折扣胶囊：字号大一号 + 加粗
         var pctText = new DataTrigger { Binding = new Binding("Kind"), Value = "pct" };
         pctText.Setters.Add(new Setter(TextBlock.FontSizeProperty, 10.5));
