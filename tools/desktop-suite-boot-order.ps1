@@ -160,6 +160,10 @@ function Invoke-Boot {
             continue
         }
         $ts = Get-Date
+        # 已经在跑就不要重复拉起（计划任务那一步尤其重要：它本来就是开机第一步，没必要禁用）
+        $running = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                   Where-Object { $_.CommandLine -and $_.CommandLine -like "*$($s.Match)*" } | Select-Object -First 1
+        if ($s.Match -and $running) { Write-Log "[$($s.Step)] $($s.Name) — 已在运行，跳过启动"; continue }
         try { Start-Stage $s; Write-Log ("[$($s.Step)] {0} — 已拉起（用时 {1:0.0}s）" -f $s.Name, ((Get-Date) - $ts).TotalSeconds) }
         catch { Write-Log ("[$($s.Step)] {0} — 启动失败：{1}" -f $s.Name, $_.Exception.Message); continue }
         $ok = Wait-Stage $s
@@ -188,7 +192,9 @@ function Show-Status {
         $v = (Get-ItemProperty -Path $RunKey -Name $k -ErrorAction SilentlyContinue).$k
         if ($v) { "  HKCU Run $k = $v" }
     }
-    foreach ($f in @($MyVbs, $HelperVbs, $GuardVbs)) {
+    $self = (Get-ItemProperty -Path $RunKey -Name 'DSH-Boot-Order' -ErrorAction SilentlyContinue).'DSH-Boot-Order'
+    "  HKCU Run DSH-Boot-Order = $(if ($self) { '已装 ✓' } else { '未装' })"
+    foreach ($f in @($HelperVbs, $GuardVbs)) {
         "  启动文件夹 $(Split-Path $f -Leaf) = $(if (Test-Path $f) { '存在' } else { '不在' })"
     }
     if (Test-Path $BackupPath) { "  自启备份: $BackupPath" }
@@ -198,32 +204,38 @@ function Show-Status {
 function Install-Takeover {
     if (-not (Test-Path $CfgDir)) { New-Item -ItemType Directory -Force -Path $CfgDir | Out-Null }
     $backup = [ordered]@{ Created = (Get-Date).ToString('s'); RunKeys = @{}; TaskDisabled = $false; StartupFiles = @() }
-    # 1) 备份 HKCU Run
-    foreach ($k in @('electron.app.Electron', 'XSpaceWidget', 'MyCoolApp')) {
+    # 1) 备份 HKCU Run（Lively 也一起接管，否则它会绕过顺序提前启动）
+    foreach ($k in @('electron.app.Electron', 'XSpaceWidget', 'MyCoolApp', 'Lively')) {
         $v = (Get-ItemProperty -Path $RunKey -Name $k -ErrorAction SilentlyContinue).$k
         if ($v) { $backup.RunKeys[$k] = $v; Remove-ItemProperty -Path $RunKey -Name $k -Force }
     }
-    # 2) 计划任务：禁用它的登录触发（启动器按需 Start-ScheduledTask 拉起）
+    # 2) 计划任务**保持原样**（它就是开机的第一步，没必要接管）
+    #    坑：被 Disable 的任务无法用 Start-ScheduledTask 按需拉起（实测报 The task is disabled），
+    #    而它本来就排在第 1 步，让它按登录触发自己起反而正好。只导出一份 XML 作为记录。
     $t = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -eq 'DSH Whale Desktop Widget' }
     if ($t) {
         try { Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath | Set-Content (Join-Path $CfgDir 'task-DSH-Whale-Desktop-Widget.xml') -Encoding UTF8 } catch { }
-        Disable-ScheduledTask -TaskName $t.TaskName | Out-Null
-        $backup.TaskDisabled = $true
+        $backup.TaskDisabled = $false
     }
     # 3) 助手自启也交给启动器（最后一步），先备份再移除；壁纸守护保持原样（它很轻，且第 3 步也会确保它在跑）
     if (Test-Path $HelperVbs) {
         $backup.StartupFiles += @{ Name = 'dsh-mouse-fade.vbs'; Content = (Get-Content $HelperVbs -Raw -Encoding ASCII) }
         Remove-Item $HelperVbs -Force
     }
-    ($backup | ConvertTo-Json -Depth 6) | Set-Content $BackupPath -Encoding UTF8
-    # 4) 自己的自启（启动文件夹里的一个 vbs）
-    $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $PSScriptRoot 'desktop-suite-boot-order.ps1') + '" -Run'
-    Set-Content -Path $MyVbs -Value ('CreateObject("WScript.Shell").Run "' + ($cmd -replace '"', '""') + '", 0, False') -Encoding ASCII
+    if (-not (Test-Path $BackupPath)) {
+        ($backup | ConvertTo-Json -Depth 6) | Set-Content $BackupPath -Encoding UTF8
+    } else {
+        Write-Host "  已有备份，保留原备份不覆盖：$BackupPath"
+    }
+    # 4) 自己挂在 HKCU Run 上
+    #    注：不要写“启动文件夹” —— 那里的写入会被 Windows“受控文件夹访问”/安全软件拒掉（实测 Access Denied）
+    $self = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $PSScriptRoot 'desktop-suite-boot-order.ps1') + '" -Run'
+    Set-ItemProperty -Path $RunKey -Name 'DSH-Boot-Order' -Value $self
     Write-Host "已接管自启："
     Write-Host "  已备份到 $BackupPath"
     Write-Host "  已移除 HKCU Run: $($backup.RunKeys.Keys -join ', ')"
-    Write-Host "  已禁用计划任务的登录触发（启动器会按需拉起）"
-    Write-Host "  已装自己的自启: $MyVbs"
+    Write-Host "  计划任务 DSH Whale Desktop Widget 保持原样（它就是第一步）"
+    Write-Host "  已装自己的自启: HKCU Run → DSH-Boot-Order"
 }
 
 function Restore-Autostart {
@@ -235,6 +247,7 @@ function Restore-Autostart {
         if ($t) { Enable-ScheduledTask -TaskName $t.TaskName | Out-Null }
     }
     foreach ($f in @($b.StartupFiles)) { Set-Content -Path (Join-Path $StartupDir $f.Name) -Value $f.Content -Encoding ASCII }
+    Remove-ItemProperty -Path $RunKey -Name 'DSH-Boot-Order' -Force -ErrorAction SilentlyContinue
     if (Test-Path $MyVbs) { Remove-Item $MyVbs -Force }
     Write-Host "已还原自启项（Run 值 / 计划任务 / 启动文件夹），并移除启动器的自启。"
 }

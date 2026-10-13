@@ -43,10 +43,16 @@ tools\desktop-suite-boot-order.ps1 -Restore   # 还原自启项
 
 1. 备份 `HKCU\...\Run` 里的 `electron.app.Electron` / `XSpaceWidget` / `MyCoolApp` 并删除
    （Lively 的 `Run` 项**不动**：它由第 3 步以正常用户令牌拉起，效果一样但便于回退）；
-2. 导出并**禁用**计划任务 `DSH Whale Desktop Widget` 的登录触发（启动器按需 `Start-ScheduledTask` 拉起）；
+2. **不动**计划任务 `DSH Whale Desktop Widget`（它本来就是开机第一步，让它按登录触发自己起正好；
+   并且实测**被 Disable 的任务无法用 `Start-ScheduledTask` 按需拉起**，会报 `The task is disabled`）——
+   只导出一份 XML 留作记录；
 3. 备份并移除启动文件夹里的 `dsh-mouse-fade.vbs`（鼠标助手改由第 6 步拉起）；
    壁纸守护 `wallpaper-power-guard.vbs` **保持原样**（它很轻，第 3 步也会确保它在跑）；
-4. 在启动文件夹装自己的 `dsh-boot-order.vbs`。
+4. 把自己挂到 `HKCU\...\Run` 的 `DSH-Boot-Order`（**不写启动文件夹**：那里的写入会被 Windows
+   “受控文件夹访问”或安全软件拒绝，实测 Access Denied）。
+
+另外：启动器的每一步都会先看“这个插件是不是已经在跑”，在跑就只记一行日志跳过拉起
+（避免和计划任务、或用户手动开的实例打架）。
 
 备份落在 `desktop-suite\_runtime\boot-order\autostart-backup.json`（+ 计划任务 XML 导出），
 `-Restore` 会按它把所有自启项还回去。
