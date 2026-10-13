@@ -65,7 +65,7 @@ function Get-Config {
     if (Test-Path $CfgPath) {
         try {
             $j = Get-Content $CfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($j.Stages -and $j.Stages.Count -eq $DefaultStages.Count) { return $j }
+            if ($j.Stages -and @($j.Stages).Count -gt 0) { return $j }
         } catch { Write-Log "配置读取失败，用默认顺序：$($_.Exception.Message)" }
     }
     $cfg = [pscustomobject]@{ Enabled = $true; Stages = $DefaultStages }
@@ -105,7 +105,8 @@ function Start-Stage($s) {
             $exe = Join-Path $base $s.Target
             if (-not (Test-Path -LiteralPath $exe)) { throw "找不到 $exe" }
             $a = $s.Args -replace '<dir>', $base
-            Start-Detached -Exe $exe -Args $a -WorkDir $base
+            $cmd = '"' + $exe + '"' + $(if ($a) { ' ' + $a } else { '' })
+            Start-ViaWsh -CmdLine $cmd -WorkDir $base -Tag 'exe'
         }
         'lively' {
             $lv = Join-Path $env:LOCALAPPDATA 'Programs\Lively Wallpaper\Lively.exe'
@@ -116,22 +117,24 @@ function Start-Stage($s) {
             if (Test-Path -LiteralPath $GuardVbs) { & wscript.exe $GuardVbs }   # 壁纸守护（覆盖/电池时冻结壁纸）
         }
         'helper' {
-            $vbs = Join-Path $env:TEMP 'dsh-helper-run.vbs'
             $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $base + '" -Run'
-            Set-Content -Path $vbs -Value ('CreateObject("WScript.Shell").Run "' + ($cmd -replace '"', '""') + '", 0, False') -Encoding ASCII
-            & wscript.exe $vbs
-            Remove-Item $vbs -Force -ErrorAction SilentlyContinue
+            Start-ViaWsh -CmdLine $cmd -WorkDir '' -Tag 'helper'
         }
     }
 }
 
-function Start-Detached([string]$Exe, [string]$Args, [string]$WorkDir) {
-    $vbs = Join-Path $env:TEMP 'dsh-stage-run.vbs'
-    $line = 'Set s = CreateObject("WScript.Shell")' + "`r`n" + 's.CurrentDirectory = "' + $WorkDir + '"' + "`r`n" +
-            's.Run """' + $Exe + '"" ' + $Args + '", 0, False'
-    Set-Content -Path $vbs -Value $line -Encoding ASCII
+function Start-ViaWsh([string]$CmdLine, [string]$WorkDir, [string]$Tag) {
+    # 生成并执行一个 vbs 启动器。两个坑（都踩过）：
+    #   1) vbs 文件**不能启动后立刻删** —— wscript 还没打开它就被删了，会弹“无法找到脚本文件”且进程起不来；
+    #      所以写到固定路径（_runtime 下），覆盖写、不删。
+    #   2) VBScript 字符串里的双引号要翻倍：s.Run """<exe>"" ""<dir>"" --background", 0, False
+    if (-not (Test-Path $CfgDir)) { New-Item -ItemType Directory -Force -Path $CfgDir | Out-Null }
+    $vbs = Join-Path $CfgDir ('launch-' + $Tag + '.vbs')
+    $lines = @('Set s = CreateObject("WScript.Shell")')
+    if ($WorkDir) { $lines += 's.CurrentDirectory = "' + $WorkDir + '"' }
+    $lines += ('s.Run "' + ($CmdLine -replace '"', '""') + '", 0, False')
+    Set-Content -Path $vbs -Value ($lines -join "`r`n") -Encoding ASCII
     & wscript.exe $vbs
-    Remove-Item $vbs -Force -ErrorAction SilentlyContinue
 }
 
 function Wait-Stage($s) {
