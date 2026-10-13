@@ -61,7 +61,7 @@ public partial class NoticeColumn : UserControl
     private readonly List<BarCell> _cells = new();       // 固定槽位（比显示条数多 1，作滚动缓冲）
     private readonly HashSet<int> _loadedPages = new();
     private INoticeSource? _source;
-    private int _barCount = 5;
+    private int _barCount = 4;
     private int _offset;                                  // 视口起始索引
     private int _lastLoadedPage = 1;
     private int _maxPage = 1;
@@ -522,7 +522,7 @@ public partial class NoticeColumn : UserControl
     private static Style BuildChipStyle()
     {
         var style = new Style(typeof(Border));
-        style.Setters.Add(new Setter(Border.BackgroundProperty, Tint(0x28, 0xFF, 0xFF, 0xFF)));
+        style.Setters.Add(new Setter(Border.BackgroundProperty, Tint(0x1F, 0x0F, 0x17, 0x2A)));
         style.Triggers.Add(TintTrigger("top", Border.BackgroundProperty, Tint(0xE6, 0xFF, 0xC9, 0x3C)));      // 榜单：金色实底
         style.Triggers.Add(TintTrigger("deal", Border.BackgroundProperty, Tint(0xE6, 0xFF, 0xC9, 0x3C)));     // 特惠类型：金色实底
         style.Triggers.Add(TintTrigger("pct", Border.BackgroundProperty, Tint(0xF2, 0x4A, 0xDE, 0x80)));      // 折扣力度：亮绿实底
@@ -541,14 +541,14 @@ public partial class NoticeColumn : UserControl
     private static Style BuildChipTextStyle()
     {
         var style = new Style(typeof(TextBlock));
-        style.Setters.Add(new Setter(TextBlock.ForegroundProperty, Tint(0xFF, 0xD8, 0xE3, 0xEE)));
+        style.Setters.Add(new Setter(TextBlock.ForegroundProperty, Tint(0xFF, 0x33, 0x41, 0x50)));
         style.Triggers.Add(TintTrigger("top", TextBlock.ForegroundProperty, Tint(0xFF, 0x3A, 0x2A, 0x06)));      // 金底上用深色字
         style.Triggers.Add(TintTrigger("deal", TextBlock.ForegroundProperty, Tint(0xFF, 0x3A, 0x2A, 0x06)));
         style.Triggers.Add(TintTrigger("pct", TextBlock.ForegroundProperty, Tint(0xFF, 0x06, 0x2A, 0x17)));       // 亮绿底上用深色字
         style.Triggers.Add(TintTrigger("free", TextBlock.ForegroundProperty, Tint(0xFF, 0x06, 0x2A, 0x17)));
-        style.Triggers.Add(TintTrigger("form", TextBlock.ForegroundProperty, Tint(0xFF, 0xFD, 0xE2, 0x8A)));
-        style.Triggers.Add(TintTrigger("level", TextBlock.ForegroundProperty, Tint(0xFF, 0xC4, 0xB5, 0xFD)));
-        style.Triggers.Add(TintTrigger("team", TextBlock.ForegroundProperty, Tint(0xFF, 0x8C, 0xF0, 0xB4)));
+        style.Triggers.Add(TintTrigger("form", TextBlock.ForegroundProperty, Tint(0xFF, 0x92, 0x5B, 0x00)));
+        style.Triggers.Add(TintTrigger("level", TextBlock.ForegroundProperty, Tint(0xFF, 0x6D, 0x28, 0xD9)));
+        style.Triggers.Add(TintTrigger("team", TextBlock.ForegroundProperty, Tint(0xFF, 0x15, 0x80, 0x3D)));
         // 折扣胶囊：字号大一号 + 加粗
         var pctText = new DataTrigger { Binding = new Binding("Kind"), Value = "pct" };
         pctText.Setters.Add(new Setter(TextBlock.FontSizeProperty, 10.5));

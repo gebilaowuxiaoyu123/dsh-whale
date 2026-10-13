@@ -5,7 +5,8 @@
     "OpacityAway":  0.35,
     "OpacityOver":  1,
     "FadeMs":  450,
-    "LiftPx":  0,
+    "LiftPx":  16,
     "Enabled":  true,
-    "WindowClassLike":  "Pogget.Vina.Com.Container.Class*"
+    "WindowClassLike":  "Pogget.Vina.Com.Container.Class*",
+    "UngroupKey":  "Ctrl"
 }

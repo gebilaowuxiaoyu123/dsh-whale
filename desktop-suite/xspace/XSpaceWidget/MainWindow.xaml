@@ -52,7 +52,7 @@
                     </Grid.RowDefinitions>
 
                 <!-- ===== 标题栏 ===== -->
-                <Grid Grid.Row="0" Background="#10FFFFFF" MouseLeftButtonDown="Header_MouseLeftButtonDown">
+                <Grid Grid.Row="0" Background="#08000000" MouseLeftButtonDown="Header_MouseLeftButtonDown">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
@@ -92,7 +92,7 @@
                     </StackPanel>
                 </Grid>
 
-                <Border Grid.Row="1" Background="#1CFFFFFF"/>
+                <Border Grid.Row="1" Background="#1A000000"/>
 
                 <!-- ===== 信息栏列表（左右两栏） ===== -->
                 <Grid Grid.Row="2">
@@ -105,14 +105,14 @@
                     <!-- 左栏：X·Space 竞赛通知 -->
                     <ctl:NoticeColumn x:Name="LeftColumn" Grid.Column="0"/>
 
-                    <Border Grid.Column="1" Background="#1CFFFFFF"/>
+                    <Border Grid.Column="1" Background="#1A000000"/>
 
                     <!-- 右栏：赛氪竞赛广场（可切换为自定义网页） -->
                     <ctl:NoticeColumn x:Name="RightColumn" Grid.Column="2"/>
                 </Grid>
 
                 <!-- ===== 状态栏 ===== -->
-                <Grid Grid.Row="3" Background="#12FFFFFF">
+                <Grid Grid.Row="3" Background="#08000000">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
                         <Ellipse x:Name="StatusDot" Width="7" Height="7" Fill="{StaticResource WarnBrush}" VerticalAlignment="Center"/>
                         <TextBlock x:Name="StatusText" Text="连接中…" Margin="7,0,0,0" FontSize="10.5"

@@ -4,34 +4,34 @@
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
 
-        <!-- ===== 配色 ===== -->
-        <SolidColorBrush x:Key="AccentBrush" Color="#38BDF8"/>
-        <SolidColorBrush x:Key="AccentDeepBrush" Color="#0EA5E9"/>
+        <!-- ===== 配色（浅色） ===== -->
+        <SolidColorBrush x:Key="AccentBrush" Color="#0284C7"/>
+        <SolidColorBrush x:Key="AccentDeepBrush" Color="#0369A1"/>
         <!-- 右栏强调色 -->
-        <SolidColorBrush x:Key="AccentAltBrush" Color="#A78BFA"/>
-        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F7FC"/>
-        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9FB0C3"/>
-        <SolidColorBrush x:Key="BarBrush" Color="#1FFFFFFF"/>
-        <SolidColorBrush x:Key="BarHoverBrush" Color="#38FFFFFF"/>
-        <SolidColorBrush x:Key="WindowBorderBrush" Color="#42FFFFFF"/>
-        <SolidColorBrush x:Key="DangerBrush" Color="#F87171"/>
-        <SolidColorBrush x:Key="OkBrush" Color="#4ADE80"/>
-        <SolidColorBrush x:Key="WarnBrush" Color="#FBBF24"/>
-        <SolidColorBrush x:Key="PanelBrush" Color="#F21B2231"/>
+        <SolidColorBrush x:Key="AccentAltBrush" Color="#7C3AED"/>
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1E293B"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#64748B"/>
+        <SolidColorBrush x:Key="BarBrush" Color="#14000000"/>
+        <SolidColorBrush x:Key="BarHoverBrush" Color="#2E000000"/>
+        <SolidColorBrush x:Key="WindowBorderBrush" Color="#26000000"/>
+        <SolidColorBrush x:Key="DangerBrush" Color="#DC2626"/>
+        <SolidColorBrush x:Key="OkBrush" Color="#16A34A"/>
+        <SolidColorBrush x:Key="WarnBrush" Color="#D97706"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#F2FFFFFF"/>
         <!-- Steam 价格视图两栏强调色 -->
-        <SolidColorBrush x:Key="SteamWishBrush" Color="#5EEAD4"/>
-        <SolidColorBrush x:Key="SteamCartBrush" Color="#FBBF24"/>
+        <SolidColorBrush x:Key="SteamWishBrush" Color="#0D9488"/>
+        <SolidColorBrush x:Key="SteamCartBrush" Color="#D97706"/>
         <!-- 折扣强调色（价格下方百分比 / 折扣胶囊） -->
-        <SolidColorBrush x:Key="DiscountBrush" Color="#4ADE80"/>
+        <SolidColorBrush x:Key="DiscountBrush" Color="#16A34A"/>
 
         <LinearGradientBrush x:Key="WindowBgBrush" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#F2293347" Offset="0"/>
-            <GradientStop Color="#F2181E2C" Offset="1"/>
+            <GradientStop Color="#F2FCFDFF" Offset="0"/>
+            <GradientStop Color="#F2E7EEF7" Offset="1"/>
         </LinearGradientBrush>
 
         <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#38BDF8" Offset="0"/>
-            <GradientStop Color="#0E7490" Offset="1"/>
+            <GradientStop Color="#0EA5E9" Offset="0"/>
+            <GradientStop Color="#0369A1" Offset="1"/>
         </LinearGradientBrush>
 
         <!-- ===== 图标按钮 ===== -->
@@ -52,11 +52,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#2AFFFFFF"/>
+                                <Setter TargetName="bd" Property="Background" Value="#1F000000"/>
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#3DFFFFFF"/>
+                                <Setter TargetName="bd" Property="Background" Value="#33000000"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -71,7 +71,7 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
-        <!-- RadioButton 深色样式（用于模式选择） -->
+        <!-- RadioButton 浅色样式（用于模式选择） -->
         <Style TargetType="RadioButton">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             <Setter Property="FontSize" Value="12.5"/>
@@ -82,7 +82,7 @@
                     <ControlTemplate TargetType="RadioButton">
                         <StackPanel Orientation="Horizontal">
                             <Grid Width="16" Height="16" VerticalAlignment="Center">
-                                <Ellipse x:Name="outer" Stroke="#8AFFFFFF" StrokeThickness="1.5" Fill="Transparent"/>
+                                <Ellipse x:Name="outer" Stroke="#40000000" StrokeThickness="1.5" Fill="Transparent"/>
                                 <Ellipse x:Name="dot" Width="8" Height="8" Fill="{StaticResource AccentBrush}" Visibility="Collapsed"/>
                             </Grid>
                             <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"/>
@@ -107,13 +107,13 @@
             <Setter Property="Margin" Value="0,10,0,2"/>
         </Style>
 
-        <!-- ComboBox 深色主题模板（ToggleButton 覆盖主体，点击展开下拉） -->
+        <!-- ComboBox 浅色主题模板（ToggleButton 覆盖主体，点击展开下拉） -->
         <Style TargetType="ComboBox">
             <Setter Property="Height" Value="30"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="#33273A4C"/>
-            <Setter Property="BorderBrush" Value="#55FFFFFF"/>
+            <Setter Property="Background" Value="#14000000"/>
+            <Setter Property="BorderBrush" Value="#33000000"/>
             <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -133,8 +133,8 @@
                                                 <Style TargetType="Border">
                                                     <Style.Triggers>
                                                         <Trigger Property="IsMouseOver" Value="True">
-                                                            <Setter Property="Background" Value="#40273A4C"/>
-                                                            <Setter Property="BorderBrush" Value="#8AFFFFFF"/>
+                                                            <Setter Property="Background" Value="#24000000"/>
+                                                            <Setter Property="BorderBrush" Value="#59000000"/>
                                                         </Trigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -166,8 +166,8 @@
                                    IsOpen="{TemplateBinding IsDropDownOpen}"
                                    AllowsTransparency="True" Focusable="False"
                                    PopupAnimation="Slide" VerticalOffset="3">
-                                <Border CornerRadius="9" Background="#F0232C3B"
-                                        BorderBrush="#60FFFFFF" BorderThickness="1"
+                                <Border CornerRadius="9" Background="#F2FFFFFF"
+                                        BorderBrush="#33000000" BorderThickness="1"
                                         Margin="0,2,0,0"
                                         MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
                                     <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
@@ -181,7 +181,7 @@
             </Setter>
         </Style>
 
-        <!-- ComboBoxItem 深色样式（下拉项） -->
+        <!-- ComboBoxItem 浅色样式（下拉项） -->
         <Style TargetType="ComboBoxItem">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             <Setter Property="FontSize" Value="12"/>
@@ -211,8 +211,8 @@
             <Setter Property="Height" Value="28"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="#2430404F"/>
-            <Setter Property="BorderBrush" Value="#40FFFFFF"/>
+            <Setter Property="Background" Value="#14000000"/>
+            <Setter Property="BorderBrush" Value="#33000000"/>
             <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}"/>
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>

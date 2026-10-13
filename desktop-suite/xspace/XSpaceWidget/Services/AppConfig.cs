@@ -10,7 +10,7 @@ public class AppConfig
     public const string DefaultRightTitle = "赛氪竞赛广场";
 
     /// <summary>每列显示的栏数（条数），范围 2..12。</summary>
-    public int BarCount { get; set; } = 5;
+    public int BarCount { get; set; } = 4;
 
     /// <summary>是否联网自动刷新。</summary>
     public bool AutoRefresh { get; set; } = true;

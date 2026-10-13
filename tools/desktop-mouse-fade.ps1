@@ -71,6 +71,7 @@ public class MouseFadeNative {
     [DllImport("user32.dll")] public static extern bool GetLayeredWindowAttributes(IntPtr h, out uint key, out byte alpha, out uint flags);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 
@@ -97,6 +98,12 @@ public class MouseFadeNative {
     public static bool LeftButtonDown() {
         return (GetAsyncKeyState(0x01) & 0x8000) != 0;
     }
+    /// 模拟按住 / 松开一个键（KEYEVENTF_KEYUP = 2）。
+    /// 用途：Pogget 的桌面收纳盒被「编组」后，移动任意一个会把整组一起挪；
+    /// 但只要**移动的那一刻有键被按住**，它就不做整组联动（即它菜单里的「临时解除编组」）。
+    /// 所以位移前按住 Ctrl，就能让单个收纳盒上浮/下沉。
+    public static void KeyDown(int vk) { if (vk > 0) keybd_event((byte)vk, 0, 0, IntPtr.Zero); }
+    public static void KeyUp(int vk)   { if (vk > 0) keybd_event((byte)vk, 0, 2, IntPtr.Zero); }
     /// 只移动窗口纵向位置（横向、尺寸、z 序都不动）。
     /// 用同步调用：异步（SWP_ASYNCWINDOWPOS）会偶发丢包，实测“沉回原位”那一帧会丢、
     /// 导致窗口停在上浮位置且被误当成新基准（每悬停一次就往上漂 16px）。
@@ -193,6 +200,42 @@ public class MouseFader {
     const int WriteMinGapMs = 7;      // 写窗口的频率上限，约 140Hz
     static bool timerRaised;
 
+    // ---- 「临时解除编组」按键（位移期间按住） ----
+    // Pogget 只有在“有键按住”时才允许单个收纳盒移动（见 MouseFadeNative.KeyDown）。
+    // 上浮/下沉的整个动画期间按住它，动画结束后再延后一点松开，
+    // 保证最后一次位移也被它看到。LiftPx = 0（只做透明度）时全程不碰键盘。
+    static int  holdKey;              // 0 = 不按
+    static bool holdDown;
+    static long holdUntilMs;          // 最后一次位移写入后还要多按多久
+    const int   HoldTailMs = 60;
+
+    /// 设置要按住的键（虚拟键码，0 = 关闭），由 PowerShell 侧按配置下发
+    public static void SetHoldKey(int vk) {
+        lock (gate) {
+            if (vk == holdKey) return;
+            holdKey = vk;
+        }
+        if (vk == 0) ReleaseHold();
+    }
+    public static bool Holding() { return holdDown; }
+    public static int  HoldKeyVk() { return holdKey; }
+
+    static void HoldDownFn() {
+        if (holdDown || holdKey == 0) return;
+        MouseFadeNative.KeyDown(holdKey);
+        holdDown = true;
+    }
+    static void ReleaseHold() {
+        if (!holdDown) return;
+        MouseFadeNative.KeyUp(holdKey);
+        holdDown = false;
+    }
+    /// 还有位移在跑 → 按住；彻底停了再延后 HoldTailMs 松开
+    static void SyncHold(bool moving) {
+        if (moving) { holdUntilMs = Now() + HoldTailMs; HoldDownFn(); }
+        else if (Now() >= holdUntilMs) ReleaseHold();
+    }
+
     // 注意：PowerShell 5.1 的 Add-Type 编译目标是 .NET Framework，
     // 没有 Environment.TickCount64（那是 .NET Core 3.0+ 才有），所以用 Stopwatch 计时
     static readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
@@ -206,7 +249,7 @@ public class MouseFader {
         th.Priority = System.Threading.ThreadPriority.AboveNormal;
         th.Start();
     }
-    public static void Stop() { running = false; }
+    public static void Stop() { running = false; ReleaseHold(); }
 
     /// 下发目标：alpha 0..255，y 为目标上边距，durMs 是过渡时长
     public static void Set(IntPtr h, int x, double alpha, double y, int durMs) {
@@ -224,7 +267,7 @@ public class MouseFader {
             it.Frames = 0; it.SumMs = 0; it.MaxMs = 0; it.PrevFrame = 0;
         }
     }
-    public static void Clear() { lock (gate) { items.Clear(); } }
+    public static void Clear() { lock (gate) { items.Clear(); } ReleaseHold(); }
     public static int  LastY(IntPtr h)  { lock (gate) { Item it; return items.TryGetValue(h, out it) ? it.LastY : int.MinValue; } }
     public static bool IsActive(IntPtr h) { lock (gate) { Item it; return items.TryGetValue(h, out it) && it.Active; } }
     public static bool AnyActive() { lock (gate) { foreach (Item it in items.Values) if (it.Active) return true; } return false; }
@@ -258,6 +301,7 @@ public class MouseFader {
 
     static bool Step() {
         bool busyFlag = false;
+        bool anyMove = false;     // 本帧或后续帧还要写位移 → 全程按住「临时解除编组」键
         lock (gate) {
             pend.Clear(); pendA.Clear(); pendY.Clear(); pendMove.Clear();
             foreach (Item it in items.Values) {
@@ -266,6 +310,7 @@ public class MouseFader {
                     if (it.SettleLeft > 0) {
                         it.SettleLeft--;
                         busyFlag = true;
+                        anyMove = true;
                         pend.Add(it); pendA.Add((int)Math.Round(it.A1)); pendY.Add((int)Math.Round(it.Y1)); pendMove.Add(true);
                     }
                     continue;
@@ -284,6 +329,9 @@ public class MouseFader {
                 int y = (int)Math.Round(it.Y);
                 bool needA = a != it.LastA;
                 bool needY = y != it.LastY;
+                // 位移动画还没走完（包括本帧被限流跳过的帧）也要一直按住键，
+                // 否则中间某一帧的写入会被 Pogget 当成整组拖动
+                if (Math.Abs(it.Y1 - it.Y) > 0.5) anyMove = true;
                 if (!needA && !needY) continue;
                 if (needA) it.LastA = a;
                 if (needY) it.LastY = y;
@@ -292,8 +340,12 @@ public class MouseFader {
                 it.PrevFrame = now;
                 it.Frames++;
             }
-            if (pend.Count == 0) return busyFlag;
         }
+        // 写位移之前先按住键（并在最后一次位移后延后一点松开）：
+        // Pogget 只有在「有键按住」时才允许单个收纳盒移动，否则它会把整组一起挪 ——
+        // 那正是之前“一悬停就整排一起浮”的原因。只做透明度时不会碰键盘。
+        SyncHold(anyMove);
+        if (pend.Count == 0) return busyFlag;
         // 真正写窗口放在锁外：跨进程 SetWindowPos 有阻塞可能，绝不能持锁做，
         // 否则 PowerShell 侧取锁时会被一起卡住（之前那次“助手假死”就是这么来的）。
         bool drag = MouseFadeNative.LeftButtonDown();
@@ -318,10 +370,13 @@ function Get-DefaultConfig {
         OpacityAway = 0.35
         OpacityOver = 1.0
         FadeMs      = 450
-        LiftPx      = 0       # 悬停上浮多少物理像素；0 = 只做透明度、不做位移
-        # ⚠️ 对 Pogget 别开位移：它的多个桌面容器是「刚性整体」—— 用 SetWindowPos 移动任意一个，
-        #    Pogget 会把整组一起挪（实测：手动只把容器1 上移 30px，四个容器全部跟上移 30px）。
-        #    所以给 Pogget 做上浮必然是「整体一起浮」，做不到单容器独立。默认 0 = 只做透明度。
+        LiftPx      = 16      # 悬停上浮多少物理像素；0 = 只做透明度、不做位移
+        # Pogget 的多个桌面收纳盒被「编组」后本来会整组一起挪，所以单盒上浮一度做不到。
+        # 但它菜单里有「临时解除编组」：只要**移动的那一刻有键被按住**，就不做整组联动
+        # （实测按住 Ctrl 移动盒子1：只有盒子1 动，另三个纹丝不动）。
+        # 所以位移期间由引擎按住 UngroupKey，上浮/下沉就变成单盒独立。
+        # 键名：Ctrl / Shift / Alt / none（none = 不按，那就只能做透明度）。
+        UngroupKey  = 'Ctrl'
         # 只接管符合这个类名的窗口（默认就只接 Pogget 的桌面容器）。
         # 不加过滤会把 Pogget 的**控制窗口**也一起做效果（实测用户一眼就看出不对）。留空 = 不过滤。
         WindowClassLike = 'Pogget.Vina.Com.Container.Class*'
@@ -347,7 +402,28 @@ function Get-Config {
     $cfg.OpacityOver = [Math]::Max(0.05, [Math]::Min(1.0, [double]$cfg.OpacityOver))
     $cfg.FadeMs      = [Math]::Max(0,   [Math]::Min(5000, [int]$cfg.FadeMs))
     $cfg.LiftPx      = [Math]::Max(0,   [Math]::Min(60,   [int]$cfg.LiftPx))
+    $cfg.UngroupKey  = Get-UngroupKeyName $cfg.UngroupKey
     return $cfg
+}
+
+# 「临时解除编组」用的键名 -> 虚拟键码（0 = 不按）。
+# 位移时按住它，Pogget 才允许单个收纳盒移动；不按就是一整组一起动。
+function Get-UngroupKeyVk([string]$name) {
+    switch (("$name").Trim().ToLower()) {
+        'ctrl'    { return 0x11 }
+        'control' { return 0x11 }
+        'shift'   { return 0x10 }
+        'alt'     { return 0x12 }
+        default   { return 0 }
+    }
+}
+function Get-UngroupKeyName([string]$name) {
+    switch (Get-UngroupKeyVk $name) {
+        0x11    { return 'Ctrl' }
+        0x10    { return 'Shift' }
+        0x12    { return 'Alt' }
+        default { return 'none' }
+    }
 }
 
 function Save-Config($cfg) {
@@ -358,6 +434,7 @@ function Save-Config($cfg) {
         OpacityOver = [double]$cfg.OpacityOver
         FadeMs      = [int]$cfg.FadeMs
         LiftPx      = [int]$cfg.LiftPx
+        UngroupKey  = [string]$cfg.UngroupKey
         WindowClassLike = [string]$cfg.WindowClassLike
     }
     ($out | ConvertTo-Json -Depth 5) | Set-Content -Path $ConfigPath -Encoding UTF8
@@ -425,6 +502,8 @@ function Invoke-Daemon {
             if (((Get-Date) - $lastCfgRead).TotalMilliseconds -gt 1000) {
                 $cfg = Get-Config
                 $lastCfgRead = Get-Date
+                # 让动画引擎知道位移时要按住哪个键（Pogget 编组后靠它才能单盒移动）
+                try { [MouseFader]::SetHoldKey((Get-UngroupKeyVk $cfg.UngroupKey)) } catch { }
                 if (-not $cfg.Enabled) {
                     if ($alpha.Count -gt 0) { Restore-All $cfg $restTop | Out-Null; $alpha.Clear(); $target.Clear(); $addedLayered.Clear(); $restTop.Clear(); $applied.Clear(); $pendingMove.Clear(); $logged.Clear() }
                 }
@@ -583,7 +662,7 @@ function Show-Settings {
     $cfg = Get-Config
     $f = New-Object System.Windows.Forms.Form
     $f.Text = '桌面插件 · 鼠标跟随透明度'
-    $f.Size = New-Object System.Drawing.Size(440, 330)
+    $f.Size = New-Object System.Drawing.Size(440, 372)
     $f.StartPosition = 'CenterScreen'
     $f.FormBorderStyle = 'FixedDialog'
     $f.MaximizeBox = $false
@@ -626,10 +705,16 @@ function Show-Settings {
     $tb = New-Object System.Windows.Forms.TextBox
     $tb.Location = New-Object System.Drawing.Point(140, $y); $tb.Size = New-Object System.Drawing.Size(270, 24)
     $tb.Text = (@($cfg.Processes) -join ', ')
-    $f.Controls.Add($tb); $y += 40
+    $f.Controls.Add($tb); $y += 34
+
+    $chkKey = New-Object System.Windows.Forms.CheckBox
+    $chkKey.Text = '位移时按住 Ctrl（Pogget 编组后单盒移动需要）'
+    $chkKey.Location = New-Object System.Drawing.Point(16, $y); $chkKey.Size = New-Object System.Drawing.Size(400, 24)
+    $chkKey.Checked = ((Get-UngroupKeyVk $cfg.UngroupKey) -ne 0)
+    $f.Controls.Add($chkKey); $y += 34
 
     $hint = New-Object System.Windows.Forms.Label
-    $hint.Text = 'Pogget 是闭源第三方软件，自身设置里没有透明/浮起选项，所以由本助手承载；XSpace 的同类开关在它自己的设置窗口里。上浮距离 0 = 不做上浮/下沉。'
+    $hint.Text = 'Pogget 是闭源第三方软件，自身设置里没有透明/浮起选项，所以由本助手承载；XSpace 的同类开关在它自己的设置窗口里。上浮距离 0 = 不做上浮/下沉。Pogget 的收纳盒被编组后会整组一起动，助手会在位移时按住上面的键（等于它的「临时解除编组」），这样只有鼠标指着的那个盒子浮动。'
     $hint.Location = New-Object System.Drawing.Point(16, $y); $hint.Size = New-Object System.Drawing.Size(400, 40)
     $hint.ForeColor = [System.Drawing.Color]::DimGray
     $f.Controls.Add($hint); $y += 44
@@ -652,6 +737,7 @@ function Show-Settings {
         $cfg.LiftPx      = [int]$numLift.Value
         $cfg.Processes   = @(($tb.Text -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         if (-not $cfg.Processes -or $cfg.Processes.Count -eq 0) { $cfg.Processes = @('Pogget') }
+        if ($chkKey.Checked) { $cfg.UngroupKey = 'Ctrl' } else { $cfg.UngroupKey = 'none' }
         Save-Config $cfg
         [System.Windows.Forms.MessageBox]::Show("已保存。`n`n常驻助手会每秒重读一次配置，立刻生效（若助手没在跑，请运行 -Install 或 -Run）。", '桌面插件 · 鼠标跟随透明度') | Out-Null
     }
@@ -692,7 +778,7 @@ elseif ($Restore) {
 }
 elseif ($Status) {
     $cfg = Get-Config
-    "配置：Enabled=$($cfg.Enabled)  离开=$($cfg.OpacityAway)  悬停=$($cfg.OpacityOver)  过渡=$($cfg.FadeMs)ms  上浮=$($cfg.LiftPx)px  目标=$(@($cfg.Processes) -join ',')"
+    "配置：Enabled=$($cfg.Enabled)  离开=$($cfg.OpacityAway)  悬停=$($cfg.OpacityOver)  过渡=$($cfg.FadeMs)ms  上浮=$($cfg.LiftPx)px  解除编组键=$($cfg.UngroupKey)  目标=$(@($cfg.Processes) -join ',')"
     "配置文件：$ConfigPath"
     "开机自启：$(if (Test-Path $StartupVbs) { '已安装  ' + $StartupVbs } else { '未安装' })"
     $wins = Get-TargetWindows $cfg
