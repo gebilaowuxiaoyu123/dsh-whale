@@ -318,7 +318,10 @@ function Get-DefaultConfig {
         OpacityAway = 0.35
         OpacityOver = 1.0
         FadeMs      = 450
-        LiftPx      = 16      # 悬停上浮多少物理像素（200% 缩放时 16 ≈ XSpace 的 8 逻辑像素）；0 = 不上浮
+        LiftPx      = 0       # 悬停上浮多少物理像素；0 = 只做透明度、不做位移
+        # ⚠️ 对 Pogget 别开位移：它的多个桌面容器是「刚性整体」—— 用 SetWindowPos 移动任意一个，
+        #    Pogget 会把整组一起挪（实测：手动只把容器1 上移 30px，四个容器全部跟上移 30px）。
+        #    所以给 Pogget 做上浮必然是「整体一起浮」，做不到单容器独立。默认 0 = 只做透明度。
         # 只接管符合这个类名的窗口（默认就只接 Pogget 的桌面容器）。
         # 不加过滤会把 Pogget 的**控制窗口**也一起做效果（实测用户一眼就看出不对）。留空 = 不过滤。
         WindowClassLike = 'Pogget.Vina.Com.Container.Class*'

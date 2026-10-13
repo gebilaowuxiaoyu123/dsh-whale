@@ -36,6 +36,12 @@
 | `-Restore` | 一键还原：全部不透明 + 撤掉 LAYERED |
 
 - 配置文件：`tools/mouse-fade.config.json`（不存在就用脚本内默认值；`-Settings` 保存时写出）
+- ⚠️ **Pogget 上浮距离请保持 0（默认已是 0）**：Pogget 的多个桌面容器是一个**刚性整体** ——
+  用 `SetWindowPos` 移动其中任意一个，Pogget 会把**整组一起挪**
+  （实测：手动只把容器1 上移 30px，四个容器全部跟着上移 30px；停掉本助手也一样，说明是 Pogget 自身行为）。
+  因此对 Pogget 做上浮必然是「整体一起浮」，做不到单容器独立；
+  透明度则是逐窗口生效、各容器互不影响，所以 Pogget 侧默认只做透明度。
+  （XSpace 是单窗口，不受此限，仍保留原生上浮。）
 - 日志：`desktop-suite\_runtime\mouse-fade\mouse-fade.log`（原先在 `%LOCALAPPDATA%\dsh-whale`，2026-10-13 已收进仓库）
 - 自启：`HKCU Run` 的 `DSH-Boot-Order`（分级启动器第 6 步），**不在**启动文件夹
 - 助手**每秒重读一次配置**，所以在设置界面改完立即生效，不用重启。
