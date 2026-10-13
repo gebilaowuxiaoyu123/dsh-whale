@@ -114,25 +114,32 @@ function Start-Stage($s) {
             # 走 explorer 启动 = 用普通用户令牌（就算从提权终端/任务里跑也不会把 Lively 抬成管理员）
             & explorer.exe $lv
             Start-Sleep -Milliseconds 500
-            if (Test-Path -LiteralPath $GuardVbs) { & wscript.exe $GuardVbs }   # 壁纸守护（覆盖/电池时冻结壁纸）
+            # 壁纸守护：它自己就在启动文件夹里（开机已经起了），这里只负责确保它在跑：
+            # 不加判断直接再拉一个会导致两个守护互相折腾（实测重启后看到 2 个）。
+            $guardRunning = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                            Where-Object { $_.CommandLine -and $_.CommandLine -like '*wallpaper-power-guard*' } | Select-Object -First 1
+            if (-not $guardRunning) { if (Test-Path -LiteralPath $GuardVbs) { & wscript.exe $GuardVbs } }
         }
         'helper' {
             $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $base + '" -Run'
-            Start-ViaWsh -CmdLine $cmd -WorkDir '' -Tag 'helper'
+            Start-ViaWsh -CmdLine $cmd -WorkDir '' -Tag 'helper' -WindowStyle 0   # 助手要隐藏窗口
         }
     }
 }
 
-function Start-ViaWsh([string]$CmdLine, [string]$WorkDir, [string]$Tag) {
+function Start-ViaWsh([string]$CmdLine, [string]$WorkDir, [string]$Tag, [int]$WindowStyle = 1) {
     # 生成并执行一个 vbs 启动器。两个坑（都踩过）：
     #   1) vbs 文件**不能启动后立刻删** —— wscript 还没打开它就被删了，会弹“无法找到脚本文件”且进程起不来；
     #      所以写到固定路径（_runtime 下），覆盖写、不删。
     #   2) VBScript 字符串里的双引号要翻倍：s.Run """<exe>"" ""<dir>"" --background", 0, False
+    #   3) WindowStyle 默认 1（正常显示）—— 用 0（隐藏）启动 GUI 程序时，程序的主窗口会跟着变成隐藏：
+    #      实测 Pogget 的桌面容器就是这样开机后看不见的（只有后台进程，需要手点托盘才出来）。
+    #      需要隐藏的（比如 powershell 助手）显式传 0。
     if (-not (Test-Path $CfgDir)) { New-Item -ItemType Directory -Force -Path $CfgDir | Out-Null }
     $vbs = Join-Path $CfgDir ('launch-' + $Tag + '.vbs')
     $lines = @('Set s = CreateObject("WScript.Shell")')
     if ($WorkDir) { $lines += 's.CurrentDirectory = "' + $WorkDir + '"' }
-    $lines += ('s.Run "' + ($CmdLine -replace '"', '""') + '", 0, False')
+    $lines += ('s.Run "' + ($CmdLine -replace '"', '""') + '", ' + $WindowStyle + ', False')
     Set-Content -Path $vbs -Value ($lines -join "`r`n") -Encoding ASCII
     & wscript.exe $vbs
 }
