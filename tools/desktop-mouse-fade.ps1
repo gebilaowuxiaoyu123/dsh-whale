@@ -451,9 +451,22 @@ function Invoke-Daemon {
                 [void][MouseFadeNative]::GetCursorPos([ref]$pt)
 
                 # z 序从上往下找第一个"鼠标在它上面"的窗口，只有它是"悬停"，其余都算"离开"
+                # ⚠️ 命中判定必须带回差：窗口会因为我们的上浮/下沉而改变自身矩形，
+                #    直接拿「当前矩形」判会在边缘自激振荡 —— 鼠标在底边 16px 内 → 上浮把它挤出窗口 →
+                #    判为离开 → 下沉又把它送回来 → 又判悬停……实测表现为窗口持续抖动。
+                #    所以把「当前矩形」与「静止矩形」取并集：上浮时上边多让 lift、下沉时下边多让 lift。
                 $hover = [IntPtr]::Zero
                 foreach ($h in $wins) {
-                    if ([MouseFadeNative]::InRect($h, $pt)) { $hover = $h; break }
+                    $rh = [MouseFadeNative]::RectOf($h)
+                    if (-not $rh) { continue }
+                    $topH = [int]$rh[1]; $botH = [int]$rh[3]
+                    if ($restTop.ContainsKey($h)) {
+                        $ry  = [int]$restTop[$h]
+                        $hgt = [int]$rh[3] - [int]$rh[1]
+                        if ($ry -lt $topH) { $topH = $ry }
+                        if (($ry + $hgt) -gt $botH) { $botH = $ry + $hgt }
+                    }
+                    if ($pt.X -ge $rh[0] -and $pt.X -lt $rh[2] -and $pt.Y -ge $topH -and $pt.Y -lt $botH) { $hover = $h; break }
                 }
 
                 $awayPx   = [int][Math]::Round($cfg.OpacityAway * 255)

@@ -199,7 +199,21 @@ namespace XSpaceWidget
             var h = new WindowInteropHelper(this).Handle;
             if (h == IntPtr.Zero) return _fadeHadCursor;
             if (!GetWindowRect(h, out var r)) return _fadeHadCursor;
-            return p.X >= r.Left && p.X < r.Right && p.Y >= r.Top && p.Y < r.Bottom;
+            // ⚠️ 命中判定必须带回差：窗口会因为我们的上浮/下沉改变自身矩形，直接拿"当前矩形"判，
+            //    鼠标贴底边时会自激振荡（上浮把它挤出窗口 → 判为离开 → 下沉又送回来 → 又判悬停 → 抖动）。
+            //    把「当前矩形」与「静止矩形」取并集：上浮时上边多让 lift、下沉时下边多让 lift。
+            //    _restTop 是 DIP，GetWindowRect 是物理像素 —— 用「物理宽 / 逻辑宽」得到当前缩放比再换算，
+            //    这样不必额外引入 VisualTreeHelper。
+            int top = r.Top, bottom = r.Bottom;
+            if (!double.IsNaN(_restTop) && ActualWidth > 0)
+            {
+                int height = r.Bottom - r.Top;
+                double scale = (r.Right - r.Left) / ActualWidth;
+                int restTop = (int)Math.Round(_restTop * scale);
+                if (restTop < top) top = restTop;
+                if (restTop + height > bottom) bottom = restTop + height;
+            }
+            return p.X >= r.Left && p.X < r.Right && p.Y >= top && p.Y < bottom;
         }
     }
 }
