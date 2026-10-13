@@ -153,6 +153,12 @@ public class MouseFadeNative {
         GetClassNameW(h, c, 256);
         return "[" + c + "] " + sb;
     }
+    /// 取窗口类名（用来只接管我们要的窗口，比如 Pogget 的桌面容器，而不是它的控制窗口）
+    public static string ClassOf(IntPtr h) {
+        var c = new System.Text.StringBuilder(256);
+        GetClassNameW(h, c, 256);
+        return c.ToString();
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder s, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int n);
 }
@@ -313,6 +319,9 @@ function Get-DefaultConfig {
         OpacityOver = 1.0
         FadeMs      = 450
         LiftPx      = 16      # 悬停上浮多少物理像素（200% 缩放时 16 ≈ XSpace 的 8 逻辑像素）；0 = 不上浮
+        # 只接管符合这个类名的窗口（默认就只接 Pogget 的桌面容器）。
+        # 不加过滤会把 Pogget 的**控制窗口**也一起做效果（实测用户一眼就看出不对）。留空 = 不过滤。
+        WindowClassLike = 'Pogget.Vina.Com.Container.Class*'
     }
 }
 
@@ -346,6 +355,7 @@ function Save-Config($cfg) {
         OpacityOver = [double]$cfg.OpacityOver
         FadeMs      = [int]$cfg.FadeMs
         LiftPx      = [int]$cfg.LiftPx
+        WindowClassLike = [string]$cfg.WindowClassLike
     }
     ($out | ConvertTo-Json -Depth 5) | Set-Content -Path $ConfigPath -Encoding UTF8
     Write-Log "配置已保存：$ConfigPath"
@@ -354,9 +364,14 @@ function Save-Config($cfg) {
 # ================== 目标窗口扫描 ==================
 function Get-TargetWindows($cfg) {
     $wins = New-Object System.Collections.ArrayList
+    $filter = [string]$cfg.WindowClassLike
     foreach ($name in @($cfg.Processes)) {
         foreach ($p in @(Get-Process -Name $name -ErrorAction SilentlyContinue)) {
-            foreach ($h in [MouseFadeNative]::TopWindows([uint32]$p.Id)) { [void]$wins.Add($h) }
+            foreach ($h in [MouseFadeNative]::TopWindows([uint32]$p.Id)) {
+                # 只接管指定窗口类（例：Pogget 的桌面容器），跳过它的控制窗口
+                if ($filter -and ([MouseFadeNative]::ClassOf($h) -notlike $filter)) { continue }
+                [void]$wins.Add($h)
+            }
         }
     }
     return , @($wins)
@@ -365,7 +380,10 @@ function Get-TargetWindows($cfg) {
 function Restore-All($cfg, $restMap = $null) {
     $n = 0
     try { [MouseFader]::Clear() } catch { }
-    foreach ($h in (Get-TargetWindows $cfg)) {
+    # 用「不套窗口类过滤」的全量列表：即使某个窗口现在已不符合接管条件
+    # （比如 Pogget 的控制窗口，或被强杀时留下的分层/半透明残留），也要一并还原本透明。
+    $cfgAll = [pscustomobject]@{ Processes = $cfg.Processes; WindowClassLike = '' }
+    foreach ($h in (Get-TargetWindows $cfgAll)) {
         if ($restMap -and $restMap.ContainsKey($h)) {
             $r = [MouseFadeNative]::RectOf($h)
             if ($r) { [MouseFadeNative]::MoveY($h, $r[0], [int]$restMap[$h]) }   # 先沉回静止位置
@@ -411,10 +429,18 @@ function Invoke-Daemon {
             if ($cfg.Enabled) {
                 $wins = Get-TargetWindows $cfg
 
-                # 清理已消失的窗口
+                # 清理不再接管的窗口（包括被新加的窗口类过滤排除掉的，比如 Pogget 的控制窗口）：
+                # 必须把不透明度/LAYERED 还原，否则它会一直停在半透明、还可能带着位移。
                 foreach ($h in @($alpha.Keys)) {
                     if ($wins -notcontains $h) {
-                        [MouseFader]::Clear()
+                        try {
+                            [MouseFader]::Remove($h)
+                            [MouseFadeNative]::SetAlpha($h, 255)
+                            if ($addedLayered[$h]) { [MouseFadeNative]::DropLayered($h) }
+                            $r0 = [MouseFadeNative]::RectOf($h)
+                            if ($restTop.ContainsKey($h) -and $r0) { [MouseFadeNative]::MoveY($h, $r0[0], [int]$restTop[$h]) }
+                            Write-Log ("已放手窗口 0x{0:X}（不再符合接管条件，已还原本透明）" -f $h.ToInt64())
+                        } catch { }
                         $alpha.Remove($h); $target.Remove($h); $addedLayered.Remove($h)
                         $restTop.Remove($h); $applied.Remove($h); $logged.Remove($h)
                     }
