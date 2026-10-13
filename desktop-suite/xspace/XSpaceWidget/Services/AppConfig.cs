@@ -30,7 +30,7 @@ public class AppConfig
     // ================= 鼠标跟随透明度 =================
 
     /// <summary>鼠标不在窗口上时自动变透明、移入时恢复（默认关闭）。</summary>
-    public bool MouseFade { get; set; } = false;
+    public bool MouseFade { get; set; } = true;
 
     /// <summary>鼠标离开窗口时的不透明度（0.05~1.0）。</summary>
     public double OpacityAway { get; set; } = 0.35;

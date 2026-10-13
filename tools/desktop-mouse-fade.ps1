@@ -403,6 +403,7 @@ function Invoke-Daemon {
     $target = @{}     # hwnd -> 目标 0..255
     $addedLayered = @{}
     $restTop = @{}    # hwnd -> 静止时的上边距（悬浮位移的基准）
+    $pendingMove = @{} # hwnd -> 上一次采到的“异常位置”（连续两次一致才认作窗口被挪走）
     $applied = @{}    # hwnd -> 已下发给动画引擎的目标（"alpha/y"），没变就不重新启动动画
     $logged = @{}     # hwnd -> 本次过渡是否已经打过性能统计
     $targetY = @{}    # hwnd -> 目标上边距
@@ -422,7 +423,7 @@ function Invoke-Daemon {
                 $cfg = Get-Config
                 $lastCfgRead = Get-Date
                 if (-not $cfg.Enabled) {
-                    if ($alpha.Count -gt 0) { Restore-All $cfg $restTop | Out-Null; $alpha.Clear(); $target.Clear(); $addedLayered.Clear(); $restTop.Clear(); $applied.Clear(); $logged.Clear() }
+                    if ($alpha.Count -gt 0) { Restore-All $cfg $restTop | Out-Null; $alpha.Clear(); $target.Clear(); $addedLayered.Clear(); $restTop.Clear(); $applied.Clear(); $pendingMove.Clear(); $logged.Clear() }
                 }
             }
 
@@ -442,7 +443,7 @@ function Invoke-Daemon {
                             Write-Log ("已放手窗口 0x{0:X}（不再符合接管条件，已还原本透明）" -f $h.ToInt64())
                         } catch { }
                         $alpha.Remove($h); $target.Remove($h); $addedLayered.Remove($h)
-                        $restTop.Remove($h); $applied.Remove($h); $logged.Remove($h)
+                        $restTop.Remove($h); $applied.Remove($h); $logged.Remove($h); $pendingMove.Remove($h)
                     }
                 }
 
@@ -490,9 +491,22 @@ function Invoke-Daemon {
                             $atRest = [Math]::Abs($rect[1] - [double]$restTop[$h]) -le 3
                             $atLift = [Math]::Abs($rect[1] - ([double]$restTop[$h] - $lift)) -le 3
                             if ($myY -ne [int]::MinValue -and -not $atRest -and -not $atLift) {
-                                # 既不在静止位也不在上浮位 → 用户拖动 / 程序自己挪过 → 认作新基准
-                                $restTop[$h] = $rect[1] + $(if ($h -eq $hover) { $lift } else { 0 })
-                                $applied[$h] = ''
+                                # 既不在静止位也不在上浮位 → 疑似被挪走。但动画刚结束那一帧，
+                                # SetWindowPos 可能还没落地（写窗口有 140Hz 限流），读到的仍是中途位置；
+                                # 一次性判定会把中途位置当成新静止位 —— 实测容器会持续往上漂。
+                                # 因此要求「连续两次采到同一个异常位置」才认账。
+                                if ($pendingMove.ContainsKey($h) -and [Math]::Abs([double]$pendingMove[$h] - [double]$rect[1]) -le 1) {
+                                    # 用户拖动 / 程序自己挪过 → 认作新基准
+                                    $restTop[$h] = $rect[1] + $(if ($h -eq $hover) { $lift } else { 0 })
+                                    $applied[$h] = ''
+                                    $pendingMove.Remove($h)
+                                }
+                                else {
+                                    $pendingMove[$h] = [double]$rect[1]
+                                }
+                            }
+                            else {
+                                $pendingMove.Remove($h)
                             }
                         }
                     }

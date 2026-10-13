@@ -305,7 +305,15 @@ function writeKeySync(patch) {
 /** Coopanion 的 provider `.env` 路径：DSHW_COOPANION_ENV 可直接指定，否则按仓库默认布局推断。 */
 function coopanionEnvPath() {
   if (process.env.DSHW_COOPANION_ENV) return process.env.DSHW_COOPANION_ENV;
-  const root = process.env.DSHW_COOPANION_DIR || path.join(__dirname, '..', 'third-party', 'Coopanion');
+  // 目录大一统（2026-10-13）后 Coopanion 在 desktop-suite/coopanion；
+  // 旧布局 third-party/Coopanion 继续兼容（别的机器可能还没搬）。
+  const roots = process.env.DSHW_COOPANION_DIR
+    ? [process.env.DSHW_COOPANION_DIR]
+    : [path.join(__dirname, '..', '..', 'coopanion'), path.join(__dirname, '..', 'third-party', 'Coopanion')];
+  let root = roots[0];
+  for (const r of roots) {
+    if (fs.existsSync(path.join(r, 'build', 'data', 'home'))) { root = r; break; }
+  }
   const home = path.join(root, 'build', 'data', 'home');
   let provider = 'deepseek';
   try {
