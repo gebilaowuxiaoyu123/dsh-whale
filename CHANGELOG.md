@@ -1,3 +1,4 @@
+
 # 📋 版本更新日志（CHANGELOG）
 
 > 记录 DSH 小鲸鱼所有形态的版本演进。格式参照 [Keep a Changelog](https://keepachangelog.com/)。
@@ -13,6 +14,7 @@
 > 需求（用户原话）：这几个插件的工作文件夹全部移动到当前这个 dsh-whale 文件夹下，而不是让它们天各一方。
 
 ### 结论：可以，但必须「进忽略目录」
+
 - dsh-whale 是**公开仓库**：Pogget 是第三方专有软件、MiSide 壁纸是同人素材、XSpace 是 500 MB 构建产物，
   直接入库 = 体积暴涨 + 版权风险。做法：新建 `desktop-suite/`，**整目录 gitignore，只放行一个 README**。
 - **Coopanion 不动**（本来就在 `desktop-suite/coopanion/`；挪它要连带改 setup 脚本、补丁路径、自启项、
@@ -20,14 +22,15 @@
 
 ### 搬迁内容（原件已送回收站，可还原）
 
-| 新位置 | 原位置 | 体量 |
-|---|---|---|
-| `desktop-suite/pogget/` | `E:\Pogget.exe` + `E:\.pogget_config` | 3.3 MB / 36 文件 |
-| `desktop-suite/xspace/` | `C:\xspace_widget\` | 504.4 MB / 1649 文件 |
-| `desktop-suite/xspace-notes/` | `C:\xspace_notes\` + `C:\xspace_home.html` + `C:\xspacenews,html` | 418.4 MB / 1007 文件 |
-| `desktop-suite/miside-wallpaper/` | 桌面 `MisideStartWallpapaer\` | 129.7 MB / 220 文件 |
+| 新位置                              | 原位置                                                                  | 体量                 |
+| ----------------------------------- | ----------------------------------------------------------------------- | -------------------- |
+| `desktop-suite/pogget/`           | `E:\Pogget.exe` + `E:\.pogget_config`                               | 3.3 MB / 36 文件     |
+| `desktop-suite/xspace/`           | `C:\xspace_widget\`                                                   | 504.4 MB / 1649 文件 |
+| `desktop-suite/xspace-notes/`     | `C:\xspace_notes\` + `C:\xspace_home.html` + `C:\xspacenews,html` | 418.4 MB / 1007 文件 |
+| `desktop-suite/miside-wallpaper/` | 桌面`MisideStartWallpapaer\`                                          | 129.7 MB / 220 文件  |
 
 ### 同步改掉的绝对路径引用
+
 1. `HKCU\...\CurrentVersion\Run` → `MyCoolApp`（Pogget 新路径）
 2. 同上 → `XSpaceWidget`（XSpace 新 exe 路径）
 3. 启动文件夹 `wallpaper-power-guard.vbs` 里的守护脚本路径
@@ -36,12 +39,14 @@
    桌面/开始菜单无指向它们的快捷方式
 
 ### 验证（搬完逐个从新路径起回来）
+
 - Pogget / XSpace / Lively / 壁纸进程 / 壁纸守护 **全部从新路径运行**；
 - XSpace 两个可视窗口（`Fetcher`、`XSpace竞赛通知桌面栏`）正常，13 个 WebView2 子进程在线；
 - Pogget 把日志写进**新** `.pogget_config\logs`（也没有在 C 盘根乱建配置）；
 - Lively 壁纸记录指向库 id `misidestart_miside`，壁纸进程 pid 已换新，守护日志 `SHOWN pid=<新 pid>`。
 
 ### 配套改动
+
 - 新增 `.vscode/settings.json`：把 `desktop-suite/`、`third-party/` 排除出**文件监视**与**全局搜索**
   （1 GB / 2600+ 文件，不排会拖慢 VS Code）。
 - 引用备份：`%USERPROFILE%\dsh-whale-backups\desktop-suite-move-<时间戳>\`（自启项快照 + 改前的两个 JSON + vbs + Pogget 配置）。
@@ -65,11 +70,11 @@ desktop-suite/
 
 ### 为什么第三方二进制不进 git（实测，不是偷懒）
 
-| 原因 | 证据 |
-|---|---|
-| 超 GitHub 单文件上限 | `node_modules/.pnpm/electron@44.4.4/.../electron.exe` = **234.6 MB** > 100 MB |
+| 原因                     | 证据                                                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| 超 GitHub 单文件上限     | `node_modules/.pnpm/electron@44.4.4/.../electron.exe` = **234.6 MB** > 100 MB                                      |
 | git 存不了 pnpm 的依赖树 | `node_modules/electron` 是**符号链接**，而仓库 `core.symlinks=false` → 会存成文本文件，换机 checkout 出来是坏的 |
-| 会泄漏密钥 | `coopanion/build/data/home/providers/deepseek/.env` 是**真实 DeepSeek Key**；还有 Chromium 的 Trust Tokens |
+| 会泄漏密钥               | `coopanion/build/data/home/providers/deepseek/.env` 是**真实 DeepSeek Key**；还有 Chromium 的 Trust Tokens         |
 
 → 做法：仓库只带「**自家源码 + 魔改补丁 + 拉取/接线脚本**」，clone 之后一条命令把第三方拉齐并打上魔改。
 
@@ -114,6 +119,7 @@ desktop-suite/
 > 有时候也会突然卡顿一下整个桌面变黑后过一段时间逐步恢复。
 
 ### 结论（本机实测）
+
 - **面板没降频**：桌宠页面用 `requestAnimationFrame` 实测 **120.5 Hz**（240 帧 / 2.01 s，帧间隔中位 8.30 ms）。
 - **显卡被动态壁纸占住**：Unity 应用壁纸 `MisideStartWallpaper` 常驻 **44–47%** 的 3D 引擎，
   加 `dwm.exe` 5–14%、两个桌宠 2.5–23%，核显 3D 合计长期 **67–92%**。
@@ -123,7 +129,8 @@ desktop-suite/
   的窗口组合是已知冲突；向日葵另外还带一个虚拟显示器驱动 `OrayIddDriver`。
 
 ### 变更
-- 新增 `tools/desktop-render-report.ps1`：只读体检 —— 屏幕 Hz / GPU 占用榜（按进程）/ MPO / 
+
+- 新增 `tools/desktop-render-report.ps1`：只读体检 —— 屏幕 Hz / GPU 占用榜（按进程）/ MPO /
   HAGS / 驱动重置事件 / 我们两个挂件的当前档位。
 - 新增 [`docs/desktop-rendering-perf.md`](docs/desktop-rendering-perf.md)：实测数据、判读、改动与回滚方法。
 - **本机改动（重启后生效）**：`OverlayTestMode = 5` 关掉 MPO（原值「未设置」，已记录到
@@ -131,6 +138,7 @@ desktop-suite/
   控制台「习惯」页勾上「全屏时自动隐藏」→ `window.hideWhenFullscreen = true`。
 
 ### 说明
+
 - 两处改动都**可逆**：删掉 `OverlayTestMode` 即回 Windows 默认；桌宠那项是普通设置开关。
 - 壁纸那个 Unity 程序没有帧率/分辨率开关（`boot.config` 只有线程配置），Lively 对应用类壁纸也不提供
   帧率/画质开关 → 壁纸的 GPU 成本只能靠「该藏就藏」（`wallpaper-power-guard.ps1`）省，
@@ -141,6 +149,7 @@ desktop-suite/
 > 这一轮全部来自实机排查（都插过探针取证），并把仓库从「只在本机成立」改成**两台机器共用**。
 
 ### 修复（第三轮：悬停按钮「点了没反应」）
+
 - **控制台勾了「测试刷新率」，鲸鱼旁边却不出按钮**：选择器**上限 6 个**，满了以后
   其余按钮是 `disabled` + 点击直接 `return` —— 点了既没反应也没提示，看起来就像功能坏了。
   → 满位时改为给出明确提示（「最多 6 个：先点掉一个亮着的，再点它」），按钮不再 disabled；
@@ -150,6 +159,7 @@ desktop-suite/
   `{"ok":true,"result":"桌宠已更新,已写回 config.json"}`，`hz` 被接受。
 
 ### 修复（第二轮：真因全部定位）
+
 - **齿轮打不开控制台的真因**：`app/main.cjs` 里 `settings.once('ready-to-show', () => () => settings.show())`
   **多套了一层箭头函数** —— 只返回函数、从不执行，窗口以 `show:false` 创建后永远没人 `show()`。
   上游原本正确，是本轮加诊断时手滑改坏的。已改回真正的调用 + 3 秒兜底。
@@ -175,6 +185,7 @@ desktop-suite/
   叫停原因也统一成 `cancelled`。
 
 ### 修复
+
 - **点聊天框的齿轮打不开设置界面**（真因是 `show()` 从没被调用，与 GPU 无关）
   上游原本是 `settings.once('ready-to-show', () => settings.show())`；本轮给 `openSettings`
   加诊断时手滑写成了 `() => () => settings.show()` —— **多套了一层箭头函数**，
@@ -188,7 +199,6 @@ desktop-suite/
   （控制台 SPA 已加载并完成路由跳转）。
   另一层与真因无关、但确实存在的加固保留：GPU 崩溃（`exit_code=139`）时渲染进程起不来，
   主进程因此加了软件渲染兜底 + `render-process-gone` 自动重载。
-
 - **「置顶显示」关一次再开，桌宠停在半空**
   不置顶期间窗口是 NORMAL，mutter 会把它夹回 workArea（底边只到 Dock 上沿，高出 ~71px）；
   光把类型改回 DOCK 不会把位置退回来 → `applyOnTop()` 里切回置顶时重新 `cover()` 贴底。
@@ -202,6 +212,7 @@ desktop-suite/
   功耗 53.4W → 37.2W，剩余时间 36.9 → 52.5 分钟。
 
 ### 两台机器共用（队友那台 Ubuntu 22.04 + Legion + RTX 5070 / X11）
+
 - `tools/freeze-fix/*`：`install-guc-firmware.sh` 加平台判定（非 Intel / 非 MTL 直接跳过）；
   `i915-stabilize.sh` 同样守卫（但 `--revert` 永远放行）；`gpu-watchdog.sh` 补 NVRM 关键字
   （`GPU has fallen off the bus` / `NVRM: Xid`，仍由「内核异常 + mutter 真冻结」双条件把关）；
@@ -211,6 +222,7 @@ desktop-suite/
 - Coopanion 侧改动重新折进 `patches/coopanion/0001-dsh-pet-features.patch`（12 文件 868 行，与工作区逐字一致）。
 
 ### 未完成（唯一一项）
+
 - **「随刷新率」走动 + 悬停按钮「测试刷新率」**（原六个自研功能里的最后两个）。
   上游把 `web/kit/body.js` 并回了 `web/pet-core.js`，补丁无法原样套用；实现要点见
   [`docs/coopanion-integration.md`](docs/coopanion-integration.md)（含读数吸附表、
@@ -227,6 +239,7 @@ desktop-suite/
 > 并把六个自研功能**重新移植**到新结构上。
 
 ### 变更
+
 - **版本钉死**：Coopanion `v0.1.20` + 子模块 `vendor/cortico` @ `f944984`（上游 tarball 不含子模块，commit 也一并钉死）。
 - 六个自研功能全部重新移植（对照表见 [`docs/coopanion-integration.md`](docs/coopanion-integration.md)）：
   气泡左侧调试入口、「随刷新率」走动、置顶显示开关、开机自启（未打包可用）、自启不弹调试界面、
@@ -237,6 +250,7 @@ desktop-suite/
   `coopanion-feature-test.mjs` / `coopanion-sync-roam-test.mjs` 同步更新。
 
 ### 本机适配踩坑（2026-10-10）
+
 - **`setup-coopanion.ps1 -Update` 不看 `git fetch/checkout` 的退出码**：本机当天 GitHub 直连被掐，
   `fetch` 失败后脚本照样往下跑 → 结果是「源码还是旧版 v0.1.10 + 补丁打不上（只报警）+ 构建照跑」，
   外表完全看不出错。已给脚本加上**版本与子模块的硬校验**，并在补丁打不上时**直接中止**（不再往下构建一个没有功能的产物）。
@@ -251,6 +265,7 @@ desktop-suite/
 > 再慢悠悠回到开始之前的位置**。
 
 ### 新增
+
 - Coopanion 的**悬停按钮多一项「测试刷新率」**（控制台「习惯」页 → 悬停按钮里勾选，和打字/语音输入同一处）：
   - 先按它自己的快走跑到**最左**（这一段不算成绩）；
   - 再以 **「一帧一步」（1 px / 屏幕帧）** 从左到右、右到左共 **4 段**（两趟来回），跑到边就转身；
@@ -260,6 +275,7 @@ desktop-suite/
 - `web/kit/body.js`（上游 v0.1.20 里由 `web/pet-core.js` 拆分而来）新增 `hzScan()` / `stopHzScan()` / `scanning`：测速探针 + 段序状态机 + 一帧一步的固定速度；图标在 `web/ui.js`，文案在 `console/features/pet/strings.ts`。
 
 ### 为什么这么量
+
 - 页面平时的帧循环为了省电被压到 **15/30 fps**，所以它数出来的「帧率」不是屏幕的刷新率。
   探针在测试前**不设上限**地数 0.9 秒真实帧（单开一条 rAF 只数数、不画东西），
   用「帧数 ÷ 耗时」得到真刷新率；读数会写回 `ctl.hz` 并**钉住**（换屏幕/改缩放时解钉重测）。
@@ -270,6 +286,7 @@ desktop-suite/
   「随刷新率」立刻按真实屏幕走（状态行里的「屏幕约 N Hz」也随之对了）。
 
 ### 自检
+
 - 新增 `tools/coopanion-hzscan-test.mjs`（**20 项**）：受控时钟 + 受控 rAF 推进模拟，量测速读数
   （60/120 Hz）、段序（到最左 → 右 → 左 → 右 → 左）、一帧一步（帧数 ≈ 像素数）、
   60 Hz 下同样 4 段用时翻倍、收尾（速度放开、读数写回且不被拉回）、叫停。
@@ -286,11 +303,12 @@ desktop-suite/
 > 「我这边刷新了、你还得去另一个插件点一下同步」，而是**任一处的 key 窗口上按一下，两边立刻都用上同一把**。
 
 ### 新增
+
 - **挂件侧**（Windows / Linux 两个桌面版同步）：托盘「改 API Key…」小窗口（`/key`）改成三个键 ——
   - **「保存并同步到两个桌宠」**（主键）：写两边 + 自动关窗；
   - 「只保存到挂件」：只写 `~/.dsh/.credentials.yaml`；
   - 「以 Coopanion 为准（拉过来）」：把 Coopanion 已存的那把写进挂件。
-  窗口顶部常显两边的**打码值**与结论：`两边一致 ✓` / `两边不一致` / `没找到 Coopanion 的 .env`。窗口高度 390 → 480。
+    窗口顶部常显两边的**打码值**与结论：`两边一致 ✓` / `两边不一致` / `没找到 Coopanion 的 .env`。窗口高度 390 → 480。
 - **Coopanion 侧**：控制台「开始」页的 key 输入框旁多一个 **「与 DSH 挂件同步」**。填了 key 就先走它自己的
   保存 + 测试（**测不过就不往下推**，不会把错的令牌同步出去），成功了再推给挂件；输入框留空就以已保存的那把
   为准拉过去。改动落在 `patches/coopanion/0001-dsh-pet-features.patch`（补丁 11 → 12 个文件）。
@@ -300,12 +318,14 @@ desktop-suite/
 - 最后一次同步结果记在 `~/.dsh/.dshw-key-sync.json`（`lastSyncAt` / `lastSource` / `lastError`），状态接口带出来。
 
 ### 边界（为什么这样做）
+
 - **不做后台自动轮询**：除了按按钮，不改你任何一个令牌文件 —— 同步是个显式动作。
 - 写的位置只有两处：挂件 `~/.dsh/.credentials.yaml`、Coopanion 当前 provider 的
   `build/data/home/providers/<厂商>/.env`（`<厂商>` 取自 `companion/config.json` 的 `activeProvider`）。
 - 只做 DeepSeek 这一把的同步（两个桌宠都只认 `DEEPSEEK_API_KEY`）。
 
 ### 自检
+
 - `tools/desktop-apikey-window-test.mjs` **17 → 33 项**：新页面三键、`/key-sync` 状态形状、OPTIONS 预检（204 + `*`）、
   push/pull 的**原值往返**（用完还是同一把；两边本来就不一致时自动跳过，免得改掉真实令牌）、GET 写路由 405。
 - `tools/coopanion-feature-test.mjs` **24 → 28 项**：控制台新按钮的源码片段 + 构建产物是否跟上。
@@ -324,22 +344,26 @@ desktop-suite/
 > 插件是 vendored 上游原样副本（本仓库不改它），所以换 key 的入口补在**桌面版自己的托盘**里。
 
 ### 新增
+
 - 托盘菜单 → **「改 API Key…」**：打开小窗口（`/key`），显示当前令牌的**打码值**
   （形如 `sk-3441******d266`），粘贴新 key → 保存 → 写 `~/.dsh/.credentials.yaml` 并自动关窗。
 - `GET /dsh-whale/apikey` 多返回一个 `masked` 字段（打码值，用于确认当前用的是哪把）。
 - 桌面版路由 `POST /dsh-whale/open-key-window` / `POST /dsh-whale/key-window-done`（给自检与截图用）。
 
 ### 修复
+
 - 新窗口打开后**主动提到最前**（瞬时置顶 + `focus`）。从 HTTP 路由/脚本打开时 Windows 不允许
   后台进程抢焦点，窗口会停在别的窗口后面 —— 用户看到的效果就是「点了没反应」。
 - Windows / Linux 两个桌面版同步。
 
 ### 自检
+
 - 新增 `tools/desktop-apikey-window-test.mjs`（**17 项**）：页面内容、打码字段（断言不含明文）、
   保存接口（拿当前 key 原值写回，内容不变）、空值必须被拒、开窗/关窗路由、GET 写路由应 405。
   设计上**不会改动你的令牌**。
 
 ### 现场处置
+
 - 本机挂件当时用的还是旧令牌（`…8030`，DeepSeek 返回 401 `Authentication Fails`），
   Coopanion 用的已是新令牌（`…d266`，HTTP 200，余额 53.28 CNY）。已把新令牌写入
   `~/.dsh/.credentials.yaml`，挂件立即恢复取到余额。
@@ -360,12 +384,14 @@ desktop-suite/
 > 详见 [`docs/dualboot-boot-safety.md`](docs/dualboot-boot-safety.md)。
 
 ### 取证的坑（重要）
+
 - **只看 Windows 事件日志会得出「一切正常」的错误结论**：崩的是 Ubuntu 会话，Windows 自己关机干净，
   所以既无 `6008` 也无 `41`；`SrtTrail.txt` 也不在装好的系统里（WinRE 的 RAM 盘，重启即丢）。
   本机实测：最近 7 天「开机 25 / 干净关机 24 / 异常掉电 0」，且每次引导都写「上一次关机成功 = true」。
   真正的证据在 **ESP 的卷序列号、`\EFI\ubuntu\*` 与 `\EFI\BOOT\BOOTX64.EFI` 的哈希、以及 BCD/UEFI 启动项**里。
 
 ### 新增
+
 - **`tools/boot-safety/check-boot-health.ps1`**（只读体检，退出码 0/1）：机型与固件类型、
   最近 N 天的开关机事件、ESP 的 UUID 与引导文件哈希（含「回退引导是不是被 Windows 换成了 bootmgfw」）、
   BCD `{bootmgr}.path` 是否被篡改、UEFI 启动顺序里 ubuntu 是否第一、快速启动/自动重启状态。
@@ -375,12 +401,14 @@ desktop-suite/
 - **`docs/dualboot-boot-safety.md`**：完整时间线、证据表、结论（拉优化 vs 单独优化）、故障链与三个断点的对策、待办清单。
 
 ### 本机 Windows 侧已落地（2026-10-04）
+
 - 导出 BCD 备份 → `%USERPROFILE%\dsh-whale-backups\BCD-20261004-013346.bin`
 - `AutoReboot`: `1` → `0`；`{bootmgr}.path`: `\EFI\ubuntu\grubx64.efi` → `\EFI\Microsoft\Boot\bootmgfw.efi`
 - 复核 `check-boot-health.ps1`：**没发现可疑项（退出码 0）**
 - 复查确认：快速启动本来就已关；UEFI 第一启动项本来就是 `ubuntu`；回退引导仍是 ubuntu 的 shim（未被覆盖）
 
 ### 踩坑
+
 - `bcdedit` 的**键名会跟着控制台代码页变**：中文代码页下 `identifier` 显示成 `标识符`，
   而 `device`/`path`/`description` 仍是英文；切到 UTF-8（65001）又全变回英文 —— 解析必须两种都认。
 - `Win32_Volume` 没有 `Size` 属性，要用 `Capacity`；否则 `$_.Size -le 600MB` 会因为
@@ -403,6 +431,7 @@ desktop-suite/
 > （关 → `normal`，开 → `TOPMOST`）+ DXGI 截屏对照。
 
 ### 变更
+
 - **两个桌宠默认都不置顶**：Windows 上就是普通窗口 —— 打开的应用窗口盖住桌宠，桌宠仍在桌面图标之上。
 - **DSH 桌面挂件（Windows / Linux）**：托盘菜单新增「置顶显示」勾选项，默认**关**；
   开关值存在 `~/.dsh/.dshw-window.json`（**不能**混进 `.dshw-size.json`：插件保存设置时按固定字段整包覆盖，会把这个键抹掉），
@@ -429,6 +458,7 @@ desktop-suite/
 > 另做真机验证：真实鼠标双击 + DXGI 截屏、开机自启 A/B 对照。
 
 ### 新增（桌宠，走补丁）
+
 - **聊天气泡左侧的调试入口**：双击桌宠弹出的输入框，左边多一个小齿轮（`⚙ 想说什么… 发送`）。
   按下经 World 的 `control/settings` 打开本地控制台 `http://127.0.0.1:17788/`。
   没有嵌入方时按钮不显示 —— 不给一个按了没用的键。
@@ -443,12 +473,14 @@ desktop-suite/
   这就是「开机自启却弹了调试界面」的根因。
 
 ### 新增（Linux 版）
+
 - `tools/setup-coopanion.sh`：拉源码/子模块 → 装依赖 → 补 Electron 二进制 → 打补丁 → 构建。
 - `tools/coopanion-autostart.sh`：XDG 自启条目（`~/.config/autostart/coopanion.desktop`）登记/撤销/查看。
 - 文档写明三个前提：需要 X11（Wayland 走 XWayland）、小鲸鱼要 WebGL（无 GPU 靠 SwiftShader）、
   托盘要 StatusNotifier 宿主（没有也能用右键菜单）。
 
 ### 新增（自检）
+
 - `tools/coopanion-sync-roam-test.mjs`：用受控时钟按固定帧间隔推进 `pet-core` 模拟，
   直接量刷新率读数、巡航速度比例、每步幅周期位移；带「抖动的 60 Hz」与「长卡顿」两个反例。
 - `tools/coopanion-feature-test.mjs`：查补丁是否打上、构建产物是否跟上
@@ -456,6 +488,7 @@ desktop-suite/
   有没有把调试插桩漏在源码里。
 
 ### 踩坑（已写进 `docs/coopanion-integration.md`）
+
 - 桌宠页本体 `web/*` 每请求现读，改完刷新页面即生效；**控制台页面 `console/**` 必须重新构建**。
 - `Start-Process -WindowStyle Hidden` 会让 Electron 建的窗口全部隐藏，且 `show()` 之后
   `isVisible()` 仍是 false —— 排查「窗口不出现」时要按正常方式启动。
@@ -471,6 +504,7 @@ desktop-suite/
 > 插件回归 `ledger-compat-test` 25/25、`desktop-plugin-integration-test` 23/23。
 
 ### 新增（桌面版，全部走增强层，不动 vendored 插件）
+
 - **气泡组（新建 / 切换 / 删除）**：内置 经典/暗夜/樱花/薄荷 4 套，
   并可 `dshwEnhance.bubble.add(name,{fill,text,radius,accent})` 自建、`remove(id)` 删除、
   `use(id)/next()` 切换。
@@ -489,6 +523,7 @@ desktop-suite/
   三个都是真实可点按钮，并纳入 `setShape` 形状（否则会被裁掉看不见）。
 
 ### 修复（日常可用性）
+
 - **dock 开机不显示 / 关完窗口也不回来**：取证发现本机 dock 是
   `autohide=true + intellihide=true + intellihide-mode=ALL_WINDOWS` —— 只要有窗口压到 dock 区域
   就自动隐藏。而我们的窗口是 `_NET_WM_WINDOW_TYPE_NORMAL` 的全屏置顶窗口，
@@ -502,6 +537,7 @@ desktop-suite/
   → 本地服务端口 = 3091，接口 200，窗口正常。
 
 ### 新增（扩展版 v32）
+
 - **A7 音频回退**：原来写死 `/usr/bin/pw-play`（本机实测没有 paplay，而有些发行版只有 paplay）。
   改为按 `pw-play → paplay → ffplay → mpv → gst-play-1.0` 探测能力并缓存，
   播放失败自动换下一个；全都没有才静音并明确报一次日志（不再无声无息）。
@@ -516,15 +552,18 @@ desktop-suite/
   （触屏没有右键）。
 
 ---
+
 ## [桌面版 Linux v1.4] - 2026-10-02
 
 > 主题：**把「泡泡渲染坏了」这类问题从根上堵死**。
 > 上一版只解决了「浮层被裁」这一种成因；这一版重新审视了整条链路。
 
 ### 根因复盘
+
 `setShape` 在 Linux 走 X11 **ShapeBounding**，它**同时裁剪绘制与输入** ——
 形状漏掉哪块像素，那块就**直接被裁掉看不见**（不是「少穿透」，是「消失」）。
 而形状来源是 preload 的 **DOM 启发式**推断，天然会漏：
+
 - `paints()` 判断「某元素画没画东西」会漏：插件气泡本体是 **SVG**，元素自身
   `background` 是 `transparent`、又没有**直接**文本子节点 → 被判为没画东西
 - 阴影 / 伪元素 / 溢出内容会超出元素自己的盒模型
@@ -532,6 +571,7 @@ desktop-suite/
   小矩形会被静默丢弃）
 
 ### 修复
+
 - **两层浮层互盖**（真凶之一）：插件自己的气泡/面板就画在鲸鱼**上方**，
   与增强层角标是同一块地盘。实机截图里插件的「DeepSeek 余额 / 今日已用」
   面板与我们的汇率、峰谷角标完全叠在一起。
@@ -552,11 +592,13 @@ desktop-suite/
   「插件标记了 dragging」同时成立，避免类名卡住导致整窗吞点击
 
 ### 测试
+
 - `tools/desktop-enhance-test.mjs` 扩到 **30 项**，新增避让回归：
   「初始状态角标可见 / 插件菜单打开时角标隐藏 / 菜单关闭后角标恢复」
 - 实测：**30/30 通过**；打包产物 23/23 + 拖动位移与预期一致
 
 ### 已知限制
+
 - 本机（Wayland + XWayland 透明窗）`capturePage()` 取不到内容，像素兜底自动停用，
   形状以 DOM 上报为准（已去除截断、上限放宽）
 
@@ -568,6 +610,7 @@ desktop-suite/
 > 新增 `tools/desktop-enhance-test.mjs`（CDP 端到端测试），**打包产物 23/23 通过**。
 
 ### 修复
+
 - **泡泡/角标被裁掉一半**（用户报「显示的泡泡窗口渲染有问题」）
   - 根因：增强层浮层挂在 `document.documentElement` 上，而 `preload-linux.js` 的
     `scanOthers()` 只遍历 `document.body` → 这些元素不算「可见内容」→ 不进
@@ -587,6 +630,7 @@ desktop-suite/
   → 新增 `follow()` 每 200ms 校准一次
 
 ### 新增（对齐 Windows 独立版，路线图第 2–6 项）
+
 - **多币种汇率**：余额按实时汇率折算，角标显示 `💱 ¥86.19 ≈ $12.82 USD`，
   点击在 `USD → EUR → JPY → GBP → HKD → 关` 之间循环（JPY 不带小数）。
   余额走插件同源的 `/dsh-whale/balance.json`，汇率走 `open.er-api.com` + 本地 6h 缓存；
@@ -601,6 +645,7 @@ desktop-suite/
   也可点汇率角标右键手动唤出
 
 ### 测试
+
 - 新增 `tools/desktop-enhance-test.mjs`：走 CDP 真实操作 DOM 并截图存档，覆盖
   浮层几何（必须完整在视口内 + `scrollWidth <= clientWidth` 防 CSS 截断）、
   三态主题生效且配色确实不同、四套气泡皮肤、图表柱条数量与高亮、提示不越界
@@ -612,12 +657,14 @@ desktop-suite/
 ## [扩展版 v31] - 2026-10-02
 
 ### 修复（未来兼容性 / 静默失效）
+
 - **GJS `Uint8Array` 兼容**：4 处 `data.toString()` / `JSON.parse(bytes.get_data())` 统一改为
   `decodeBytes()`（内部用 `TextDecoder`）。`journalctl` 已对 `Uint8Array.toString()` 发出弃用警告，
   未来 GJS 版本会改为返回逗号分隔的数字串 —— 届时凭据 / 账本 / 偏好 / 余额都会**静默读不到**
   （表现为「已配置却提示未配置」）。本版先消除该隐患
 
 ### 新增（多显示器）
+
 - **显示器热插拔守卫**：监听 `Main.layoutManager` 的 `monitors-changed` 与 `global.display` 的
   `workareas-changed`，变化后把鲸鱼夹回合法工作区（已贴边则重新贴边）
   —— 修复「拔掉外接屏 / 改分辨率或缩放后，鲸鱼停在已消失的显示器坐标上而不见了」
@@ -627,9 +674,11 @@ desktop-suite/
 - **「回到左下角」**明确定义为主屏左下角（多显示器下不再受当前所在屏影响）
 
 ### 变更
+
 - `metadata.json` 的 `version` 由 `1` 对齐为 `31`（与本节版本号一致）
 
 ### 说明
+
 - 显示器相关改动在本机（Ubuntu 24.04 / GNOME 46 / Wayland，DP-1～DP-4 当前未接外接屏）**无法完整实机
   覆盖**，验收口径与测试矩阵见 `docs/linux-adaptation-plan.md`（D5 / T5）
 - 本次**未改**：触屏长按菜单（A3）、音频回退（A7）、锁屏降级（A6）等，见该文档 §3 与 §10
@@ -639,6 +688,7 @@ desktop-suite/
 ## [扩展版 v30] - 2026-09-04
 
 ### 优化（动画流畅度）
+
 - 拖动跟手采样 30ms→**16ms（60fps）**，与屏幕刷新对齐，消除拖动顿挫感
 - 余额数字滚动 30ms→**16ms（60fps）** 并做**文本去重**：数值未变化时不触发整块重排
 - 气泡尾随：目标位置未变时跳过重定位与尾巴重绘，减少与滚动动画抢帧
@@ -646,6 +696,7 @@ desktop-suite/
 ## [扩展版 v29] - 2026-09-04
 
 ### 新增（令牌模式·今日已用精算）
+
 - 读取 `DEEPSEEK_PLATFORM_TOKEN`，调用平台用量接口
   `platform.deepseek.com/api/v0/usage/by_api_key/amount` 拉取今日 token 消耗
 - 按 DeepSeek **峰谷定价**（空闲/高峰两档）换算为今日金额：base/pro 分档、命中/未命中/输出分项，
@@ -656,6 +707,7 @@ desktop-suite/
 ## [扩展版 v28] - 2026-09-04
 
 ### 新增
+
 - 音色主题由 3 套扩至 **6 套**：默认 / 叮咚(bell) / 低沉(low) / 柔和(soft) / 活泼(pop) / 清脆(chirp)
   （新增 `sfx_pop_*`、`sfx_chirp_*` 音效素材）
 - 卖萌台词扩至 17 条，新增「吐槽」句组
@@ -664,11 +716,13 @@ desktop-suite/
 ## [扩展版 v27] - 2026-09-04
 
 ### 新增（数字滚动动画）
+
 - 同币种余额金额变化时，气泡首行金额 700ms ease-out-cubic **平滑滚动**到新值（30ms 帧驱动、可中断清理）
 
 ## [扩展版 v26] - 2026-09-04
 
 ### 新增（今日已用·小鲸鱼记账）
+
 - 余额差值记账：观测到余额下降即累计为「今日已用」，跨天归零并按 30 天滚动归档
 - 币种感知：多币种切换时只重置基准，避免虚记
 - 账本写入 `~/.dsh/.dshw-usage.json`，与 dsh-web 账本文件格式兼容
@@ -677,21 +731,25 @@ desktop-suite/
 ## [扩展版 v25] - 2026-09-04
 
 ### 新增（自动轮询）
+
 - 余额 60s 自动轮询：启动即**静默对齐**缓存；仅当余额实际变化才弹泡
 - 防重入保护（避免并发请求）；右键菜单「🔄 自动刷新 60s/关」开关并持久化
 
 ## [扩展版 v24] - 2026-09-04
 
 ### 新增（四边 + 四角吸附）
+
 - 松手后按鲸鱼中心所在视口外侧 1/4 带，水平/垂直**独立**贴边或贴角（两轴自由组合）
 - 记录贴边状态：缩放、回到左下角后仍保持贴边
 
 ## [扩展版 v23] - 2026-09-04
 
 ### 修复
+
 - **根治左缘抖动**：改为按住时记录「抓取偏移」+ 跟随单调边界 clamp（此前临界点翻转造成 200px 级抖动）
 
 ### 新增
+
 - 右键菜单完善：音色主题循环 / 音量调节行 / 音效开关 / 气泡开关 / 峰谷文案切换 / 隐藏(禁用扩展)
 - **摸摸头互动**：左键轻点 → 开心小跳 ×3 + 飘爱心/音符 + 卖萌台词气泡
 - **静置动效**：飘音符/爱心、眨眼、双音符（像 gif 一直在动）
@@ -700,23 +758,27 @@ desktop-suite/
 ## [扩展版 v22] - 2026-09-04
 
 ### 新增
+
 - 气泡可**点击换台词**（不重复请求余额）
 - 缓存上次余额；气泡出现改为 Q 弹（scale ease-out-back）动画
 
 ## [扩展版 v21] - 2026-09-04
 
 ### 修复
+
 - 左缘抖动缓解：跟随即时定位（不用 ease）、吸附动画去掉超调（EASE_OUT_QUAD）
 - 气泡增加小尾巴，指向鲸鱼并防越界
 
 ## [扩展版 v20] - 2026-09-04
 
 ### 新增（右键菜单）
+
 - 右键菜单雏形：查看余额 / 回到左下角 / 放大 / 缩小 / 音效开关 / 峰谷文案切换（默认 · 梁文峰谷 · !?强强?!）
 
 ## [扩展版 v19] - 2026-09-04
 
 ### 新增
+
 - 音效（拿起/放下/摸摸头，`pw-play` 播放，按音色主题与音量）
 - 呼吸动画（静置时上下浮动）；台词库扩充
 - 桌面菜单入口脚本归档（`desktop-menu.sh` + `.desktop`，显示余额/重启扩展联动）
@@ -724,44 +786,52 @@ desktop-suite/
 ## [扩展版 v18] - 2026-09-03
 
 ### 变更
+
 - 启动默认停靠**左下角**；移除位置记忆（回到固定默认位，行为更可预期）
 
 ## [扩展版 v17] - 2026-09-03
 
 ### 修复
+
 - 反转镜像方向：贴左朝右、贴右朝左（朝向屏幕内），观感修正
 
 ## [扩展版 v16] - 2026-09-03
 
 ### 修复
+
 - 翻转改由鲸鱼所在**半屏**决定（更符合预期）
 - 松开兜底：鲸鱼本体绑定 button-release 双保险，避免卡在跟随态
 
 ## [扩展版 v15] - 2026-09-03
 
 ### 新增
+
 - 接近边缘时提前翻转贴合；气泡 30ms 平滑跟随鲸鱼
 
 ## [扩展版 v14] - 2026-09-03
 
 ### 新增
+
 - **贴边吸附** + 按所贴侧镜像朝向
 - 气泡锚定鲸鱼且防越界跟随
 
 ## [扩展版 v13] - 2026-09-03
 
 ### 变更
+
 - 交互改为「按住=跟随、松开=停靠」；单击出余额台词
 
 ## [扩展版 v12] - 2026-09-03
 
 ### 新增
+
 - 跟随模式 + 随机台词 / 峰谷提示 + 贴边吸附
 - 扩展版从此进入逐版迭代的稳定主干（v10/v11 早期快速迭代并入本版）
 
 ## [扩展版 v9] - 2026-09-03
 
 ### 新增（扩展版首个可用版本）
+
 - 新增 GNOME Shell 扩展版小鲸鱼：解决 Wayland 会话 Electron 透明窗不可悬浮的问题
 - 鲸鱼悬浮于 Shell 层；拖拽移动（限主屏工作区）、按压回弹；点击读取 API Key 显示余额气泡
 - 配套 `install.sh` 安装脚本与扩展元数据（uuid `dsh-whale@local`，Shell 45–47）
@@ -771,6 +841,7 @@ desktop-suite/
 ## [桌面版 Linux v1.2] - 2026-10-02
 
 ### 新增（桌面版增强层 —— 不修改 vendored 插件本体）
+
 - 新增 `assets/desktop-enhance.js`：由主进程在插件脚本**之后**注入，用于叠加桌面版特有功能。
   这样 `desktop-suite/dsh-whale/dsh-whale-widget/` 继续保持**原样 vendored**，上游升级插件时不产生冲突
 - **峰谷提前预警**（对齐官方 Windows 独立版、插件本体缺失）：进入/离开高峰前 N 分钟提醒
@@ -781,6 +852,7 @@ desktop-suite/
 - 未实现（路线图见 `docs/feature-comparison.md`）：多币种汇率、多套气泡组、台词轮播、账单图表、三态主题
 
 ### 工程（打包链修复）
+
 - `build.deb.depends` 加 t64 备选：Ubuntu 24.04 把 `libgtk-3-0` / `libatspi2.0-0` 改名为 `*t64`，
   原名不存在会让 `dpkg -i` 被依赖阻断；改为 `libgtk-3-0 | libgtk-3-0t64` 等，兼容 22.04/24.04
 - 补 `homepage`（fpm 生成 deb 必需）、`desktopName` + `linux.syncDesktopName`（修 dock 窗口关联）、
@@ -795,6 +867,7 @@ desktop-suite/
 > 实机基线：Ubuntu 24.04.4 / GNOME 46 / **Wayland** / Intel Meteor Lake / 3120×2080 缩放 2.0
 
 ### 修复（阻断性 —— 此前 Linux 版实际上不可用）
+
 - **点击穿透在 Linux 上失效且反向有害**：`setIgnoreMouseEvents(true, {forward:true})` 的 `forward`
   官方只支持 macOS/Windows。实机探针实测：Linux 下窗口仍收到**全部** mousemove，且透明区域的
   点击**不会穿透**到下层窗口（背景窗 0 次收到）→ 一个全屏透明窗会**挡住整个桌面的点击**。
@@ -813,6 +886,7 @@ desktop-suite/
   导致第二次启动崩溃
 
 ### 新增
+
 - `preload-linux.js`：Linux 专用 preload。按 PNG alpha 轮廓把鲸鱼切成 16 条横向分带
   （比整块方形贴合得多），加上其它可见元素（面板/气泡/飘字）的矩形，去重后上报主进程 `setShape`。
   实测确认 `setShape` 走的是 X11 **ShapeBounding**，会**同时裁剪绘制**，因此：鲸鱼移动中自动用
@@ -820,6 +894,7 @@ desktop-suite/
   形状不变则不重复调用
 
 ### 说明
+
 - 本轮改动只针对 `desktop-suite/dsh-whale/dsh-whale-desktop-linux/`；Windows 版沿用官方支持的 forward 方案，不受影响
 - 已实机验证：自动重启、X11 窗口建立、`setShape` 生效、23 条插件路由加载
 - **尚未做视觉验收**（鲸鱼是否被裁切、穿透手感、拖动是否跟手），需人工确认
@@ -829,6 +904,7 @@ desktop-suite/
 ## [桌面版 v1.0] - 2026-09-02
 
 ### 新增
+
 - **Windows 桌面挂件**（`desktop-suite/dsh-whale/dsh-whale-desktop/`，Electron）：无边框透明置顶悬浮窗、满桌面拖动、
   像素级点击穿透、菜单内改 API Key、开机自启（计划任务）、打包便携 exe
 - **Linux 桌面挂件**（`desktop-suite/dsh-whale/dsh-whale-desktop-linux/`）：Ubuntu 22.04 / 24.04 amd64，
@@ -859,6 +935,7 @@ desktop-suite/
 ## [Coopanion Linux 完善 v2] - 2026-10-02
 
 ### 修复（上游「Linux 版开发不完全」的 4 个根因）
+
 - **桌宠窗口不出现**：`--pet-host` 是**子 Electron 进程**，而 `appendSwitch()` 不继承。
   补 `ELECTRON_OZONE_PLATFORM_HINT=x11` + 给子进程显式 `--ozone-platform=x11`。
   原先子进程退回原生 Wayland（窗口不能自定位/置顶）→ 窗口从未被创建。
@@ -869,6 +946,7 @@ desktop-suite/
 - 额外：`xprop` 把窗口类型设为 `_NET_WM_WINDOW_TYPE_DOCK`，避免 dash-to-dock 自动隐藏。
 
 ### 新增
+
 - `tools/coopanion-linux-test.mjs` —— Linux 端到端自检 **26 项全绿**，含真实 CDP
   右键菜单、「行为模式」逐按钮点击并验证标签变化、装扮页、X11 抓屏渲染校验、截图存档。
 - `tools/setup-nvidia.sh` + `docs/coopanion-linux-and-nvidia.md` —— Linux NVIDIA
@@ -879,12 +957,14 @@ desktop-suite/
   `host/electron-main.cjs`、`host/preload.cjs`）。
 
 ### 验证
+
 - `node tools/coopanion-linux-test.mjs` → 26/26 通过
 - `node tools/coopanion-feature-test.mjs` → 15/15 通过
 
 ## [自启修复 + GPU 稳定性复核] - 2026-10-03
 
 ### 修复：Live2D 鲸鱼娘开机自启静默失败
+
 - 根因：`petctl.sh` 启动 Live2D 时**漏了 `--no-sandbox`**（DSH 那条一直带着）。
   本机 electron 的 `chrome-sandbox` 不是 setuid root，而 Ubuntu 24.04 默认
   `apparmor_restrict_unprivileged_userns=1` 封掉了非特权 userns 回退 →
@@ -894,11 +974,13 @@ desktop-suite/
   自启项改由它调用，把过去的「静默失败」变成「等一等、重试、留痕」。
 
 ### 修复：GPU 健康度误报
+
 - `petctl.sh status` 的 `gpu_hang_count` 未限定内核日志，把 gpu-watchdog 服务
   **自己的启动文案**（"检测 i915 GPU HANG ..."）当成挂死记录 → 假阳性 degraded。
   改用 `journalctl -k`（只看内核），`diagnose.sh` 同步修正。
 
 ### 复核结论（重启后，i915 参数已生效）
+
 - 内核参数 `i915.enable_psr=0 enable_dc=0 enable_fbc=0 i915.reset=1` 已生效
 - 本次开机 **真实 GPU 挂死 0 次**（此前两天 59 次）→ PSR/DC/FBC 修复有效
 - `gpu-watchdog.service` 已安装并运行
@@ -908,6 +990,7 @@ desktop-suite/
 ## [最终审核 + 触屏测试稳定性] - 2026-10-03
 
 ### 复核（重启后，i915 参数已生效）
+
 - 本次开机**真实 GPU 挂死 0 次**、mutter D-Bus 超时 0 次（此前两天 59 次）
 - `gpu-watchdog.service` active + enabled，触发 0 次
 - `linux-firmware` 已升级 `0ubuntu2.27` → `0ubuntu3.1`；但内核里加载的仍是
@@ -916,12 +999,14 @@ desktop-suite/
 - 测试：端到端 26/26、触屏 21/21、功能与补丁一致性 15/15、补丁逐字节无漂移
 
 ### 触屏测试稳定性修复（测试自身缺陷，非产品问题）
+
 用隔离实验逐条排除了「产品会把宠物窗口弄消失」的怀疑：
+
 - 单独调 `petHost.focus()` → 窗口仍 `IsViewable`（不是它）
 - 单次点「打字和我说话」→ 仍 `IsViewable`
 - 连续 20 次猛点宠物身体 → 仍 `IsViewable`
-结论：之前的 unmap 是**测试流程**造成的 —— 长按弹出的菜单没关掉，后续候选点
-正好点在菜单最后一项「隐藏桌宠」上。已修：
+  结论：之前的 unmap 是**测试流程**造成的 —— 长按弹出的菜单没关掉，后续候选点
+  正好点在菜单最后一项「隐藏桌宠」上。已修：
 - `closeMenus()`：关菜单 + 关气泡（气泡会撑大墨迹包围盒，导致推算坐标落到气泡上）
 - 拖拽改为**朝屏幕中心**拉（原来一律往右，把宠物拖出视口 → 形状塌缩成 1x1 → 后续量不到墨迹）
 - 拖拽后只等 250ms 就测量（宠物放手后会 `walkTo(home)` 往回走，等 900ms 只能测到残值）
@@ -930,6 +1015,7 @@ desktop-suite/
 ## [剩余待办全部完成] - 2026-10-03
 
 ### 新增：DSH 小鲸鱼里的 Live2D 开关（两个入口）
+
 - **迷你控制条**：🎨 📊 ✂️ 之后新增 **🐋**，点一下开关 Live2D 鲸鱼娘。
   走 preload 的 `dshwBridge.petToggle` → 主进程 → `tools/petctl.sh`。
 - **托盘菜单**：新增「Live2D 鲸鱼娘（开 / 关）」，失败时弹通知而不是静默。
@@ -938,6 +1024,7 @@ desktop-suite/
   并把新产物复制到 `~/Applications/`（已实际重建并部署验证）。
 
 ### 新增：GNOME 顶栏控制图标 `desktop-suite/dsh-whale/dsh-whale-pets-tray/`
+
 - 顶栏 🐋 按钮 → 菜单显示两个桌宠状态（● 运行 / ○ 已停），点条目即开/关。
 - 动作全部转发 `petctl.sh`：桌面图标 / 开机自启 / DSH 控制条 / 顶栏，四个入口同一套实现。
 - 状态读取用 `Gio.Subprocess` 异步，不阻塞 Shell 主循环；只在开菜单时刷新，不做轮询。
@@ -945,6 +1032,7 @@ desktop-suite/
   （GNOME Shell 只在启动时扫描扩展目录）。
 
 ### 新增：降低 GPU/CPU 持续负载（针对 GPU 挂死的诱因）
+
 - **Coopanion**：shape 上报从「固定 60ms 一直跑」改为自适应 —— 形状变化中 50ms
   快速跟随，连续稳定 8 次后降到 320ms 巡检。
 - **DSH 挂件**：主循环从「每帧全量重算」（60 次/秒的 DOM 遍历 + 数组构造 + 序列化）
@@ -952,13 +1040,14 @@ desktop-suite/
 - 实测空闲 CPU：DSH 渲染进程 ≈5.9%，Coopanion 渲染进程 ≈16.9%。
 
 ### 清理
+
 - 卸载旧 GNOME 扩展 `dsh-whale@local`（悬浮鲸鱼本体），源码仍保留在
   `desktop-suite/dsh-whale/dsh-whale-shell-extension/`；旧脚本 `~/.local/bin/desktop-suite/dsh-whale/dsh-whale-widget` 已改名为
   `.legacy-disabled`。
 
 ### 验证
+
 - Coopanion 端到端 **26/26**、触屏 **21/21**、功能与补丁一致性 **15/15**，补丁无漂移
 - **齿轮按钮实测**：点桌宠气泡里的齿轮 → 主进程新建页面 `http://127.0.0.1:17788/#/home`（控制台真的打开）
 - 端到端实测 🐋 开关：`petToggle('live2d')` → `live2d=stopped` → 再点 → `live2d=running`
 - DSH 新构建已验证：`{"hasBridge":true,"ctlButtons":["🎨","📊","✂️","🐋"],"hasWhaleBtn":true}`
-

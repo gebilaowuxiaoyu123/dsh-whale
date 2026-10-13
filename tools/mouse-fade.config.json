@@ -1,0 +1,10 @@
+﻿{
+    "Processes":  [
+                      "Pogget"
+                  ],
+    "OpacityAway":  0.35,
+    "OpacityOver":  1,
+    "FadeMs":  450,
+    "LiftPx":  0,
+    "Enabled":  true
+}

@@ -97,7 +97,10 @@ public class MouseFadeNative {
     public static bool LeftButtonDown() {
         return (GetAsyncKeyState(0x01) & 0x8000) != 0;
     }
-    /// 只移动窗口纵向位置（横向、尺寸、z 序都不动）
+    /// 只移动窗口纵向位置（横向、尺寸、z 序都不动）。
+    /// 用同步调用：异步（SWP_ASYNCWINDOWPOS）会偶发丢包，实测“沉回原位”那一帧会丢、
+    /// 导致窗口停在上浮位置且被误当成新基准（每悬停一次就往上漂 16px）。
+    /// 阻塞风险靠"不在持锁时调用"来避免（见 MouseFader.Step）。
     public static void MoveY(IntPtr h, int x, int y) {
         SetWindowPos(h, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
@@ -152,6 +155,149 @@ public class MouseFadeNative {
     }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder s, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int n);
+}
+
+/// 高精度淡变引擎。
+/// 之前是用 PowerShell 循环每帧算一次，受 Start-Sleep 精度（约 15.6ms）和脚本引擎抖动影响，
+/// 帧长会忽长忽短，看起来就没有 XSpace（WPF 在 120Hz 刷新上做 DoubleAnimation）那么顺。
+/// 现在换成：C# 后台线程 + 1ms 定时器精度，按时间基准算 CubicEase(EaseOut) 进度
+/// （和 WPF 的 CubicEase 曲线完全一致），采样上限约 140Hz，并且只在“整数值真的变了”时才写窗口，
+/// 省掉大量无谓的 DWM 合成。PowerShell 只负责：什么时候把目标下发下来。
+public class MouseFader {
+    [DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint ms);
+    [DllImport("winmm.dll")] static extern uint timeEndPeriod(uint ms);
+
+    class Item {
+        public IntPtr H; public int X;
+        public double A0, A1, A;
+        public double Y0, Y1, Y;
+        public int Dur; public long T0;
+        public bool Active;
+        public int SettleLeft;                 // 动画结束后还需补投几次最终值
+        public int LastA = -1, LastY = int.MinValue;
+        public long LastWrite;
+        public int Frames; public double SumMs, MaxMs; public long PrevFrame;
+    }
+
+    static readonly object gate = new object();
+    static readonly System.Collections.Generic.Dictionary<IntPtr, Item> items =
+        new System.Collections.Generic.Dictionary<IntPtr, Item>();
+    static System.Threading.Thread th;
+    static volatile bool running;
+    const int WriteMinGapMs = 7;      // 写窗口的频率上限，约 140Hz
+    static bool timerRaised;
+
+    // 注意：PowerShell 5.1 的 Add-Type 编译目标是 .NET Framework，
+    // 没有 Environment.TickCount64（那是 .NET Core 3.0+ 才有），所以用 Stopwatch 计时
+    static readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+    static long Now() { return clock.ElapsedMilliseconds; }
+
+    public static void Start() {
+        if (running) return;
+        running = true;
+        th = new System.Threading.Thread(Loop);
+        th.IsBackground = true;
+        th.Priority = System.Threading.ThreadPriority.AboveNormal;
+        th.Start();
+    }
+    public static void Stop() { running = false; }
+
+    /// 下发目标：alpha 0..255，y 为目标上边距，durMs 是过渡时长
+    public static void Set(IntPtr h, int x, double alpha, double y, int durMs) {
+        lock (gate) {
+            Item it;
+            if (!items.TryGetValue(h, out it)) { it = new Item(); it.H = h; it.A = alpha; it.Y = y; items[h] = it; }
+            it.X = x;
+            it.A0 = it.A; it.Y0 = it.Y;
+            it.A1 = alpha; it.Y1 = y;
+            it.Dur = durMs < 1 ? 1 : durMs;
+            it.T0 = Now();
+            it.Active = true;
+            it.SettleLeft = 0;
+            it.LastWrite = 0;
+            it.Frames = 0; it.SumMs = 0; it.MaxMs = 0; it.PrevFrame = 0;
+        }
+    }
+    public static void Clear() { lock (gate) { items.Clear(); } }
+    public static int  LastY(IntPtr h)  { lock (gate) { Item it; return items.TryGetValue(h, out it) ? it.LastY : int.MinValue; } }
+    public static bool IsActive(IntPtr h) { lock (gate) { Item it; return items.TryGetValue(h, out it) && it.Active; } }
+    public static bool AnyActive() { lock (gate) { foreach (Item it in items.Values) if (it.Active) return true; } return false; }
+    /// 上一次过渡的性能统计（帧数 / 平均帧间隔 / 最大帧间隔），用于核对流畅度
+    public static string Stats(IntPtr h) {
+        lock (gate) {
+            Item it;
+            if (!items.TryGetValue(h, out it) || it.Frames < 2) return "";
+            return string.Format("frames={0} avgGap={1:0.00}ms maxGap={2:0.0}ms", it.Frames, it.SumMs / (it.Frames - 1), it.MaxMs);
+        }
+    }
+
+    static void Loop() {
+        while (running) {
+            bool busy = Step();      // 不在外层加锁：Step 内部自己加锁，写窗口放在锁外做
+            if (busy) {
+                if (!timerRaised) { timeBeginPeriod(1); timerRaised = true; }
+                System.Threading.Thread.Sleep(1);          // 1ms 定时器精度 → 采样误差 1~2ms
+            } else {
+                if (timerRaised) { timeEndPeriod(1); timerRaised = false; }
+                System.Threading.Thread.Sleep(8);          // 空闲就把定时器精度还回去，不常驻耗电
+            }
+        }
+        if (timerRaised) { timeEndPeriod(1); timerRaised = false; }
+    }
+
+    static readonly System.Collections.Generic.List<Item> pend = new System.Collections.Generic.List<Item>();
+    static readonly System.Collections.Generic.List<int> pendA = new System.Collections.Generic.List<int>();
+    static readonly System.Collections.Generic.List<int> pendY = new System.Collections.Generic.List<int>();
+    static readonly System.Collections.Generic.List<bool> pendMove = new System.Collections.Generic.List<bool>();
+
+    static bool Step() {
+        bool busyFlag = false;
+        lock (gate) {
+            pend.Clear(); pendA.Clear(); pendY.Clear(); pendMove.Clear();
+            foreach (Item it in items.Values) {
+                if (!it.Active) {
+                    // 动画结束后再补投几次最终值：最后那一帧（尤其是"沉回原位"）必须落地
+                    if (it.SettleLeft > 0) {
+                        it.SettleLeft--;
+                        busyFlag = true;
+                        pend.Add(it); pendA.Add((int)Math.Round(it.A1)); pendY.Add((int)Math.Round(it.Y1)); pendMove.Add(true);
+                    }
+                    continue;
+                }
+                busyFlag = true;
+                long now = Now();
+                double t = (now - it.T0) / (double)it.Dur;
+                bool done = t >= 1.0;
+                if (done) { t = 1.0; it.Active = false; it.SettleLeft = 24; }
+                double p = 1.0 - Math.Pow(1.0 - t, 3);   // 与 WPF CubicEase / EaseOut 完全同一条曲线
+                it.A = it.A0 + (it.A1 - it.A0) * p;
+                it.Y = it.Y0 + (it.Y1 - it.Y0) * p;
+                if (!done && now - it.LastWrite < WriteMinGapMs) continue;
+                it.LastWrite = now;
+                int a = (int)Math.Round(it.A);
+                int y = (int)Math.Round(it.Y);
+                bool needA = a != it.LastA;
+                bool needY = y != it.LastY;
+                if (!needA && !needY) continue;
+                if (needA) it.LastA = a;
+                if (needY) it.LastY = y;
+                pend.Add(it); pendA.Add(needA ? a : -1); pendY.Add(y); pendMove.Add(needY);
+                if (it.PrevFrame != 0) { double d = now - it.PrevFrame; it.SumMs += d; if (d > it.MaxMs) it.MaxMs = d; }
+                it.PrevFrame = now;
+                it.Frames++;
+            }
+            if (pend.Count == 0) return busyFlag;
+        }
+        // 真正写窗口放在锁外：跨进程 SetWindowPos 有阻塞可能，绝不能持锁做，
+        // 否则 PowerShell 侧取锁时会被一起卡住（之前那次“助手假死”就是这么来的）。
+        bool drag = MouseFadeNative.LeftButtonDown();
+        for (int i = 0; i < pend.Count; i++) {
+            Item it = pend[i];
+            if (pendA[i] >= 0) MouseFadeNative.SetAlpha(it.H, pendA[i]);
+            if (pendMove[i] && !drag) MouseFadeNative.MoveY(it.H, it.X, pendY[i]);
+        }
+        return busyFlag;
+    }
 }
 '@
 }
@@ -218,6 +364,7 @@ function Get-TargetWindows($cfg) {
 
 function Restore-All($cfg, $restMap = $null) {
     $n = 0
+    try { [MouseFader]::Clear() } catch { }
     foreach ($h in (Get-TargetWindows $cfg)) {
         if ($restMap -and $restMap.ContainsKey($h)) {
             $r = [MouseFadeNative]::RectOf($h)
@@ -238,14 +385,15 @@ function Invoke-Daemon {
     $target = @{}     # hwnd -> 目标 0..255
     $addedLayered = @{}
     $restTop = @{}    # hwnd -> 静止时的上边距（悬浮位移的基准）
-    $curTop = @{}     # hwnd -> 当前上边距（动画中）
-    $lastSetTop = @{} # hwnd -> 上一次我们写进去的上边距（用来分辨“是不是别人挪的”）
+    $applied = @{}    # hwnd -> 已下发给动画引擎的目标（"alpha/y"），没变就不重新启动动画
+    $logged = @{}     # hwnd -> 本次过渡是否已经打过性能统计
     $targetY = @{}    # hwnd -> 目标上边距
     $lift = 0
     $lastCfgRead = [DateTime]::MinValue
     $cfg = Get-Config
     $lastState = ''
     $restoredOnExit = $false
+    [MouseFader]::Start()
 
     try {
         while ($true) {
@@ -256,7 +404,7 @@ function Invoke-Daemon {
                 $cfg = Get-Config
                 $lastCfgRead = Get-Date
                 if (-not $cfg.Enabled) {
-                    if ($alpha.Count -gt 0) { Restore-All $cfg $restTop | Out-Null; $alpha.Clear(); $target.Clear(); $addedLayered.Clear(); $restTop.Clear(); $curTop.Clear(); $lastSetTop.Clear(); $targetY.Clear() }
+                    if ($alpha.Count -gt 0) { Restore-All $cfg $restTop | Out-Null; $alpha.Clear(); $target.Clear(); $addedLayered.Clear(); $restTop.Clear(); $applied.Clear(); $logged.Clear() }
                 }
             }
 
@@ -266,8 +414,9 @@ function Invoke-Daemon {
                 # 清理已消失的窗口
                 foreach ($h in @($alpha.Keys)) {
                     if ($wins -notcontains $h) {
+                        [MouseFader]::Clear()
                         $alpha.Remove($h); $target.Remove($h); $addedLayered.Remove($h)
-                        $restTop.Remove($h); $curTop.Remove($h); $lastSetTop.Remove($h); $targetY.Remove($h)
+                        $restTop.Remove($h); $applied.Remove($h); $logged.Remove($h)
                     }
                 }
 
@@ -296,19 +445,24 @@ function Invoke-Daemon {
                         $alpha[$h] = $cur
                         $target[$h] = $overPx
                         $restTop[$h] = $rect[1]
-                        $curTop[$h] = $rect[1]
-                        $lastSetTop[$h] = $rect[1]
+                        $applied[$h] = ''
+                        $logged[$h] = $true
                         Write-Log ("接管窗口 0x{0:X} {1}（原本 layered={2}，静止 Y={3}）" -f $h.ToInt64(), [MouseFadeNative]::TitleOf($h), $wasLayered, $rect[1])
                     }
                     else {
-                        # 别人（用户拖动 / 程序自己）挪过窗口 → 把当前位置认作新基准，避免和它抡位置
-                        if ([Math]::Abs($rect[1] - [double]$lastSetTop[$h]) -gt 3) {
-                            $restTop[$h] = $rect[1] + $(if ($h -eq $hover) { $lift } else { 0 })
-                            $curTop[$h] = $rect[1]
-                            $lastSetTop[$h] = $rect[1]
-                        }
-                        elseif ($h -ne $hover -and [Math]::Abs([double]$curTop[$h] - [double]$restTop[$h]) -lt 1) {
-                            $restTop[$h] = $rect[1]   # 已沉到底且鼠标不在上面 → 当前位置就是新的静止位置
+                        # 只在动画完全停稳时才判断"窗口是不是被别人挪了"：
+                        # SetWindowPos 现在是异步投递，窗口实际位置会落后于我们上次写入的值，
+                        # 动画途中比较会出现假差值，导致静止基准被越改越偏（实测表现为沉不回原位）。
+                        if (-not [MouseFader]::IsActive($h)) {
+                            $myY = [MouseFader]::LastY($h)
+                            if ($myY -ne [int]::MinValue -and [Math]::Abs($rect[1] - $myY) -gt 3) {
+                                # 用户拖动 / 程序自己挪过 → 把当前位置认作新基准，避免和它抢位置
+                                $restTop[$h] = $rect[1] + $(if ($h -eq $hover) { $lift } else { 0 })
+                                $applied[$h] = ''
+                            }
+                            elseif ($h -ne $hover) {
+                                $restTop[$h] = $rect[1]   # 鼠标不在上面且已沉到底 → 当前位置就是静止位置
+                            }
                         }
                     }
                     $target[$h] = if ($h -eq $hover) { $overPx } else { $awayPx }
@@ -322,45 +476,34 @@ function Invoke-Daemon {
                     Write-Log ("鼠标状态：{0}（不透明度 悬停 {1} / 离开 {2}，上浮 {3}px，过渡 {4}ms）" -f $stateNow, $cfg.OpacityOver, $cfg.OpacityAway, $cfg.LiftPx, $cfg.FadeMs)
                 }
 
-                # 用"指数逼近"做平滑过渡：frameMs/fadeMs 决定本帧走完剩余差距的比例
-                $dt = [Math]::Max(1.0, [double]$sw.Elapsed.TotalMilliseconds)
-                $k = if ($cfg.FadeMs -le 0) { 1.0 } else { 1.0 - [Math]::Pow(0.01, $dt / [double]$cfg.FadeMs) }
+                # 把“目标变了”下发给 C# 动画引擎（同一目标不重复下发，动画才能一次走完不被重启）
                 foreach ($h in @($alpha.Keys)) {
-                    # —— 不透明度 ——
-                    $cur = [double]$alpha[$h]
-                    $tgt = [double]$target[$h]
-                    if ($k -ge 1.0 -or [Math]::Abs($cur - $tgt) -lt 0.5) { $alpha[$h] = $tgt }
-                    else { $alpha[$h] = $cur + ($tgt - $cur) * $k }
-                    [MouseFadeNative]::SetAlpha($h, [int][Math]::Round($alpha[$h]))
+                    $key = "$($target[$h])/$([Math]::Round([double]$targetY[$h], 2))"
+                    if ($applied[$h] -ne $key) {
+                        $applied[$h] = $key
+                        $r3 = [MouseFadeNative]::RectOf($h)
+                        if ($r3) { [MouseFader]::Set($h, $r3[0], [double]$target[$h], [double]$targetY[$h], [int]$cfg.FadeMs) }
+                    }
+                }
 
-                    # —— 上浮 / 下沉（窗口纵向位置）——
-                    if ($lift -gt 0 -and $targetY.ContainsKey($h)) {
-                        $cy = [double]$curTop[$h]
-                        $wy = [double]$targetY[$h]
-                        if ($k -ge 1.0 -or [Math]::Abs($cy - $wy) -lt 0.5) { $cy = $wy }
-                        else { $cy = $cy + ($wy - $cy) * $k }
-                        if ([Math]::Abs($cy - [double]$lastSetTop[$h]) -gt 0.4) {
-                            # 用户按着左键拖窗口时不要抢
-                            if (-not [MouseFadeNative]::LeftButtonDown()) {
-                                $rect2 = [MouseFadeNative]::RectOf($h)
-                                if ($rect2) {
-                                    $iy = [int][Math]::Round($cy)
-                                    [MouseFadeNative]::MoveY($h, $rect2[0], $iy)
-                                    $lastSetTop[$h] = $iy
-                                }
-                            }
-                            else { $cy = [double]$curTop[$h] }
-                        }
-                        $curTop[$h] = $cy
+                # 过渡结束后打一条性能统计（帧数/平均帧间隔/最大帧间隔），方便核对是否和 XSpace 一样顺
+                foreach ($h in @($alpha.Keys)) {
+                    if ([MouseFader]::IsActive($h)) { $logged[$h] = $false }
+                    elseif ($logged[$h] -eq $false) {
+                        $logged[$h] = $true
+                        $st = [MouseFader]::Stats($h)
+                        if ($st) { Write-Log ("淡变完成 0x{0:X}  {1}" -f $h.ToInt64(), $st) }
                     }
                 }
             }
 
-            $sleep = 16 - [int]$sw.Elapsed.TotalMilliseconds
-            if ($sleep -lt 1) { $sleep = 1 }
+            # 策略循环不用那么勤：窗口枚举/状态判断降到 ~8Hz，逐帧插值由 C# 引擎负责，CPU 占用大幅下降
+            $sleep = 120 - [int]$sw.Elapsed.TotalMilliseconds
+            if ($sleep -lt 10) { $sleep = 10 }
             Start-Sleep -Milliseconds $sleep
         }
     } finally {
+        try { [MouseFader]::Stop() } catch { }
         if (-not $restoredOnExit) {
             try { Restore-All (Get-Config) $restTop | Out-Null; Write-Log "助手退出，已还原窗口" } catch { }
         }
