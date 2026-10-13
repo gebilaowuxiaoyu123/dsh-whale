@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Coopanion Desktop Pet
+Comment=鲸鱼娘桌宠（Electron + Live2D）
+Exec="__REPO__/desktop-suite/coopanion/node_modules/electron/dist/electron" "__REPO__/desktop-suite/coopanion" --background
+Path=__REPO__/desktop-suite/coopanion
+Terminal=false
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DSH Desktop Suite Boot Order
+Comment=桌面插件分级启动（错峰、固定顺序、缺插件跳过）
+Exec=bash "__REPO__/linux/boot-order.sh" --run
+Terminal=false
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=DSH Whale Widget
+Comment=小鲸鱼桌面版（Electron 余额挂件）
+Exec=bash -lc 'cd "__REPO__/desktop-suite/dsh-whale/dsh-whale-desktop-linux" && ./start-linux.sh'
+Path=__REPO__/desktop-suite/dsh-whale/dsh-whale-desktop-linux
+Terminal=false
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

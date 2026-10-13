@@ -1,15 +1,52 @@
-# 🐋 DSH 小鲸鱼桌面挂件（DSH Whale Widget）
+# DSH Whale · 桌面插件套件
 
-> 一只住在你屏幕角落的小鲸鱼娘，实时显示 DeepSeek 账户余额与今日消耗。可选 **GNOME Shell 扩展版**
-> （Wayland 桌面推荐）、**Windows 桌面版**、**Ubuntu/Linux 桌面版**，以及 **DSH 网页版插件**，
-> 全部本地直连、自包含，无需打开网页。
+以小鲸鱼桌面挂件为主，另含 Coopanion 桌宠、XSpace 竞赛通知栏、Pogget 桌面容器、MiSide 动态壁纸，
+以及把它们统一管起来的运维脚本（体检 / 接线 / 数据收拢 / 开机分级启动）。全部本地运行，数据不出本机。
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Changelog](https://img.shields.io/badge/版本更新日志-CHANGELOG-blue)](CHANGELOG.md)
+许可：本仓库自有代码为 **MIT**；第三方组件各自沿用其许可（见 [许可证](#许可证)）。
+
+## 仓库地图（先看这张表）
+
+| 目录 | 是什么 | 许可 / 入库 |
+| --- | --- | --- |
+| `desktop-suite/dsh-whale/` | 小鲸鱼：Windows 桌面版、Linux 桌面版、GNOME 扩展版、DSH 网页版插件、托盘扩展 | MIT，源码入库 |
+| `desktop-suite/coopanion/` | 鲸鱼娘桌宠（第三方；我们的魔改以补丁形式入库） | AGPL-3.0，源码不入库 |
+| `desktop-suite/xspace/`、`xspace-notes/` | 竞赛通知桌面栏（自家 .NET 9 WPF）+ 通知数据工程 | MIT，源码入库 |
+| `desktop-suite/pogget/` | 桌面收纳容器（第三方专有） | 专有，不入库 |
+| `desktop-suite/miside-wallpaper/` | MiSide 动态壁纸 + 自研省电守护 | 素材第三方，不入库 |
+| `desktop-suite/_runtime/` | **所有插件使用数据**（缓存/配置/日志/转储），已 gitignore | 不入库 |
+| `tools/` | 运维与自检脚本（体检、接线、数据收拢、分级启动、鼠标淡变…） | MIT，源码入库 |
+| `docs/` | 各专题文档（见 [文档索引](#文档索引)） | MIT |
+
+目录：[快速开始](#快速开始) · [桌面套件日常运维](#桌面套件日常运维重要) · [架构](#架构) ·
+[GNOME 扩展版](#gnome-shell-扩展版wayland-桌面推荐) · [Windows 版](#windows-桌面版) · [Linux 版](#linux-桌面版ubuntu-2204--2404-amd64) ·
+[网页版插件](#dsh-网页版插件) · [配置说明](#配置说明api-key) · [记账与账本](#记账与账本桌面版--插件共用) ·
+[开发](#开发) · [常见问题](#常见问题) · [文档索引](#文档索引) · [许可证](#许可证)
 
 ---
 
-## 📦 项目简介
+## 快速开始
+
+只需要小鲸鱼的话，按形态挑一个就行：
+
+| 你的场景 | 用哪个 | 怎么装 |
+| --- | --- | --- |
+| GNOME / Wayland 桌面（悬浮首选） | GNOME Shell 扩展版 | 见下方 [GNOME Shell 扩展版](#gnome-shell-扩展版wayland-桌面推荐) |
+| Windows | 小鲸鱼 Windows 桌面版 | `desktop-suite\dsh-whale\dsh-whale-desktop\start-widget.ps1` |
+| Ubuntu / X11 | 小鲸鱼 Linux 桌面版 | 见下方 [Linux 桌面版](#linux-桌面版ubuntu-2204--2404-amd64) |
+| 只在 dsh web 里用 | 网页版插件 | 见 [DSH 网页版插件](#dsh-网页版插件) |
+
+**整套桌面插件（6 个）怎么装**：在别的机器上 `git clone` 本仓库后，跑一次体检与接线即可：
+
+```powershell
+tools\desktop-suite-doctor.ps1 -Action status    # 先看哪些接线不对
+tools\desktop-suite-doctor.ps1 -Action wire      # 对齐接线（幂等）
+tools\desktop-suite-relocate-data.ps1 -Apply     # 把外部使用数据收进 desktop-suite\_runtime
+```
+
+换机全流程（含依赖重装、反代、九个坑）见 [`docs/desktop-suite-clone.md`](docs/desktop-suite-clone.md)。
+
+## 形态一览
 
 DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种形态：
 
@@ -26,7 +63,7 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
 > 💡 **在 GNOME Wayland 上**：Mutter 不支持 wlr-layer-shell、Electron 透明窗也无法合成，
 > 请直接使用 **GNOME Shell 扩展版**（见下方章节），这也是本仓库当前最活跃的形态。
 
-## ✨ 特性
+## 能力概览
 
 - 🐋 **桌面悬浮**：无边框、透明、覆盖整个桌面；鲨鱼可**满桌面拖动**（Windows / Linux / GNOME 扩展一致）
 - 📌 **置顶显示（默认关）**：默认层级是 **应用窗口 > 挂件 > 桌面图标** —— 看视频、全屏时挂件不会挡在前面；
@@ -60,7 +97,7 @@ DSH 小鲸鱼是一套「DeepSeek 余额挂件」的完整实现，包含四种�
   手感掉帧」时的实测方法、结论与可逆对策（关 MPO、全屏时隐藏桌宠、壁纸守护收紧）——
   见 [`docs/desktop-rendering-perf.md`](docs/desktop-rendering-perf.md)；一键体检 `tools/desktop-render-report.ps1`
 
-## 📁 目录结构
+## 目录结构
 
 ```
 dsh-whale/
@@ -125,7 +162,26 @@ dsh-whale/
     └── uninstall-autostart.sh
 ```
 
-## 🏗️ 架构
+## 桌面套件日常运维（重要）
+
+装好之后日常只需要记这几个入口（都在 `tools/`）：
+
+| 想干的事 | 命令 |
+| --- | --- |
+| 看六个插件接线对不对（计划任务 / 注册表 / 启动文件夹 / 壁纸配置） | `tools\desktop-suite-doctor.ps1 -Action status` |
+| 一键把接线对齐（幂等；换设备或搬完目录后跑） | `tools\desktop-suite-doctor.ps1 -Action wire` |
+| 把 `%APPDATA%` / `%LOCALAPPDATA%` 里的插件数据收进仓库 | `tools\desktop-suite-relocate-data.ps1 -Apply` |
+| 开机分级启动（错峰、固定顺序、缺插件自动跳过） | `tools\desktop-suite-boot-order.ps1 -Run`（装自启用 `-Install`） |
+| 鼠标悬停变透明 / 上浮（Pogget 这类闭源插件的开关） | `tools\desktop-mouse-fade.ps1`（双击开设置）/ `-Status` / `-Restore` |
+| 桌面渲染体检（屏幕 Hz / GPU 占用榜 / MPO / 驱动重置） | `tools\desktop-render-report.ps1` |
+
+**使用数据全部收在仓库里**：Electron 用户数据、Lively 库、壁纸 Unity 数据、助手日志、崩溃转储
+统一放在 `desktop-suite\_runtime\`，外部原位置只留指向这里的目录联接（Junction），程序照旧读写自己的路径。
+
+新机器 / 排查时看这三份文档：[`docs/desktop-suite-clone.md`](docs/desktop-suite-clone.md)（换机九坑）、
+[`docs/desktop-boot-order.md`](docs/desktop-boot-order.md)（开机顺序）、[`docs/desktop-mouse-fade.md`](docs/desktop-mouse-fade.md)（显隐效果）。
+
+## 架构
 
 **核心设计：桌面版直接运行网页版插件本体**（而不是复刻一份会过时的静态副本）
 
@@ -165,7 +221,7 @@ dsh-whale/
 - **配置**：`~/.dsh/.credentials.yaml`（API Key）、`~/.dsh/.dshw-size.json`（挂件尺寸/开关），均与插件共用
 - **跨平台**：路径一律用 `os.homedir()`/`path.join`，无 Windows 专属路径硬编码（开机自启除外，已按平台分支）
 
-## 🐧 GNOME Shell 扩展版（Wayland 桌面推荐）
+## GNOME Shell 扩展版（Wayland 桌面推荐）
 
 > 在 GNOME Wayland 会话实现“像 Windows 那样的悬浮小鲸鱼”的正解——直接作为 Shell 扩展渲染，
 > 天然悬浮于所有普通窗口之上，透明 PNG + 动画 + 满屏拖动 + 点击，与动态壁纸等扩展互不冲突。
@@ -193,7 +249,7 @@ gnome-extensions enable dsh-whale@local
 可切换为令牌精算（读平台用量接口按峰谷计价，需配 `DEEPSEEK_PLATFORM_TOKEN`）；
 凭据 `~/.dsh/.credentials.yaml`，偏好 `~/.cache/dsh-whale/prefs.json`。
 
-## 🖥️ Windows 版
+## Windows 桌面版
 
 **运行**
 ```powershell
@@ -215,7 +271,7 @@ npx electron-builder --win portable
 ```
 > 新电脑首次运行自动弹配置窗；exe 未签名时 SmartScreen 提示「更多信息 → 仍要运行」。
 
-## 🐧 Linux 版（Ubuntu 22.04 / 24.04 amd64）
+## Linux 桌面版（Ubuntu 22.04 / 24.04 amd64）
 
 > ⚠️ **Linux 上「点击穿透」存在平台限制，需实机验证。** 桌面版用 `setIgnoreMouseEvents(true, {forward: true})`
 > 实现「只有鲸鱼/面板可点、其余区域穿透给桌面」，但该 `forward` 参数**官方仅支持 macOS / Windows**；
@@ -254,7 +310,7 @@ sudo dpkg -i dist/*.deb
 ./uninstall-autostart.sh
 ```
 
-## 🔌 DSH 网页版插件（desktop-suite/dsh-whale/dsh-whale-widget）
+## DSH 网页版插件
 
 随 `dsh web` 自动启用（标准 DSH bundle 插件）。安装方式见 `desktop-suite/dsh-whale/dsh-whale-widget/README.md`：
 
@@ -263,6 +319,9 @@ dsh plugin --profile web add link:C:\...\dsh-whale\desktop-suite/dsh-whale/dsh-w
 ```
 
 > **该目录为上游第三方源码的原样 vendored 副本**（MIT，保留 `LICENSE` 与素材来源说明 `PROVENANCE.md`）：
+
+<details>
+<summary>上游分支格局与 v0.2.10 → v0.3.17 更新要点（点击展开）</summary>
 > - 上游：https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget
 > - 当前版本：**v0.3.17**（上游 tag `v0.3.17`，更新于 2026-09-29）
 > - 维护方式：整目录覆盖上游对应版本、不做本地改动，便于日后 diff 与追溯
@@ -290,16 +349,18 @@ dsh plugin --profile web add link:C:\...\dsh-whale\desktop-suite/dsh-whale/dsh-w
 
 > 🔗 **桌面版直接复用本插件**：两个桌面版（`desktop-suite/dsh-whale/dsh-whale-desktop*`）已通过 `host-shim.js`
 > **直接运行本插件本体**，因此功能和网页版插件完全一致（23 条路由），且本目录是
-> **唯一实现来源** —— 以后更新插件，桌面版自动同步，无需再逐条适配。详见上文「🏗️ 架构」。
+> **唯一实现来源** —— 以后更新插件，桌面版自动同步，无需再逐条适配。详见「架构」。
 
-## 🔑 配置说明（API Key）
+</details>
+
+## 配置说明（API Key）
 
 - **必需**：`DEEPSEEK_API_KEY`，用于拉余额（`api.deepseek.com/user/balance`）
 - 存放位置：`~/.dsh/.credentials.yaml`（格式 `version: 1` + `refs:`），或环境变量
 - 在挂件菜单里（最下方 API Key 输入框）可随时修改并保存，立即生效
 - `DEEPSEEK_PLATFORM_TOKEN` 可选：仅「实时·令牌」用量模式需要，不配也能用默认记账模式
 
-## 📊 记账与账本（桌面版 ↔ 插件共用）
+## 记账与账本（桌面版 ↔ 插件共用）
 
 - 「今日已用」由**余额差值本地记账**得出，账本文件：`~/.dsh/.dshw-usage.json`
 - 两个桌面版与网页版插件**共用同一本账**，按 **API key 指纹分本**（同一把 key = 同一本账；
@@ -310,7 +371,7 @@ dsh plugin --profile web add link:C:\...\dsh-whale\desktop-suite/dsh-whale/dsh-w
   **不会再覆盖插件的记账历史**（旧实现在跨天时会整体重建账本对象，从而丢掉 `accounting.books`）
 - 自测：`node tools/ledger-compat-test.mjs`（提取桌面版真实记账代码与插件模块对测，25 项断言）
 
-## ⚙️ CI/CD
+## CI/CD
 
 仓库已内置 GitHub Actions（`.github/workflows/build.yml`）：
 
@@ -319,7 +380,7 @@ dsh plugin --profile web add link:C:\...\dsh-whale\desktop-suite/dsh-whale/dsh-w
 - **windows**：Windows 上构建便携 exe
 - 产物以 **Artifacts** 形式提供下载；可在此基础上加 Release 发布（`softprops/action-gh-release`）
 
-## 🛠️ 开发
+## 开发
 
 ```bash
 # 桌面版开发（Windows 或 Linux 任一）
@@ -334,7 +395,7 @@ npm start                      # electron .
 - `widget.js`：小鲸鱼前端（可从插件 `/dsh-whale/widget.js` 同步更新静态副本）
 - 改代码后重启：Windows `Stop-Process -Name electron -Force`；Linux `pkill -f electron` 后重启
 
-## ❓ 常见问题
+## 常见问题
 
 | 问题 | 解决 |
 |---|---|
@@ -350,19 +411,36 @@ npm start                      # electron .
 | 端口 3090 被占用 | 先关闭其他挂件实例 |
 | 想换 API Key | 菜单里直接改，秒级生效 |
 
-## 📋 版本更新日志
+## 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| [`docs/desktop-suite-clone.md`](docs/desktop-suite-clone.md) | 换机全流程 + 九个坑（pnpm registry、Electron 镜像、GUI 被终端回收等） |
+| [`docs/desktop-boot-order.md`](docs/desktop-boot-order.md) | 开机分级启动：顺序、错峰、缺插件跳过、接管/还原自启 |
+| [`docs/desktop-mouse-fade.md`](docs/desktop-mouse-fade.md) | 鼠标跟随透明度：两侧开关与数值、验证方法、五个坑 |
+| [`docs/linux-presets.md`](docs/linux-presets.md) | Linux 预制：各插件启动/自启（.desktop）/GPU 说明，有那些不能跑 |
+| [`docs/desktop-rendering-perf.md`](docs/desktop-rendering-perf.md) | 黑框白框 / 整屏黑一下 / 手感掉帧：实测与可逆对策（关 MPO 等） |
+| [`docs/dualboot-boot-safety.md`](docs/dualboot-boot-safety.md) | 双系统引导安全：事故取证、结论、两端口径与保障 |
+| [`docs/linux-adaptation-plan.md`](docs/linux-adaptation-plan.md) | Linux 适配规划：实机基线 / 风险登记 / DoD / 测试方案 |
+| [`docs/coopanion-integration.md`](docs/coopanion-integration.md) | Coopanion 桌宠集成：安装 / 踩坑 / 使用要点 |
+| [`docs/coopanion-linux-and-nvidia.md`](docs/coopanion-linux-and-nvidia.md) | Coopanion Linux 版与 NVIDIA 预制配置 |
+| [`desktop-suite/README.md`](desktop-suite/README.md) | 插件集入库策略、各包来源与许可、数据收拢对照表 |
+
+## 版本更新日志
 
 所有形态的版本历史（桌面版 v1.0 起步；扩展版 v9→v30 逐版演进：贴边吸附 / 半屏镜像 / 右键菜单 / 摸摸头 / 静置动效 /
 今日已用记账 / 60s 自动轮询 / 数字滚动 / 音色主题 / 令牌精算 / 动画流畅度……）见 **[CHANGELOG.md](CHANGELOG.md)**。
 
-## 📄 许可证
+## 许可证
 
 - 本项目（桌面挂件 Windows/Linux 版、GNOME 扩展版、文档、CI）：**MIT**
 - `desktop-suite/dsh-whale/dsh-whale-widget/`：第三方插件，**MIT**，版权归原项目作者，见其 `LICENSE`
+- `desktop-suite/coopanion/`：**AGPL-3.0**（源码不入库）
+- `desktop-suite/pogget/`、`desktop-suite/miside-wallpaper/`：第三方专有/素材，不入库
 
 ---
 
-### Coopanion（鲸鱼娘桌宠）Linux 版与 NVIDIA 预制配置
+### Coopanion 桌宠：Linux 版与 NVIDIA 预制配置
 
 上游 Coopanion 的 Linux 版原本「开发不完全」（桌宠窗口压根不会出现）。本次修掉了
 4 个根因（子进程不继承 ozone 平台参数、Linux 上 `setIgnoreMouseEvents` 是空操作、

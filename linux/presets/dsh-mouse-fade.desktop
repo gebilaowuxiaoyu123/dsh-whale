@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DSH Mouse Fade (X11)
+Comment=鼠标离开时变透明/下沉（需要合成器支持 _NET_WM_WINDOW_OPACITY）
+Exec=bash "__REPO__/linux/mouse-fade-x11.sh" --run
+Terminal=false
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

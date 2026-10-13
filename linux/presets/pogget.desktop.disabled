@@ -1,0 +1,12 @@
+# Pogget 桌面容器 —— Linux 上无法运行，保留此文件作为迁移参考
+#
+# 原因：Pogget 是第三方**闭源 Windows 程序**（配置和 UIA 都读不到任何设置项），没有 Linux 版本。
+# Wine 有可能跑起来，但它是靠自定义窗口类 + 自绘 UI + 窗口形状/层级工作，
+# 在 Wine 下窗口行为不可预期（历史上很多桌面容器类工具都是这样），不建议折腾。
+# Linux 上的替代：用桌面环境自带的桌面图标整理 / 或 GNOME 扩展（如 Desktop Icons NG）+ 自定义目录。
+
+# [Desktop Entry]
+# Type=Application
+# Name=Pogget
+# Exec=wine __REPO__/desktop-suite/pogget/Pogget.exe
+# Terminal=false

@@ -1,0 +1,13 @@
+# XSpace 竞赛通知栏 —— Linux 上无法运行，保留此文件作为迁移参考
+#
+# 原因：XSpace 是 .NET 9 **WPF** 应用，WPF 只有 Windows 实现（Linux 缺失）。
+# 想上 Linux 有两条路：
+#   1) 把 XSpaceWidget 移植到 Avalonia（WPF→Avalonia 的结构基本一一对应，但 WebView2 需换成 WebKitGTK）；
+#   2) 不再做桌面栏，改用本仓库的 GNOME Shell 扩展版（小鲸鱼）把竞赛通知以气泡/菜单项形式显示。
+# 在这两条路走通之前，本文件保持 disabled，不要让 autostart 去起一个不存在的程序。
+
+# [Desktop Entry]
+# Type=Application
+# Name=XSpace Widget
+# Exec=__REPO__/desktop-suite/xspace/XSpaceWidget/bin/Debug/net9.0-windows/win-x64/XSpaceWidget.exe
+# Terminal=false
