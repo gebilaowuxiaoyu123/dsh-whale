@@ -25,6 +25,25 @@
 
 细节、验证方法、排查见 [`../docs/desktop-mouse-fade.md`](../docs/desktop-mouse-fade.md)。
 
+## 使用数据全部收在仓库里（`desktop-suite\_runtime\`）
+
+外面（`%APPDATA%` / `%LOCALAPPDATA%` / `LocalLow`）不再放任何插件使用数据，全部收进 `desktop-suite\_runtime\`；
+原位置只留**目录联接（Junction）**指向这里，程序照旧读写自己的路径，实际落盘都在仓库里：
+
+| 程序 | 原位置（现在是联接） | 仓库里的实际位置 |
+| --- | --- | --- |
+| 桌宠 Electron 用户数据（窗口位置/缓存） | `%APPDATA%\desktop-suite` | `_runtime\electron-appdata\desktop-suite` |
+| Lively 库 / 配置 / 壁纸守护日志 | `%LOCALAPPDATA%\Lively Wallpaper` | `_runtime\lively` |
+| 壁纸 Unity 运行数据（配置 + 日志） | `%LOCALAPPDATA%Low\MisideStart\MisideStartWallpaper` | `_runtime\miside-unity\MisideStartWallpaper` |
+| 鼠标跟随助手日志 | （不再产生外部数据） | `_runtime\mouse-fade` |
+| 程序崩溃转储（收拢） | `%LOCALAPPDATA%\CrashDumps` | `_runtime\crashdumps` |
+
+- 一键查看 / 迁移 / 回退：`tools\desktop-suite-relocate-data.ps1`（`-Status` / `-Apply` / `-Rollback`，幂等）
+- **换设备时**：正常 clone 后跑一次 `-Apply`，就会把外部的数据目录收进仓库并建好联接
+- `_runtime\` 已被 .gitignore 排除（里面有缓存/密钥，绝不入库）
+- 注意：`%LOCALAPPDATA%\Lively Wallpaper\Library\wallpapers\misidestart_miside` 里**只有元数据**，
+  壁纸本体执行的始终是仓库里的 `desktop-suite\miside-wallpaper\MisideStartWallpaper.exe`（没有 129MB 副本）
+
 ## 目录
 
 ```

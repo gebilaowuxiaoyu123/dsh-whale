@@ -36,7 +36,7 @@
 | `-Restore` | 一键还原：全部不透明 + 撤掉 LAYERED |
 
 - 配置文件：`tools/mouse-fade.config.json`（不存在就用脚本内默认值；`-Settings` 保存时写出）
-- 日志：`%LOCALAPPDATA%\dsh-whale\mouse-fade.log`
+- 日志：`desktop-suite\_runtime\mouse-fade\mouse-fade.log`（原先在 `%LOCALAPPDATA%\dsh-whale`，2026-10-13 已收进仓库）
 - 自启：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\dsh-mouse-fade.vbs`
 - 助手**每秒重读一次配置**，所以在设置界面改完立即生效，不用重启。
 - 默认只接管 `Pogget`；`Processes` 可以填多个进程名（逗号分隔），理论上也能接管其他闭源桌宠。

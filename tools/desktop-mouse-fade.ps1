@@ -35,7 +35,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot 'mouse-fade.config.json' }
-$LogDir  = Join-Path $env:LOCALAPPDATA 'dsh-whale'
+# 日志也放进仓库（desktop-suite\_runtime\mouse-fade），外面不留使用数据
+$LogDir  = Join-Path (Split-Path $PSScriptRoot -Parent) 'desktop-suite\_runtime\mouse-fade'
 $LogFile = Join-Path $LogDir 'mouse-fade.log'
 $StartupVbs = Join-Path ([Environment]::GetFolderPath('Startup')) 'dsh-mouse-fade.vbs'
 
