@@ -450,18 +450,23 @@ function Invoke-Daemon {
                         Write-Log ("接管窗口 0x{0:X} {1}（原本 layered={2}，静止 Y={3}）" -f $h.ToInt64(), [MouseFadeNative]::TitleOf($h), $wasLayered, $rect[1])
                     }
                     else {
-                        # 只在动画完全停稳时才判断"窗口是不是被别人挪了"：
-                        # SetWindowPos 现在是异步投递，窗口实际位置会落后于我们上次写入的值，
-                        # 动画途中比较会出现假差值，导致静止基准被越改越偏（实测表现为沉不回原位）。
+                        # 只在动画完全停稳时判断"窗口是不是被别人挪了"：
+                        # SetWindowPos 有阻塞风险，而且上浮/下沉途中的位置本来就和静止位不一致，
+                        # 必须拿"期望位置"去比（期望 = 静止位 ∓ 上浮量），不能拿"上一次写入值"或"当前位置"去比。
+                        # 之前那条 `空闲 && 鼠标不在上面 → 静止位 = 当前位置` 的分支是错的：
+                        # 上浮动画刚结束、下沉还没下发的那一瞬，当前位置就是"上浮后的位置"，
+                        # 一旦被认作新静止位，下沉目标就变成当前位置 → 窗口沉不回去，而且每悬停一次往上漂 16px。
                         if (-not [MouseFader]::IsActive($h)) {
                             $myY = [MouseFader]::LastY($h)
-                            if ($myY -ne [int]::MinValue -and [Math]::Abs($rect[1] - $myY) -gt 3) {
-                                # 用户拖动 / 程序自己挪过 → 把当前位置认作新基准，避免和它抢位置
+                            # 合法状态只有两个：静止位、静止位-上浮量。只要在其中一个附近就当我们自己没被抢，
+                            # 千万不要只跟"当前期望值"比 —— 光标刚进来的那一帧上浮还没下发，窗口还在静止位，
+                            # 只比期望值会把"正常过渡"误判成"被别人挪了"，从而把静止位污染成静止位+上浮量（上浮就没了）。
+                            $atRest = [Math]::Abs($rect[1] - [double]$restTop[$h]) -le 3
+                            $atLift = [Math]::Abs($rect[1] - ([double]$restTop[$h] - $lift)) -le 3
+                            if ($myY -ne [int]::MinValue -and -not $atRest -and -not $atLift) {
+                                # 既不在静止位也不在上浮位 → 用户拖动 / 程序自己挪过 → 认作新基准
                                 $restTop[$h] = $rect[1] + $(if ($h -eq $hover) { $lift } else { 0 })
                                 $applied[$h] = ''
-                            }
-                            elseif ($h -ne $hover) {
-                                $restTop[$h] = $rect[1]   # 鼠标不在上面且已沉到底 → 当前位置就是静止位置
                             }
                         }
                     }
@@ -482,7 +487,10 @@ function Invoke-Daemon {
                     if ($applied[$h] -ne $key) {
                         $applied[$h] = $key
                         $r3 = [MouseFadeNative]::RectOf($h)
-                        if ($r3) { [MouseFader]::Set($h, $r3[0], [double]$target[$h], [double]$targetY[$h], [int]$cfg.FadeMs) }
+                        if ($r3) {
+                            [MouseFader]::Set($h, $r3[0], [double]$target[$h], [double]$targetY[$h], [int]$cfg.FadeMs)
+                            Write-Log ("下发目标 0x{0:X}  alpha={1}  目标Y={2}（当前Y={3}，静止Y={4}，悬停={5}）" -f $h.ToInt64(), $target[$h], $targetY[$h], $r3[1], $restTop[$h], ($h -eq $hover))
+                        }
                     }
                 }
 
