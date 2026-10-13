@@ -31,15 +31,19 @@
 | --- | --- |
 | 双击脚本 / `-Settings` | 设置界面（启用、离开/悬停不透明度、过渡时长、上浮距离、目标进程） |
 | `-Run` | 常驻运行（开机自启用这个，隐藏窗口） |
-| `-Install` / `-Uninstall` | 装 / 卸开机自启（启动文件夹里的 `dsh-mouse-fade.vbs`） |
+| `-Install` / `-Uninstall` | 装 / 卸开机自启（挂 `HKCU Run` 的 `DSH-Boot-Order`，由分级启动器在最后一步拉起） |
 | `-Status` | 看目标窗口的 hwnd / LAYERED / 当前不透明度 / rect |
 | `-Restore` | 一键还原：全部不透明 + 撤掉 LAYERED |
 
 - 配置文件：`tools/mouse-fade.config.json`（不存在就用脚本内默认值；`-Settings` 保存时写出）
 - 日志：`desktop-suite\_runtime\mouse-fade\mouse-fade.log`（原先在 `%LOCALAPPDATA%\dsh-whale`，2026-10-13 已收进仓库）
-- 自启：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\dsh-mouse-fade.vbs`
+- 自启：`HKCU Run` 的 `DSH-Boot-Order`（分级启动器第 6 步），**不在**启动文件夹
 - 助手**每秒重读一次配置**，所以在设置界面改完立即生效，不用重启。
 - 默认只接管 `Pogget`；`Processes` 可以填多个进程名（逗号分隔），理论上也能接管其他闭源桌宠。
+- `WindowClassLike`（默认 `Pogget.Vina.Com.Container.Class*`）是**窗口类过滤**：一个进程往往有多个顶层窗口，
+  Pogget 的**控制窗口**（`Vina.Class.Pogget.App.Main`）不该跟着淡入淡出/上浮。填了它以后只接管类名匹配的窗口，
+  留空则回到「接管该进程全部可见窗口」。不再符合过滤条件的窗口会被**放手**：清动画目标、alpha 还原 255、
+  撤掉 `LAYERED`、沉回静止位。`-Restore` 会扫「不套过滤」的全量列表，连强杀留下的分层残留也能清掉。
 
 ## 三、怎么验证它在工作
 
@@ -52,6 +56,8 @@
   ```
 - **Pogget**：`tools\desktop-mouse-fade.ps1 -Status`
   鼠标移开时应看到「不透明度≈89/255、rect 回到静止位置」，悬停时「255/255、rect 上浮 16px」。
+  列表里**只会出现桌面容器**（`Pogget.Vina.Com.Container.Class.*`）——控制窗口被窗口类过滤挡在外面，
+  实测它在离开/悬停/再离开三态下 alpha 恒为 `-1`（未分层、完全不透明）且 Y 坐标一动不动。
 
 ## 四、踩过的坑
 
