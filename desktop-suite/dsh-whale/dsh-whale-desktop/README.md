@@ -9,7 +9,7 @@
 鲸鱼直接浮在 Windows 桌面上，**不依赖 dsh web、不用打开任何网页**。余额由挂件自己直连
 DeepSeek API 拉取（读 `DEEPSEEK_API_KEY`），「今日已用」用本地记账模式计算。开机自动启动挂件。
 
-**功能来源**：挂件通过 `host-shim.js` **直接运行 `../desktop-suite/dsh-whale/dsh-whale-widget/lib/index.js`**
+**功能来源**：挂件通过 `host-shim.js` **直接运行 `../dsh-whale-widget/lib/index.js`**
 （DSH 网页版插件本体），因此余额 / 记账 / 多厂商额度 / 自定义角色·音效·泡泡图等功能
 与网页版插件**完全一致**（23 条路由）；以后更新插件，桌面版自动同步。
 插件加载失败时自动回退到内置实现，挂件始终可用；打包时插件目录经 `extraResources` 随包分发。

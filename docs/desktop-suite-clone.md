@@ -34,7 +34,7 @@ powershell -ExecutionPolicy Bypass -File tools\desktop-suite-doctor.ps1
 ```powershell
 cd desktop-suite/dsh-whale/dsh-whale-desktop
 npm ci                     # 或 npm install
-powershell -File ..\start-widget.ps1      # 先手动跑一次确认能出挂件
+powershell -File .\start-widget.ps1      # 先手动跑一次确认能出挂件
 powershell -File install-autostart.ps1    # 登记开机自启（计划任务）
 ```
 Linux 形态看 `desktop-suite/dsh-whale/dsh-whale-desktop-linux/README.md`；GNOME 扩展看 `desktop-suite/dsh-whale/dsh-whale-shell-extension/`。

@@ -103,13 +103,17 @@ $rows = @()
 # ── ① DSH 小鲸鱼（Windows 挂件）──────────────────────────────────────────────
 $wDir = P 'dsh-whale\dsh-whale-desktop'
 $wRun = Run-Value 'DSH Whale Desktop'
+# install-autostart.ps1 在非管理员下会把自启退回写成 HKCU Run（条目名同计划任务名），
+# 这里必须同时认这两种登记方式，否则每次体检都会误报"挂件没接线"。
+$wRunFallback = Run-Value 'DSH Whale Desktop Widget'
 $task = Get-ScheduledTask -TaskName 'DSH Whale Desktop Widget' -ErrorAction SilentlyContinue
 $taskOk = $false
 if ($task) { $taskOk = (($task.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join ' ') -like "*dsh-whale-desktop*" }
+$runOk = (($wRunFallback -and $wRunFallback -like '*dsh-whale-desktop*') -or ($wRun -and $wRun -like '*dsh-whale-desktop*'))
 $rows += [pscustomobject]@{
   插件 = 'DSH 小鲸鱼挂件'; 包 = (Test-Path (Join-Path $wDir 'main.js'))
   运行 = ((Procs-Matching '*dsh-whale-desktop*').Count -gt 0)
-  接线 = $taskOk; 说明 = $(if ($task) { "计划任务 → $(($task.Actions | ForEach-Object { $_.Arguments }) -join ' ')" } else { '没有计划任务（install-autostart.ps1 可登记）' })
+  接线 = ($taskOk -or $runOk); 说明 = $(if ($task) { "计划任务 → $(($task.Actions | ForEach-Object { $_.Arguments }) -join ' ')" } elseif ($runOk) { 'HKCU Run 开机启动项（非管理员回退）' } else { '没有自启（install-autostart.ps1 可登记）' })
 }
 
 # ── ② Coopanion ──────────────────────────────────────────────────────────────

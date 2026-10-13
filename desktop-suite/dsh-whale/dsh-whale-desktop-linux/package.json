@@ -1,11 +1,11 @@
 {
-  "name": "desktop-suite/dsh-whale/dsh-whale-desktop-linux",
+  "name": "dsh-whale-desktop-linux",
   "version": "1.0.0",
   "description": "DSH 小鲸鱼桌面挂件 - Ubuntu 22.04/24.04 amd64 版（本地自包含，首次运行自动配置）",
   "main": "main.js",
   "author": "dsh-whale",
   "homepage": "https://github.com/gebilaowuxiaoyu123/dsh-whale",
-  "desktopName": "desktop-suite/dsh-whale/dsh-whale-widget.desktop",
+  "desktopName": "dsh-whale-widget.desktop",
   "scripts": {
     "start": "electron .",
     "dist:linux": "electron-builder --linux",
@@ -28,8 +28,8 @@
     ],
     "extraResources": [
       {
-        "from": "../desktop-suite/dsh-whale/dsh-whale-widget",
-        "to": "desktop-suite/dsh-whale/dsh-whale-widget",
+        "from": "../dsh-whale-widget",
+        "to": "dsh-whale-widget",
         "filter": [
           "lib/**",
           "assets/**",
@@ -62,7 +62,7 @@
       "category": "Utility",
       "maintainer": "dsh-whale",
       "synopsis": "DSH 小鲸鱼桌面挂件",
-      "artifactName": "desktop-suite/dsh-whale/dsh-whale-widget-${version}-${arch}.${ext}"
+      "artifactName": "dsh-whale-widget-${version}-${arch}.${ext}"
     },
     "deb": {
       "depends": [

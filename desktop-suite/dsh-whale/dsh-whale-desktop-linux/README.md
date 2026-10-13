@@ -7,7 +7,7 @@ API Key 并可勾选开机自启。
 > 本目录基于 Windows 版复制并做 Linux 适配（开机自启改 XDG autostart、构建目标改 AppImage/deb）。
 > 数据/配置与 Windows 版一致：`~/.dsh/.credentials.yaml`、`~/.dsh/.dshw-usage.json` 等。
 
-**功能来源**：挂件通过 `host-shim.js` **直接运行 `../desktop-suite/dsh-whale/dsh-whale-widget/lib/index.js`**
+**功能来源**：挂件通过 `host-shim.js` **直接运行 `../dsh-whale-widget/lib/index.js`**
 （DSH 网页版插件本体），因此余额 / 记账 / 多厂商额度 / 自定义角色·音效·泡泡图等功能
 与网页版插件**完全一致**（23 条路由）；以后更新插件，桌面版自动同步。
 插件加载失败时自动回退到内置实现，挂件始终可用；打包时插件目录经 `extraResources` 随包分发。

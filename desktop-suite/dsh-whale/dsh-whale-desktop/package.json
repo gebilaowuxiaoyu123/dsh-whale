@@ -1,5 +1,5 @@
 {
-  "name": "desktop-suite/dsh-whale/dsh-whale-desktop",
+  "name": "dsh-whale-desktop",
   "version": "1.0.0",
   "description": "DSH 小鲸鱼桌面悬浮挂件（独立 exe，可部署到任意 Windows 电脑，首次运行自动补齐配置）",
   "main": "main.js",
@@ -23,8 +23,8 @@
     ],
     "extraResources": [
       {
-        "from": "../desktop-suite/dsh-whale/dsh-whale-widget",
-        "to": "desktop-suite/dsh-whale/dsh-whale-widget",
+        "from": "../dsh-whale-widget",
+        "to": "dsh-whale-widget",
         "filter": [
           "lib/**",
           "assets/**",
@@ -48,7 +48,7 @@
       ]
     },
     "portable": {
-      "artifactName": "desktop-suite/dsh-whale/dsh-whale-widget-${version}.exe"
+      "artifactName": "dsh-whale-widget-${version}.exe"
     }
   },
   "devDependencies": {

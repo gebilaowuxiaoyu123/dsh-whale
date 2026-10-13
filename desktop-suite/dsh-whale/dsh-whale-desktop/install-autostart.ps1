@@ -10,7 +10,9 @@ $trigger  = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
 
 try {
-  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description 'DSH whale desktop widget auto-start at logon' -Force | Out-Null
+  # 必须显式 -ErrorAction Stop：非管理员时拒绝访问是「非终止错误」，
+  # 不写的话脚本会继续往下走（还会把回退用的 Run 条目删掉，导致自启彻底丢失）。
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description 'DSH whale desktop widget auto-start at logon' -Force -ErrorAction Stop | Out-Null
   # 提权重跑时清掉之前回退写入的 Run 条目，免得登录后启动两次
   Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name $taskName -ErrorAction SilentlyContinue
   Write-Host "Registered auto-start task: $taskName"
